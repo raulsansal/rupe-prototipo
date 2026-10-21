@@ -11,30 +11,28 @@ Sin ORM ni librerías de UI, de estado global o de formularios: componentes hech
 
 ## Convenciones
 - Rutas y textos de interfaz en español de México; "persona tutora" (salvo el nombre literal del rol "Tutor").
-- Colores solo con tokens (`bg-background`, `text-text`, `bg-primary`, `border-border`…), nunca hexadecimales fijos.
-  Tema por `data-theme` en `<html>`; los tokens viven en `src/app/globals.css`.
-- Mobile-first; probar a 390, 768 y 1280 px.
-- Componentes en `src/components/ui` (un archivo por componente; galería en `/dev/componentes`). Modo oscuro solo con
-  variables del `[data-theme]` más cercano: no usar `dark:` (falla en paneles anidados).
-- Accesibilidad: contraste AA, objetivo táctil ≥ 44 px, el estado nunca solo por color (texto + ícono), foco visible.
+- Colores solo con tokens (`bg-background`, `text-text`, `bg-primary`…), nunca hexadecimales. Tema por `data-theme`
+  en `<html>`; tokens en `src/app/globals.css`. Modo oscuro con variables del `[data-theme]` más cercano: no usar `dark:`.
+- Mobile-first (390, 768, 1280 px). Accesibilidad: contraste AA, objetivo táctil ≥ 44 px, estado nunca solo por color, foco visible.
+- Componentes en `src/components/ui` (uno por archivo; galería `/dev/componentes`), de dominio en `features`, plantillas en `layout`.
+- Plantillas (`/dev/plantillas`): `PlantillaPublica` (layout de `(publico)`), `PlantillaTutor` (`(tutor)/tutor`, URL `/tutor/...`),
+  `PlantillaAdmin` (`(admin)/admin`, URL `/admin/...`) y `PlantillaFlujo` (componente compartido por flujos de pasos).
+  Cada una con un solo `<main id="contenido">`, «Saltar al contenido» y estado de menús por props.
+- Utilidades `display` + `hidden` chocan en Tailwind: para ocultar un elemento con `inline-flex` usar `max-md:hidden`.
 - Los datos de la persona tutora nunca son públicos: la ficha pública usa solo `FichaPublica` (`src/mocks/tipos.ts`).
 - Alcance: solo perros. Sin integración con registros oficiales.
 - Nunca escribir valores de claves, tokens o contraseñas; solo sus nombres. No crear `.env` con valores reales.
 - No ejecutar comandos de git que modifiquen el repositorio salvo que se pida; proponer commits pequeños.
 
-## Estructura
-`src/app/(publico|tutor|admin)` · `src/app/dev/fundaciones` (solo desarrollo) · `src/components/{ui,layout,features}`
-`src/mocks` (tipos y datos ficticios) · `src/lib` · `public/brand` (logotipos) · `capturas/` (PNG generados)
-
 ## Referencias
-- Láminas del sistema de diseño: `docs/diseno/sistema-de-diseno/` (4.1 a 4.13); mockups por rol: `docs/diseno/mockups/`.
-- Si algo no es inequívoco en las láminas, no inventarlo: anotarlo como duda.
+- Láminas: `docs/diseno/sistema-de-diseno/` (4.1 a 4.13); mockups por rol: `docs/diseno/mockups/`.
+  Si algo no es inequívoco, no inventarlo: anotarlo como duda.
 - Historias de usuario y diccionario de datos: `docs/referencia/` (el diccionario manda sobre los prompts).
 
 ## Comandos
-`npm run dev` · `npm run build` · `npm run lint` · `npx tsc --noEmit` · `npm run verificar-tokens` · `verificar-logos` · `verificar-contraste` · `verificar-componentes`
-`npm run capturas` → build + start, PNG en `capturas/` (ruta_ancho_tema.png; rutas en `capturas.config.ts`).
+`npm run dev` · `build` · `lint` · `npx tsc --noEmit` · `verificar-tokens` · `verificar-logos` · `verificar-contraste` ·
+`verificar-componentes` · `verificar-plantillas`. `npm run capturas` → PNG en `capturas/` (`--secciones=a,b`, `--rutas=/prefijo`).
 
-## Decisiones del Bloque 1 (resueltas)
-- Texto deshabilitado: se usan los tokens `disabled-text`/`disabled-bg`, no los tonos más tenues de la lámina 4.6 (la lámina se ajustará).
-- Alertas en oscuro: se usan los tokens `*-bg` (no el fondo `surface` que sugiere la lámina 4.10).
+## Decisiones resueltas
+- B1: texto deshabilitado con tokens `disabled-*` (no los tonos de la lámina 4.6); alertas en oscuro con tokens `*-bg`.
+- B2: admin con barra lateral desde 1024 px (cajón `<dialog>` antes); pública con navegación desde 1024 px; pie del flujo sin redes.
