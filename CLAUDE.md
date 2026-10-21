@@ -14,6 +14,8 @@ Sin ORM ni librerías de UI, de estado global o de formularios: componentes hech
 - Colores solo con tokens (`bg-background`, `text-text`, `bg-primary`, `border-border`…), nunca hexadecimales fijos.
   Tema por `data-theme` en `<html>`; los tokens viven en `src/app/globals.css`.
 - Mobile-first; probar a 390, 768 y 1280 px.
+- Componentes en `src/components/ui` (un archivo por componente; galería en `/dev/componentes`). Modo oscuro solo con
+  variables del `[data-theme]` más cercano: no usar `dark:` (falla en paneles anidados).
 - Accesibilidad: contraste AA, objetivo táctil ≥ 44 px, el estado nunca solo por color (texto + ícono), foco visible.
 - Los datos de la persona tutora nunca son públicos: la ficha pública usa solo `FichaPublica` (`src/mocks/tipos.ts`).
 - Alcance: solo perros. Sin integración con registros oficiales.
@@ -30,5 +32,9 @@ Sin ORM ni librerías de UI, de estado global o de formularios: componentes hech
 - Historias de usuario y diccionario de datos: `docs/referencia/` (el diccionario manda sobre los prompts).
 
 ## Comandos
-`npm run dev` · `npm run build` · `npm run lint` · `npx tsc --noEmit` · `npm run verificar-tokens` · `npm run verificar-logos`
+`npm run dev` · `npm run build` · `npm run lint` · `npx tsc --noEmit` · `npm run verificar-tokens` · `verificar-logos` · `verificar-contraste` · `verificar-componentes`
 `npm run capturas` → build + start, PNG en `capturas/` (ruta_ancho_tema.png; rutas en `capturas.config.ts`).
+
+## Decisiones del Bloque 1 (resueltas)
+- Texto deshabilitado: se usan los tokens `disabled-text`/`disabled-bg`, no los tonos más tenues de la lámina 4.6 (la lámina se ajustará).
+- Alertas en oscuro: se usan los tokens `*-bg` (no el fondo `surface` que sugiere la lámina 4.10).
