@@ -10,6 +10,8 @@ const NOMBRES = [
   "qr_code_2", "visibility", "schedule", "person", "menu",
   "light_mode", "dark_mode", "arrow_back", "close", "delete",
   "lock", "check_circle", "info", "warning", "error",
+  // Bloque 1 (componentes base)
+  "chevron_right", "chevron_left", "keyboard_arrow_down", "check", "more_vert", "add_a_photo", "edit",
 ];
 
 const base = join(process.cwd(), "node_modules/@material-symbols/svg-400/rounded");

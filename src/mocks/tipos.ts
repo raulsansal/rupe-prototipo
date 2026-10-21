@@ -54,6 +54,12 @@ export type CasoExtravio = {
   alcaldia: Alcaldia; // sin "Fuera de la Ciudad de México" (R14)
   motivo: string; // reservado; nombre del catálogo de motivos
   estado: EstadoCaso;
+  /**
+   * Fecha y hora (ISO 8601, UTC) del último cambio de estado. Es un dato derivado: en el Prototipo saldrá del
+   * último movimiento de tbl_historial_estado_caso (fecha_hora), que es reservado. Se muestra en la zona
+   * America/Mexico_City (p. ej. «Localizado el 9 oct 2026»).
+   */
+  fechaCambioEstado?: string;
 };
 
 /**
@@ -71,7 +77,11 @@ export type Avistamiento = {
   comentario?: string; // ≤ 300
   alcaldia: AlcaldiaAvistamiento;
   estadosAnimal: string[]; // nombres del catálogo de estados del animal
+  fotografiaUrl: string; // fotografía obligatoria y única del avistamiento (id_fotografia en el diccionario)
 };
+
+/** Nombre del catálogo (categoría "Contención y ubicación") que se muestra como etiqueta de resguardo. */
+export const ESTADO_ANIMAL_RESGUARDADO = "Resguardado / En custodia temporal" as const;
 
 /**
  * Solo campos PÚBLICOS. Nunca incluir: calle o cruce, referencias, momento del día, motivo,
@@ -93,3 +103,6 @@ export type FichaPublica = {
   folio: CasoExtravio["folio"];
   estado: CasoExtravio["estado"];
 };
+
+/** Lo que ve la persona tutora en su lista «Mis registros»: la ficha pública más la fecha del último cambio de estado. */
+export type FichaTutor = FichaPublica & Pick<CasoExtravio, "fechaCambioEstado">;

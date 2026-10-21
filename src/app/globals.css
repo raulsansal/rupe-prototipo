@@ -41,6 +41,9 @@
   --logo-primario-display: block;
   --logo-oscuro-display: none;
 
+  /* Borde fino de los chips de estado: solo en oscuro (lámina 4.7) */
+  --chip-borde-ancho: 0px;
+
   --estado-extraviado-bg: #fee2e2;
   --estado-extraviado-fg: #991b1b;
   --estado-en-busqueda-bg: #dbeafe;
@@ -90,6 +93,8 @@
 
   --logo-primario-display: none;
   --logo-oscuro-display: block;
+
+  --chip-borde-ancho: 1px;
 
   --estado-extraviado-bg: #5c2326;
   --estado-extraviado-fg: #fecaca;
@@ -190,6 +195,7 @@
      ya coinciden: 12/16, 14/20, 16/24, 18/28, 20/28, 24/32, 30/36 y 36/40. */
   --text-display: 36px; /* text-4xl · 800 */
   --text-display--line-height: 40px;
+  --text-display--font-weight: 800; /* título tipo portada y folio destacado */
   --text-h2: 20px; /* text-xl · 600 · subtítulo de sección */
   --text-h2--line-height: 28px;
   --text-h3: 18px; /* text-lg · 600 · título de tarjeta y de modal */
@@ -206,10 +212,29 @@
 @utility text-h1 {
   font-size: 24px;
   line-height: 32px;
+  font-weight: 700;
   @media (min-width: 48rem) {
     font-size: 30px;
     line-height: 36px;
   }
+}
+
+/* text-cifra: números grandes del tablero · 30/36 · 800 */
+@utility text-cifra {
+  font-size: 30px;
+  line-height: 36px;
+  font-weight: 800;
+}
+
+/* Bordes con ancho de token: campos y controles 1.5 px; chips de estado 1 px solo en oscuro */
+@utility borde-campo {
+  border-style: solid;
+  border-width: var(--campo-borde-ancho);
+}
+@utility borde-chip {
+  border-style: solid;
+  border-width: var(--chip-borde-ancho);
+  border-color: currentColor;
 }
 
 html {
@@ -253,4 +278,27 @@ cite {
 }
 .logo-oscuro {
   display: var(--logo-oscuro-display);
+}
+
+/* Solo galería (/dev/componentes): fuerza el anillo de foco en demostraciones estáticas */
+[data-estado="foco"] {
+  outline: var(--anillo-foco-ancho) solid var(--focus-ring);
+  outline-offset: var(--anillo-foco-separacion);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Foco visible en el contenedor cuando un control interno oculto (sr-only) recibe el foco con teclado */
+.foco-hijo:has(:focus-visible) {
+  outline: var(--anillo-foco-ancho) solid var(--focus-ring);
+  outline-offset: var(--anillo-foco-separacion);
 }
