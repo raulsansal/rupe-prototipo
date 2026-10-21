@@ -1,16 +1,17 @@
 import Link from "next/link";
 
-// Marcador de posición del Bloque 0; la página principal pública se construye en el Bloque 1.
+// Marcador de posición: la página principal pública se construye en un bloque posterior.
 export default function Inicio() {
   return (
-    <main className="p-6">
-      <p className="text-body">
-        RUPE · Bloque 0 (fundaciones). Ver{" "}
-        <Link href="/dev/fundaciones" className="font-semibold text-primary underline">
-          /dev/fundaciones
+    <>
+      <h1 className="text-h1">RUPE</h1>
+      <p className="mt-2 text-body text-text-muted">
+        Contenido de la pantalla (Bloque 3). Demostración de las plantillas en{" "}
+        <Link href="/dev/plantillas" className="font-semibold text-primary underline">
+          /dev/plantillas
         </Link>
         .
       </p>
-    </main>
+    </>
   );
 }
