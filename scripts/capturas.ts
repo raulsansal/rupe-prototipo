@@ -2,19 +2,23 @@
 // Levanta el servidor por sí mismo (build + start) y lo apaga al terminar.
 // Opciones: --sin-build  reutiliza el build existente en .next
 //           --secciones=a,b  solo captura esas secciones (data-seccion) y omite las rutas completas
+//           --rutas=/dev/plantillas  solo captura las entradas cuya ruta empiece con ese prefijo
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
-import { ALTO_VENTANA, ANCHOS, PUERTO, RUTAS, TEMAS } from "../capturas.config";
+import { ALTO_VENTANA, ANCHOS, PUERTO, RUTAS, TEMAS, type Captura } from "../capturas.config";
 import { CLAVE_TEMA } from "../src/lib/tema";
 
 const raiz = process.cwd();
+const soloRutas = process.argv.find((a) => a.startsWith("--rutas="))?.split("=")[1];
 const soloSecciones = process.argv.find((a) => a.startsWith("--secciones="))?.split("=")[1]?.split(",");
 const salida = join(raiz, "capturas");
 const base = `http://localhost:${PUERTO}`;
-const nombreArchivo = (ruta: string, seccion: string | undefined, ancho: number, tema: string) =>
-  `${[ruta.replace(/^\/+|\/+$/g, "").replace(/\//g, "-") || "inicio", seccion].filter(Boolean).join("_")}_${ancho}_${tema}.png`;
+const nombreArchivo = (entrada: Captura, seccion: string | undefined, ancho: number, tema: string) => {
+  const base = entrada.archivo ?? (entrada.ruta.split("?")[0].replace(/^\/+|\/+$/g, "").replace(/\//g, "-") || "inicio");
+  return `${[base, seccion].filter(Boolean).join("_")}_${ancho}_${tema}.png`;
+};
 
 async function esperarServidor(servidor: ChildProcess) {
   for (let i = 0; i < 120; i++) {
@@ -78,18 +82,19 @@ async function main() {
     navegador = await abrirNavegador();
     for (const entrada of RUTAS) {
       const { ruta } = entrada;
+      if (soloRutas && !ruta.startsWith(soloRutas)) continue;
       const secciones = soloSecciones ? entrada.secciones?.filter((x) => soloSecciones.includes(x)) : entrada.secciones;
       if (soloSecciones && !secciones?.length) continue;
-      for (const ancho of ANCHOS) {
+      for (const ancho of entrada.anchos ?? ANCHOS) {
         for (const tema of TEMAS) {
           const valor = tema === "oscuro" ? "dark" : "light";
           const contexto = await navegador.newContext({ viewport: { width: ancho, height: ALTO_VENTANA } });
           await contexto.addInitScript(([clave, v]) => localStorage.setItem(clave, v), [CLAVE_TEMA, valor]);
           const pagina = await contexto.newPage();
-          await pagina.goto(`${base}${ruta}`, { waitUntil: "networkidle" });
+          await pagina.goto(`${base}${ruta}`, { waitUntil: "load" });
           await esperarRecursos(pagina);
           for (const seccion of secciones ?? [undefined]) {
-            const archivo = nombreArchivo(ruta, seccion, ancho, tema);
+            const archivo = nombreArchivo(entrada, seccion, ancho, tema);
             const destino = join(salida, archivo);
             if (seccion) await pagina.locator(`[data-seccion="${seccion}"]`).screenshot({ path: destino });
             else await pagina.screenshot({ path: destino, fullPage: true });
