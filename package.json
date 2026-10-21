@@ -10,7 +10,9 @@
     "capturas": "tsx scripts/capturas.ts",
     "iconos": "tsx scripts/generar-iconos.ts",
     "verificar-tokens": "tsx scripts/verificar-tokens.ts",
-    "verificar-logos": "tsx scripts/verificar-logos.ts"
+    "verificar-logos": "tsx scripts/verificar-logos.ts",
+    "verificar-componentes": "tsx scripts/verificar-componentes.ts",
+    "verificar-contraste": "tsx scripts/verificar-contraste.ts"
   },
   "dependencies": {
     "@material-symbols/svg-400": "^0.48.0",
