@@ -1,0 +1,256 @@
+@import "tailwindcss";
+
+/* Modo oscuro por atributo: <html data-theme="dark"> (ver script del <head> en layout.tsx) */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* ---------- Tokens de color: modo claro (por defecto) ---------- */
+:root,
+[data-theme="light"] {
+  color-scheme: light;
+
+  --primary: #0f766e;
+  --primary-hover: #115e59;
+  --primary-pressed: #134e4a;
+  --primary-soft: #ccfbf1;
+  --on-primary: #ffffff;
+  --accent: #f59e0b;
+  --accent-soft: #fef3c7;
+  --on-accent: #451a03;
+
+  --background: #f8fafc;
+  --surface: #ffffff;
+  --surface-raised: #ffffff; /* duda: la lámina 4.2 no define surface-raised en claro */
+  --border: #e2e8f0;
+  --border-strong: #64748b;
+  --text: #0f172a;
+  --text-muted: #475569;
+  --disabled-text: #475569;
+  --disabled-bg: #e2e8f0;
+
+  --success: #15803d;
+  --warning: #b45309;
+  --danger: #b91c1c;
+  --info: #1d4ed8;
+  --focus-ring: #1d4ed8;
+  --success-bg: #dcfce7;
+  --warning-bg: #fef3c7;
+  --danger-bg: #fee2e2;
+  --info-bg: #dbeafe;
+
+  /* Qué versión del logotipo se muestra (ver Logo.tsx); se hereda del tema más cercano */
+  --logo-primario-display: block;
+  --logo-oscuro-display: none;
+
+  --estado-extraviado-bg: #fee2e2;
+  --estado-extraviado-fg: #991b1b;
+  --estado-en-busqueda-bg: #dbeafe;
+  --estado-en-busqueda-fg: #1e40af;
+  --estado-avistamiento-bg: #fef3c7;
+  --estado-avistamiento-fg: #92400e;
+  --estado-en-seguimiento-bg: #ede9fe;
+  --estado-en-seguimiento-fg: #5b21b6;
+  --estado-localizado-bg: #dcfce7;
+  --estado-localizado-fg: #166534;
+  --estado-cerrado-bg: #e2e8f0;
+  --estado-cerrado-fg: #334155;
+}
+
+/* ---------- Tokens de color: modo oscuro ---------- */
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --primary: #5eead4;
+  --primary-hover: #99f6e4;
+  --primary-pressed: #2dd4bf;
+  --primary-soft: #0d5b4e;
+  --on-primary: #032e28;
+  --accent: #fbbf24;
+  --accent-soft: #4a3a0c;
+  --on-accent: #2b1d03;
+
+  --background: #054239;
+  --surface: #0a5246;
+  --surface-raised: #0f6153;
+  --border: #1f7566;
+  --border-strong: #6fb3a5;
+  --text: #ecfdf8;
+  --text-muted: #a7d8cd;
+  --disabled-text: #d5efe9;
+  --disabled-bg: #0f6153;
+
+  --success: #86efac;
+  --warning: #fcd34d;
+  --danger: #fca5a5;
+  --info: #93c5fd;
+  --focus-ring: #fcd34d;
+  --success-bg: #14532d;
+  --warning-bg: #5a4310;
+  --danger-bg: #5c2326;
+  --info-bg: #17426b;
+
+  --logo-primario-display: none;
+  --logo-oscuro-display: block;
+
+  --estado-extraviado-bg: #5c2326;
+  --estado-extraviado-fg: #fecaca;
+  --estado-en-busqueda-bg: #17426b;
+  --estado-en-busqueda-fg: #bfdbfe;
+  --estado-avistamiento-bg: #5a4310;
+  --estado-avistamiento-fg: #fde68a;
+  --estado-en-seguimiento-bg: #41307a;
+  --estado-en-seguimiento-fg: #ddd6fe;
+  --estado-localizado-bg: #14532d;
+  --estado-localizado-fg: #bbf7d0;
+  --estado-cerrado-bg: #0f3f37;
+  --estado-cerrado-fg: #cfe8e2;
+}
+
+/* Avatares (lámina 4.3): mismos 6 colores pastel en ambos modos, letra siempre negra */
+:root {
+  --avatar-1: #fca5a5;
+  --avatar-2: #fdba74;
+  --avatar-3: #fde047;
+  --avatar-4: #86efac;
+  --avatar-5: #7dd3fc;
+  --avatar-6: #c4b5fd;
+
+  /* Medidas (láminas 4.3, 4.6 y 4.8) */
+  --anillo-foco-ancho: 3px; /* 4.6: anillo de 3 px */
+  --anillo-foco-separacion: 2px; /* 4.6: separado 2 px */
+  --campo-borde-ancho: 1.5px; /* 4.8: borde de 1.5 px con border-strong */
+}
+
+@theme inline {
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-pressed: var(--primary-pressed);
+  --color-primary-soft: var(--primary-soft);
+  --color-on-primary: var(--on-primary);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-on-accent: var(--on-accent);
+
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-text: var(--text);
+  --color-text-muted: var(--text-muted);
+  --color-disabled-text: var(--disabled-text);
+  --color-disabled-bg: var(--disabled-bg);
+
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-info: var(--info);
+  --color-focus-ring: var(--focus-ring);
+  --color-success-bg: var(--success-bg);
+  --color-warning-bg: var(--warning-bg);
+  --color-danger-bg: var(--danger-bg);
+  --color-info-bg: var(--info-bg);
+
+  --color-estado-extraviado-bg: var(--estado-extraviado-bg);
+  --color-estado-extraviado-fg: var(--estado-extraviado-fg);
+  --color-estado-en-busqueda-bg: var(--estado-en-busqueda-bg);
+  --color-estado-en-busqueda-fg: var(--estado-en-busqueda-fg);
+  --color-estado-avistamiento-bg: var(--estado-avistamiento-bg);
+  --color-estado-avistamiento-fg: var(--estado-avistamiento-fg);
+  --color-estado-en-seguimiento-bg: var(--estado-en-seguimiento-bg);
+  --color-estado-en-seguimiento-fg: var(--estado-en-seguimiento-fg);
+  --color-estado-localizado-bg: var(--estado-localizado-bg);
+  --color-estado-localizado-fg: var(--estado-localizado-fg);
+  --color-estado-cerrado-bg: var(--estado-cerrado-bg);
+  --color-estado-cerrado-fg: var(--estado-cerrado-fg);
+
+  --color-avatar-1: var(--avatar-1);
+  --color-avatar-2: var(--avatar-2);
+  --color-avatar-3: var(--avatar-3);
+  --color-avatar-4: var(--avatar-4);
+  --color-avatar-5: var(--avatar-5);
+  --color-avatar-6: var(--avatar-6);
+
+  /* Radios: tarjetas 14, campos y botones 8, chips radio total */
+  --radius-tarjeta: 14px;
+  --radius-campo: 8px;
+  --radius-boton: 8px;
+  --radius-chip: 9999px;
+
+  /* Alturas (también sirven como h-*, min-h-*): botones 44 (grande 52, compacto 36), campos 48 */
+  --spacing-boton: 44px;
+  --spacing-boton-grande: 52px;
+  --spacing-boton-compacto: 36px;
+  --spacing-campo: 48px;
+  --spacing-tactil: 44px; /* objetivo táctil mínimo */
+
+  /* Tipografía */
+  --font-sans: var(--font-montserrat), ui-sans-serif, system-ui, sans-serif;
+
+  /* Escala de la lámina 4.4 (tamaño / interlineado). Los text-xs … text-4xl nativos de Tailwind
+     ya coinciden: 12/16, 14/20, 16/24, 18/28, 20/28, 24/32, 30/36 y 36/40. */
+  --text-display: 36px; /* text-4xl · 800 */
+  --text-display--line-height: 40px;
+  --text-h2: 20px; /* text-xl · 600 · subtítulo de sección */
+  --text-h2--line-height: 28px;
+  --text-h3: 18px; /* text-lg · 600 · título de tarjeta y de modal */
+  --text-h3--line-height: 28px;
+  --text-body: 16px; /* text-base */
+  --text-body--line-height: 24px;
+  --text-small: 14px; /* text-sm */
+  --text-small--line-height: 20px;
+  --text-caption: 12px; /* text-xs */
+  --text-caption--line-height: 16px;
+}
+
+/* text-h1: título de pantalla; 24/32 en móvil (text-2xl) y 30/36 en escritorio (text-3xl) · 700 */
+@utility text-h1 {
+  font-size: 24px;
+  line-height: 32px;
+  @media (min-width: 48rem) {
+    font-size: 30px;
+    line-height: 36px;
+  }
+}
+
+html {
+  background: var(--background);
+}
+
+body {
+  background: var(--background);
+  color: var(--text);
+  font-family: var(--font-montserrat), ui-sans-serif, system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 24px;
+}
+
+/* Campos de formulario: 16 px evita el zoom automático en iOS */
+input,
+select,
+textarea {
+  font-size: 16px;
+  line-height: 24px;
+}
+
+/* Foco visible: anillo de 3 px separado 2 px (azul en claro, ámbar en oscuro) */
+:focus-visible {
+  outline: var(--anillo-foco-ancho) solid var(--focus-ring);
+  outline-offset: var(--anillo-foco-separacion);
+}
+
+/* Cursiva: usa la familia de cursivas 400/600 (solo para ayudas y aclaraciones) */
+.italic,
+em,
+i,
+cite {
+  font-family: var(--font-montserrat-cursiva), var(--font-montserrat), ui-sans-serif, system-ui, sans-serif;
+  font-style: italic;
+}
+
+/* Logotipo por tema: la variable la define el [data-theme] más cercano (también en paneles anidados) */
+.logo-primario {
+  display: var(--logo-primario-display);
+}
+.logo-oscuro {
+  display: var(--logo-oscuro-display);
+}
