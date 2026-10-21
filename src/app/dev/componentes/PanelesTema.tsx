@@ -5,13 +5,20 @@ const TEMAS = [
   { id: "dark", nombre: "Modo oscuro" },
 ] as const;
 
-type Props = { seccion: string; titulo: string; lamina: string; children: ReactNode };
+type Props = {
+  seccion: string;
+  titulo: string;
+  lamina: string;
+  children: ReactNode;
+  /** Bloque que ocupa todo el ancho de la sección (un panel claro y otro oscuro, apilados). */
+  anchoCompleto?: { titulo: string; contenido: ReactNode };
+};
 
 /**
  * Sección de la galería (una por lámina): el mismo contenido en un panel claro y otro oscuro.
  * Cada panel define su propio [data-theme], así que los tokens se resuelven por panel aunque la página esté en el otro tema.
  */
-export function PanelesTema({ seccion, titulo, lamina, children }: Props) {
+export function PanelesTema({ seccion, titulo, lamina, children, anchoCompleto }: Props) {
   return (
     <section data-seccion={seccion} aria-labelledby={`t-${seccion}`} className="mt-10">
       <h2 id={`t-${seccion}`} className="mb-1 text-h2 font-semibold">
@@ -26,13 +33,25 @@ export function PanelesTema({ seccion, titulo, lamina, children }: Props) {
           </div>
         ))}
       </div>
+      {anchoCompleto && (
+        <div className="mt-4 grid gap-4">
+          {TEMAS.map((t) => (
+            <div key={t.id} data-theme={t.id} className="min-w-0 rounded-tarjeta border border-border bg-background p-4 text-text">
+              <h3 className="mb-4 text-h3 font-semibold">
+                {t.nombre} · {anchoCompleto.titulo}
+              </h3>
+              {anchoCompleto.contenido}
+            </div>
+          ))}
+        </div>
+      )}
     </section>
   );
 }
 
 export function Grupo({ titulo, children }: { titulo: string; children: ReactNode }) {
   return (
-    <div>
+    <div className="min-w-0">
       <h4 className="mb-2 text-caption font-semibold uppercase tracking-wide text-text-muted">{titulo}</h4>
       {children}
     </div>

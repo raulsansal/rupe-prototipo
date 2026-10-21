@@ -103,13 +103,24 @@ function Contenido() {
           <EstadoCarga />
         </div>
       </Grupo>
-      <Grupo titulo="Pasos del registro (2) y del reporte de avistamiento (6)">
+      <Grupo titulo="Pasos · barra segmentada (móvil) y círculos (desde 768 px)">
         <div className="flex flex-col gap-6">
-          <IndicadorPasos pasos={PASOS_REGISTRO} actual={1} />
-          <IndicadorPasos pasos={PASOS_REPORTE} actual={3} />
+          <IndicadorPasos variante="barra" pasos={PASOS_REGISTRO} actual={1} />
+          <IndicadorPasos variante="barra" pasos={PASOS_REPORTE} actual={3} />
+          {/* Los círculos de 6 pasos necesitan ≥ 768 px: en pantallas angostas la galería los desplaza. */}
+          {/* relative: los textos sr-only (posición absoluta) quedan dentro del contenedor desplazable. */}
+          <div className="relative overflow-x-auto">
+            <div className="flex min-w-[34rem] flex-col gap-6">
+              <IndicadorPasos variante="circulos" pasos={PASOS_REGISTRO} actual={1} />
+              <IndicadorPasos variante="circulos" pasos={PASOS_REPORTE} actual={3} />
+            </div>
+          </div>
         </div>
       </Grupo>
-      <Grupo titulo="Tabla del administrador y paginación">
+      <Grupo titulo="Comportamiento real de los pasos (automático: barra por debajo de 768 px, círculos desde 768 px)">
+        <IndicadorPasos pasos={PASOS_REPORTE} actual={4} />
+      </Grupo>
+      <Grupo titulo="Tabla del administrador · versión en tarjetas (contenedor angosto)">
         <TablaDemo />
       </Grupo>
     </>
@@ -118,7 +129,7 @@ function Contenido() {
 
 export function SeccionRetroalimentacion() {
   return (
-    <PanelesTema seccion="retroalimentacion" titulo="Retroalimentación y datos" lamina="Lámina 4.10">
+    <PanelesTema seccion="retroalimentacion" titulo="Retroalimentación y datos" lamina="Lámina 4.10" anchoCompleto={{ titulo: "tabla del administrador a ancho completo", contenido: <TablaDemo /> }}>
       <Contenido />
     </PanelesTema>
   );
