@@ -2,6 +2,7 @@
 
 import { useSyncExternalStore } from "react";
 import { CLAVE_TEMA, type Tema } from "@/lib/tema";
+import { cx } from "@/lib/clases";
 import { Icono } from "./Icono";
 
 function suscribir(alCambiar: () => void) {
@@ -14,7 +15,7 @@ const temaActual = (): Tema => (document.documentElement.getAttribute("data-them
 const temaServidor = (): Tema => "light";
 
 /** Solo para la fase de maquetado: alterna claro/oscuro, guarda la elección y la aplica en <html>. */
-export function ThemeToggle() {
+export function ThemeToggle({ compacto = false }: { /** Solo el ícono (encabezados); el nombre accesible sigue siendo «Modo oscuro». */ compacto?: boolean }) {
   const tema = useSyncExternalStore(suscribir, temaActual, temaServidor);
   const oscuro = tema === "dark";
 
@@ -34,10 +35,13 @@ export function ThemeToggle() {
       onClick={alternar}
       aria-pressed={oscuro}
       aria-label="Modo oscuro"
-      className="inline-flex h-boton items-center gap-2 rounded-boton border-[1.5px] border-primary bg-surface px-4 text-small font-semibold text-primary hover:bg-primary-soft active:bg-primary-soft"
+      className={cx(
+        "inline-flex items-center gap-2 rounded-boton border-[1.5px] border-primary bg-surface text-small font-semibold text-primary hover:bg-primary-soft active:bg-primary-soft",
+        compacto ? "size-tactil justify-center" : "h-boton px-4",
+      )}
     >
       <Icono nombre={oscuro ? "dark_mode" : "light_mode"} tamano={20} />
-      Modo oscuro
+      {!compacto && "Modo oscuro"}
     </button>
   );
 }
