@@ -30,6 +30,11 @@ function Contenido() {
           <BarraNavegacionEscritorio forzarVisible className="min-w-[34rem]" items={ITEMS.slice(0, 3)} activo="#inicio" accion={{ href: "#entrar", etiqueta: "Entrar" }} />
         </div>
       </Grupo>
+      <Grupo titulo="Comportamiento real: sin forzarVisible, la barra se oculta por debajo de 768 px">
+        <div data-prueba="barra-escritorio-natural" className="overflow-x-auto">
+          <BarraNavegacionEscritorio className="min-w-[34rem]" items={ITEMS.slice(0, 3)} activo="#inicio" accion={{ href: "#entrar", etiqueta: "Entrar" }} />
+        </div>
+      </Grupo>
       <Grupo titulo="Pestañas con contador">
         <Pestanas
           etiqueta="Mis registros"

@@ -31,7 +31,7 @@ export function BarraNavegacionEscritorio({ items, activo, accion, forzarVisible
                   href={item.href}
                   aria-current={esActivo ? "page" : undefined}
                   className={cx(
-                    "inline-flex h-tactil items-center rounded-boton px-4 text-body hover:bg-primary-soft",
+                    "inline-flex h-tactil items-center whitespace-nowrap rounded-boton px-4 text-body hover:bg-primary-soft",
                     esActivo ? "bg-primary-soft font-semibold text-primary" : "font-medium text-text",
                   )}
                 >
@@ -43,7 +43,7 @@ export function BarraNavegacionEscritorio({ items, activo, accion, forzarVisible
         </ul>
       </nav>
       {accion && (
-        <Link href={accion.href} className={clasesBoton({ variante: "secundario" })}>
+        <Link href={accion.href} className={clasesBoton({ variante: "secundario", className: "whitespace-nowrap" })}>
           {accion.etiqueta}
         </Link>
       )}
