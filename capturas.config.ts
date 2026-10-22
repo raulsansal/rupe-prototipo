@@ -1,4 +1,4 @@
-import { FOLIO_EN_CURSO, FOLIO_INEXISTENTE } from "./src/mocks/casos";
+import { FOLIO_EN_CURSO } from "./src/mocks/casos";
 
 // Configuración del script `npm run capturas`.
 // Una ruta sin `secciones` se captura completa; con `secciones`, cada [data-seccion="..."] por separado.
@@ -25,7 +25,7 @@ RUTAS.push(
   { ruta: `${FICHA}?estado=en-curso`, archivo: "ficha-a-en-curso" },
   { ruta: `${FICHA}?estado=localizado`, archivo: "ficha-b-localizado", anchos: M },
   { ruta: `${FICHA}?estado=no-disponible`, archivo: "ficha-c-no-disponible", anchos: M },
-  { ruta: `/ficha/${FOLIO_INEXISTENTE}`, archivo: "ficha-c-folio-inexistente", anchos: M },
+  { ruta: `${AVISTAMIENTO}/enviado`, archivo: "avistamiento-enviado", anchos: M },
   { ruta: `${AVISTAMIENTO}?paso=1`, archivo: "avistamiento-paso-1" },
   { ruta: `${AVISTAMIENTO}?paso=2`, archivo: "avistamiento-paso-2", anchos: M },
   { ruta: `${AVISTAMIENTO}?paso=3`, archivo: "avistamiento-paso-3", anchos: M },
@@ -36,6 +36,29 @@ RUTAS.push(
   ...["vacio", "combinadas", "fallecido"].map((c): Captura => ({ ruta: `${AVISTAMIENTO}?caso=${c}`, archivo: `avistamiento-estado-animal-${c}`, anchos: M })),
   { ruta: "/ruta-que-no-existe", archivo: "tra-01-no-encontrada" },
   { ruta: "/dev/transversales/error", archivo: "tra-04-error" },
+);
+const CASO = `/tutor/casos/${FOLIO_EN_CURSO}`;
+
+// Bloque 4 · persona tutora. A 1280 px solo ACC-01, TUT-01, TUT-05 (en curso) y TUT-07.
+RUTAS.push(
+  { ruta: "/acceso", archivo: "acceso" },
+  { ruta: "/acceso?estado=bloqueo", archivo: "acceso-bloqueo", anchos: M },
+  { ruta: "/acceso?estado=deshabilitada", archivo: "acceso-deshabilitada", anchos: M },
+  { ruta: "/tutor", archivo: "tutor-mis-registros" },
+  { ruta: "/tutor?estado=vacio", archivo: "tutor-mis-registros-vacio", anchos: M },
+  { ruta: "/tutor?estado=cargando", archivo: "tutor-mis-registros-cargando", anchos: M },
+  { ruta: "/tutor/registrar", archivo: "tutor-registrar-paso-1", anchos: M },
+  { ruta: "/tutor/registrar?raza=otra", archivo: "tutor-registrar-raza-otra", anchos: M },
+  { ruta: "/tutor/registrar?paso=2", archivo: "tutor-registrar-paso-2", anchos: M },
+  { ruta: `${CASO}/creado`, archivo: "tutor-caso-creado", anchos: M },
+  { ruta: `${CASO}?estado=en-curso`, archivo: "tutor-caso-en-curso" },
+  { ruta: `${CASO}?estado=localizado`, archivo: "tutor-caso-localizado", anchos: M },
+  { ruta: `${CASO}?estado=cerrado`, archivo: "tutor-caso-cerrado", anchos: M },
+  { ruta: `${CASO}/ficha`, archivo: "tutor-ficha" },
+  { ruta: `${CASO}/ficha?modal=visor`, archivo: "tutor-ficha-visor-carta", anchos: M },
+  { ruta: `${CASO}/ficha?modal=visor&hoja=media-carta`, archivo: "tutor-ficha-visor-media-carta", anchos: M },
+  { ruta: `${CASO}/ficha?modal=compartir`, archivo: "tutor-ficha-compartir", anchos: M },
+  { ruta: `${CASO}/ficha?modal=regenerar`, archivo: "tutor-ficha-regenerar", anchos: M },
 );
 export const ANCHOS = [390, 1280];
 export const TEMAS = ["claro", "oscuro"] as const; // se aplican como data-theme light | dark
