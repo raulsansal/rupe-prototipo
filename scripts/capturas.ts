@@ -45,9 +45,9 @@ async function abrirNavegador(): Promise<Browser> {
 /** Espera fuentes e imágenes; falla si alguna imagen visible no cargó (aprendizaje del Bloque 0). */
 async function esperarRecursos(pagina: Page) {
   await pagina.evaluate(() => document.fonts.ready);
-  await pagina.waitForFunction(() => [...document.images].every((i) => i.complete || getComputedStyle(i).display === "none"));
+  await pagina.waitForFunction(() => [...document.images].every((i) => i.complete || !i.checkVisibility()));
   const rotas = await pagina.evaluate(() =>
-    [...document.images].filter((i) => getComputedStyle(i).display !== "none" && i.naturalWidth === 0).map((i) => i.getAttribute("src")),
+    [...document.images].filter((i) => i.checkVisibility() && i.naturalWidth === 0).map((i) => i.getAttribute("src")),
   );
   if (rotas.length) throw new Error(`Imágenes sin cargar: ${rotas.join(", ")}`);
 }
