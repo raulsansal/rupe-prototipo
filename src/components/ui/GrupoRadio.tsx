@@ -36,7 +36,7 @@ export function GrupoRadio({ leyenda, name, opciones, variante = "lista", defaul
           </span>
         )}
       </legend>
-      <div className={cx(variante === "tarjetas" ? "grid grid-cols-3 gap-2" : "flex flex-col")}>
+      <div className={cx(variante === "tarjetas" ? "grid gap-2" : "flex flex-col")} style={variante === "tarjetas" ? { gridTemplateColumns: `repeat(${opciones.length}, minmax(0, 1fr))` } : undefined}>
         {opciones.map((o) => (
           <label
             key={o.valor}
