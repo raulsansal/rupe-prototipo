@@ -24,7 +24,7 @@ export function PantallaError({ onReintentar }: { onReintentar: () => void }) {
       }
     >
       <Alerta tipo="info" titulo="No pudimos completar la acción" className="w-full text-left">
-        Revisa tu conexión e inténtalo de nuevo. Tus datos capturados se conservan.
+        Revisa tu conexión e inténtalo de nuevo. Si el problema continúa, vuelve al inicio.
       </Alerta>
     </PantallaMensaje>
   );
