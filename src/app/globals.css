@@ -115,6 +115,9 @@
    También el fondo oscurecido de diálogos y menús (--scrim), igual en ambos modos. */
 :root {
   --on-avatar: #000000;
+  /* Hoja impresa de la ficha de búsqueda (lámina 4.11): fondo blanco y texto negro en ambos modos */
+  --papel: #ffffff;
+  --tinta: #000000;
   --scrim: #00000080;
   --avatar-1: #fca5a5;
   --avatar-2: #fdba74;
@@ -183,6 +186,8 @@
   --color-avatar-6: var(--avatar-6);
   --color-on-avatar: var(--on-avatar);
   --color-scrim: var(--scrim);
+  --color-papel: var(--papel);
+  --color-tinta: var(--tinta);
 
   /* Radios: tarjetas 14, campos y botones 8, chips radio total */
   --radius-tarjeta: 14px;
@@ -322,4 +327,21 @@ cite {
 .foco-hijo:has(:focus-visible) {
   outline: var(--anillo-foco-ancho) solid var(--focus-ring);
   outline-offset: var(--anillo-foco-separacion);
+}
+/* Impresión de la ficha de búsqueda: solo se imprime la hoja marcada con .ficha-impresion (el tamaño de página lo fija su propio <style>). */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .ficha-impresion,
+  .ficha-impresion * {
+    visibility: visible;
+  }
+  .ficha-impresion {
+    position: fixed;
+    inset: 0 auto auto 0;
+    width: 21.6cm;
+    margin: 0;
+    box-shadow: none;
+  }
 }
