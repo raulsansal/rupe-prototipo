@@ -14,6 +14,8 @@ const NOMBRES = [
   "chevron_right", "chevron_left", "keyboard_arrow_down", "check", "more_vert", "add_a_photo", "edit",
   // Bloque 2 (plantillas)
   "login", "person_add", "help", "mail", "logout",
+  // Bloque 4 (persona tutora)
+  "visibility_off", "content_copy", "link", "download", "refresh", "add", "description", "calendar_month",
 ];
 
 const base = join(process.cwd(), "node_modules/@material-symbols/svg-400/rounded");

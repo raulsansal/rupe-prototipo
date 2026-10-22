@@ -6,33 +6,10 @@ import { ChipEstado } from "@/components/ui/ChipEstado";
 import { clasesBoton } from "@/components/ui/clasesBoton";
 import { cx } from "@/lib/clases";
 import { formatearFechaCorta } from "@/lib/formato";
+import { edadAproximada, etiquetaTamano } from "@/lib/perro";
 import type { FichaPublica } from "@/mocks/tipos";
 import { BotonCompartir } from "./BotonCompartir";
-
-const TAMANO = { pequeño: "Pequeño", mediano: "Mediano", grande: "Grande" } as const;
-
-function edadAproximada({ edadValor, edadUnidad }: Pick<FichaPublica, "edadValor" | "edadUnidad">): string {
-  if (edadUnidad === "meses") return edadValor === 0 ? "Menos de 1 mes" : `${edadValor} ${edadValor === 1 ? "mes" : "meses"}`;
-  return `${edadValor} ${edadValor === 1 ? "año" : "años"}`;
-}
-
-function Datos({ titulo, filas, id }: { titulo: string; id: string; filas: [string, string][] }) {
-  return (
-    <section aria-labelledby={id} className="rounded-tarjeta border border-border bg-surface p-4">
-      <h2 id={id} className="text-h3 font-semibold">
-        {titulo}
-      </h2>
-      <dl className="mt-3 grid grid-cols-[minmax(0,2fr)_minmax(0,3fr)] gap-x-4 gap-y-3 text-small">
-        {filas.map(([etiqueta, valor]) => (
-          <div key={etiqueta} className="col-span-2 grid grid-cols-subgrid">
-            <dt className="font-bold">{etiqueta}</dt>
-            <dd className="min-w-0 break-words">{valor}</dd>
-          </div>
-        ))}
-      </dl>
-    </section>
-  );
-}
+import { TarjetaDatos } from "./TarjetaDatos";
 
 type Props = {
   /** Solo los campos públicos. El componente lee únicamente estas propiedades: nada más se muestra. */
@@ -58,7 +35,7 @@ export function FichaPublicaVista({ ficha, hrefAvistamiento }: Props) {
           <Image src={fotografiaUrl} alt={`Fotografía de ${nombre}`} fill sizes="(min-width: 768px) 384px, 100vw" priority className={cx("object-cover", !acepta && "opacity-70 grayscale")} />
         </div>
         <div className="flex flex-col gap-4">
-          <Datos
+          <TarjetaDatos
             id="ficha-datos"
             titulo="Datos del perro"
             filas={[
@@ -66,12 +43,12 @@ export function FichaPublicaVista({ ficha, hrefAvistamiento }: Props) {
               ["Sexo", ficha.sexo],
               ["Raza", ficha.raza],
               ["Edad aproximada", edadAproximada(ficha)],
-              ["Tamaño", TAMANO[ficha.tamano]],
+              ["Tamaño", etiquetaTamano(ficha.tamano)],
               ["Color", ficha.color],
               ["Características distintivas", ficha.caracteristicasDistintivas ?? "Sin características registradas"],
             ]}
           />
-          <Datos
+          <TarjetaDatos
             id="ficha-lugar"
             titulo="Fecha y lugar de extravío"
             filas={[

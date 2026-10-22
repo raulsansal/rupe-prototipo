@@ -19,3 +19,11 @@ export function formatearFechaHora(iso: string): string {
 export function formatearFechaLocal(iso: string): string {
   return formatearFechaHora(iso).split(",")[0];
 }
+
+const MESES_LARGOS = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+
+/** "2026-10-18" → "18 de octubre de 2026". */
+export function formatearFechaLarga(fecha: string): string {
+  const [anio, mes, dia] = fecha.slice(0, 10).split("-").map(Number);
+  return `${dia} de ${MESES_LARGOS[mes - 1]} de ${anio}`;
+}
