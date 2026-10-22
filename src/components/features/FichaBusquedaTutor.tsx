@@ -10,7 +10,10 @@ import { Modal } from "@/components/ui/Modal";
 import { Toast } from "@/components/ui/Toast";
 import { clasesBoton } from "@/components/ui/clasesBoton";
 import type { FichaPublica } from "@/mocks/tipos";
+import { EscalaHoja } from "./EscalaHoja";
 import { FichaBusqueda, type TamanoHoja } from "./FichaBusqueda";
+
+const PROPORCION: Record<TamanoHoja, number> = { carta: 27.9 / 21.6, "media-carta": 14 / 21.6 };
 import { ModalCompartir } from "./ModalCompartir";
 
 export type ModalFicha = "visor" | "compartir" | "regenerar";
@@ -51,7 +54,9 @@ export function FichaBusquedaTutor({ ficha, modalInicial, hojaInicial = "carta" 
           Vista previa de la ficha de búsqueda
         </h2>
         <div className="mx-auto w-full max-w-md">
-          <FichaBusqueda ficha={ficha} tamano="carta" versionQr={versionQr} />
+          <EscalaHoja proporcion={PROPORCION.carta}>
+            <FichaBusqueda ficha={ficha} tamano="carta" versionQr={versionQr} />
+          </EscalaHoja>
         </div>
       </section>
       <section aria-label="Acciones de la ficha" className="flex flex-col gap-3 rounded-tarjeta border border-border bg-surface-raised p-4">
@@ -88,7 +93,11 @@ export function FichaBusquedaTutor({ ficha, modalInicial, hojaInicial = "carta" 
           <p className="mb-2 text-center text-small font-bold">Visor del PDF generado</p>
           <div className="mx-auto w-full max-w-xl">
             {/* Solo con el visor abierto: la hoja para imprimir fija el tamaño de página de la impresión. */}
-            {modal === "visor" && <FichaBusqueda ficha={ficha} tamano={hoja} versionQr={versionQr} paraImprimir />}
+            {modal === "visor" && (
+              <EscalaHoja key={hoja} proporcion={PROPORCION[hoja]}>
+                <FichaBusqueda ficha={ficha} tamano={hoja} versionQr={versionQr} paraImprimir />
+              </EscalaHoja>
+            )}
           </div>
         </section>
         <div className="grid grid-cols-2 gap-3">

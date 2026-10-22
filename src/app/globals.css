@@ -330,12 +330,28 @@ cite {
 }
 /* Impresión de la ficha de búsqueda: solo se imprime la hoja marcada con .ficha-impresion (el tamaño de página lo fija su propio <style>). */
 @media print {
+  /* Sin esto el contenido oculto de la página seguiría ocupando hojas en blanco. */
+  html,
+  body {
+    height: 0 !important;
+    margin: 0 !important;
+    overflow: hidden !important;
+  }
   body * {
     visibility: hidden;
   }
   .ficha-impresion,
   .ficha-impresion * {
     visibility: visible;
+  }
+  /* La hoja se muestra reducida con transform; al imprimir vuelve a su tamaño real. */
+  .escala-hoja {
+    height: auto !important;
+    visibility: visible !important;
+  }
+  .escala-hoja > div {
+    width: auto !important;
+    transform: none !important;
   }
   .ficha-impresion {
     position: fixed;

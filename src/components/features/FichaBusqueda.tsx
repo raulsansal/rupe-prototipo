@@ -55,83 +55,86 @@ export function FichaBusqueda({ ficha, tamano = "carta", versionQr = 1, paraImpr
     </div>
   );
 
-  const encabezado = (
-    <div className="flex items-center justify-between">
-      <Logo variante="horizontal" className="w-[19cqw]! h-auto" />
-      <span className="text-[1.47cqw] font-bold uppercase tracking-[0.2em]">Ficha de búsqueda</span>
+  const encabezado = (ancho: string, etiqueta: string) => (
+    <div className="flex items-center justify-between gap-[1cqw]">
+      <Logo variante="horizontal" className={cx(ancho, "h-auto")} />
+      <span className={cx(etiqueta, "font-bold uppercase tracking-[0.2em]")}>Ficha de búsqueda</span>
     </div>
   );
 
   return (
     <div className={cx("[container-type:inline-size] w-full", paraImprimir && "ficha-impresion", className)} data-theme="light">
       {paraImprimir && <style>{`@media print { @page { size: ${PAGINAS[tamano].size}; margin: 0; } }`}</style>}
-      <article aria-label={`Ficha de búsqueda de ${nombre}, ${carta ? "tamaño Carta" : "tamaño Media carta"}`} className={cx("relative w-full overflow-hidden border border-border bg-papel p-[6.94cqw] font-sans text-tinta shadow-sm", PAGINAS[tamano].aspecto)}>
+      <article
+        data-hoja={tamano}
+        aria-label={`Ficha de búsqueda de ${nombre}, ${carta ? "tamaño Carta" : "tamaño Media carta"}`}
+        className={cx("relative w-full overflow-hidden border border-border bg-papel p-[6.94cqw] font-sans text-tinta shadow-sm", PAGINAS[tamano].aspecto)}
+      >
         {carta ? (
-          <div className="flex h-full flex-col gap-[1.8cqw]">
-            {encabezado}
+          // Carta: la fotografía ocupa todo el alto que dejan los demás elementos (≥ 40 % de la hoja, lámina 4.11).
+          <div className="flex h-full flex-col gap-[0.9cqw]">
+            {encabezado("w-[12cqw]!", "text-[1.4cqw]")}
             <h2 className="text-[4.58cqw] font-extrabold uppercase leading-none">¡Ayúdame a regresar a casa!</h2>
-            <div className="relative h-[47cqw] shrink-0 overflow-hidden rounded-[1cqw] border border-border bg-background">
+            <div data-foto-ficha className="relative min-h-0 flex-1 overflow-hidden rounded-[1cqw] border border-border bg-background">
               <Image src={ficha.fotografiaUrl} alt={`Fotografía de ${nombre}, sin recorte`} fill sizes="640px" className="object-contain" priority />
             </div>
             <div>
               <p className="flex flex-wrap items-baseline gap-x-[1.6cqw]">
-                <strong className="text-[3.59cqw] font-bold uppercase">{nombre}</strong>
+                <strong className="text-[3.59cqw] font-bold uppercase leading-tight">{nombre}</strong>
                 <span className="text-[2.29cqw] font-medium">{datos}</span>
               </p>
               {ficha.caracteristicasDistintivas && (
-                <p className="mt-[0.6cqw] text-[2.29cqw] font-medium leading-[1.3]">
+                <p className="mt-[0.3cqw] text-[2.29cqw] font-medium leading-[1.25]">
                   <strong className="font-bold">Características distintivas:</strong> {ficha.caracteristicasDistintivas}
                 </p>
               )}
             </div>
             {lugar}
-            <div className="mt-auto flex flex-col gap-[1.2cqw]">
-              <hr className="border-t-[0.35cqw] border-tinta" />
-              <div className="flex items-end justify-between gap-[2cqw]">
-                <div className="min-w-0">
-                  <p className="text-[2.29cqw] font-bold leading-tight">¿Lo viste? Escanea el código y cuéntanos dónde.</p>
-                  <p className="text-[1.47cqw]">O entra a {DOMINIO_PUBLICO} y escribe el folio.</p>
-                  <p className="mt-[0.8cqw] text-[2.94cqw] font-extrabold tabular-nums">{folio}</p>
-                </div>
-                <QrIlustrativo semilla={semilla} className="size-[19cqw] shrink-0 rounded-[0.8cqw] border-[0.35cqw] border-tinta" />
+            <hr className="border-t-[0.35cqw] border-tinta" />
+            <div className="flex items-center justify-between gap-[2cqw]">
+              <div className="min-w-0">
+                <p className="text-[2.29cqw] font-bold leading-tight">¿Lo viste? Escanea el código y cuéntanos dónde.</p>
+                <p className="text-[1.47cqw] leading-tight">O entra a {DOMINIO_PUBLICO} y escribe el folio.</p>
+                <p className="mt-[0.5cqw] text-[2.94cqw] font-extrabold leading-none tabular-nums">{folio}</p>
               </div>
-              <p className="text-[1.3cqw] leading-tight">Esta ficha no incluye datos de contacto de la persona tutora; los avisos llegan a ella a través del sistema. No sustituye ningún registro oficial.</p>
+              <QrIlustrativo semilla={semilla} className="size-[14cqw] shrink-0 rounded-[0.8cqw] border-[0.35cqw] border-tinta" />
             </div>
+            <p className="text-[1.25cqw] leading-tight">Esta ficha no incluye datos de contacto de la persona tutora; los avisos llegan a ella a través del sistema. No sustituye ningún registro oficial.</p>
           </div>
         ) : (
-          <div className="flex h-full flex-col gap-[1.4cqw]">
-            {encabezado}
-            <h2 className="text-[3.6cqw] font-extrabold uppercase leading-none">¡Ayúdame a regresar a casa!</h2>
-            <div className="grid min-h-0 flex-1 grid-cols-[36cqw_minmax(0,1fr)] gap-[2.4cqw]">
-              <div className="relative overflow-hidden rounded-[1cqw] border border-border bg-background">
-                <Image src={ficha.fotografiaUrl} alt={`Fotografía de ${nombre}, sin recorte`} fill sizes="320px" className="object-contain" priority />
+          // Media carta: la fotografía ocupa todo el alto de la hoja a la izquierda; el resto va en la columna derecha.
+          <div className="grid h-full grid-cols-[52cqw_minmax(0,1fr)] gap-[2.2cqw]">
+            <div data-foto-ficha className="relative overflow-hidden rounded-[1cqw] border border-border bg-background">
+              <Image src={ficha.fotografiaUrl} alt={`Fotografía de ${nombre}, sin recorte`} fill sizes="320px" className="object-contain" priority />
+            </div>
+            <div className="flex min-h-0 flex-col gap-[0.9cqw]">
+              {encabezado("w-[11cqw]!", "text-[1cqw]")}
+              <h2 className="text-[2.9cqw] font-extrabold uppercase leading-[1.05]">¡Ayúdame a regresar a casa!</h2>
+              <div>
+                <strong className="text-[2.5cqw] font-bold uppercase leading-tight">{nombre}</strong>
+                <p className="text-[1.5cqw] font-medium leading-[1.25]">{datos}</p>
+                {ficha.caracteristicasDistintivas && (
+                  <p className="text-[1.5cqw] font-medium leading-[1.25]">
+                    <strong className="font-bold">Características distintivas:</strong> {ficha.caracteristicasDistintivas}
+                  </p>
+                )}
               </div>
-              <div className="flex min-h-0 flex-col justify-between gap-[1cqw]">
-                <div className="flex flex-col gap-[0.8cqw]">
-                  <strong className="text-[2.94cqw] font-bold uppercase leading-none">{nombre}</strong>
-                  <p className="text-[1.8cqw] font-medium leading-[1.25]">{datos}</p>
-                  {ficha.caracteristicasDistintivas && (
-                    <p className="text-[1.8cqw] font-medium leading-[1.25]">
-                      <strong className="font-bold">Características distintivas:</strong> {ficha.caracteristicasDistintivas}
-                    </p>
-                  )}
-                  <div className="rounded-[1.2cqw] border-[0.3cqw] border-tinta px-[1.8cqw] py-[0.9cqw] text-[1.8cqw] leading-[1.3]">
-                    <p>
-                      <strong className="font-bold">Se extravió el</strong> {formatearFechaLarga(ficha.fechaExtravio)}
-                    </p>
-                    <p>
-                      <strong className="font-bold">Lugar:</strong> col. {ficha.coloniaZona}, alcaldía {ficha.alcaldia}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-end justify-between gap-[1.6cqw] border-t-[0.3cqw] border-tinta pt-[1cqw]">
-                  <div className="min-w-0">
-                    <p className="text-[1.8cqw] font-bold leading-tight">¿Lo viste? Escanea el código.</p>
-                    <p className="text-[2.3cqw] font-extrabold tabular-nums">{folio}</p>
-                  </div>
-                  <QrIlustrativo semilla={semilla} className="size-[15cqw] shrink-0 rounded-[0.6cqw] border-[0.3cqw] border-tinta" />
-                </div>
+              <div className="rounded-[1.2cqw] border-[0.3cqw] border-tinta px-[1.5cqw] py-[0.7cqw] text-[1.5cqw] leading-[1.3]">
+                <p>
+                  <strong className="font-bold">Se extravió el</strong> {formatearFechaLarga(ficha.fechaExtravio)}
+                </p>
+                <p>
+                  <strong className="font-bold">Lugar:</strong> col. {ficha.coloniaZona}, alcaldía {ficha.alcaldia}
+                </p>
               </div>
+              <div className="mt-auto flex items-center justify-between gap-[1.4cqw] border-t-[0.3cqw] border-tinta pt-[0.8cqw]">
+                <div className="min-w-0">
+                  <p className="text-[1.5cqw] font-bold leading-tight">¿Lo viste? Escanea el código.</p>
+                  <p className="text-[2.2cqw] font-extrabold leading-tight tabular-nums">{folio}</p>
+                </div>
+                <QrIlustrativo semilla={semilla} className="size-[14cqw] shrink-0 rounded-[0.6cqw] border-[0.3cqw] border-tinta" />
+              </div>
+              <p className="text-[1.05cqw] leading-tight">Esta ficha no incluye datos de contacto de la persona tutora; los avisos llegan a ella a través del sistema. No sustituye ningún registro oficial.</p>
             </div>
           </div>
         )}
