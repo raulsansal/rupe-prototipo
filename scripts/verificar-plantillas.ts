@@ -250,8 +250,26 @@ async function menus(navegador: Browser) {
   const grupo = await dlg.locator("h2").allTextContents();
   ver(grupo.join("|") === "Resumen|Moderación|Usuarios|Catálogos|Sistema", "cajón de administración: grupos del mockup 3.1", `cajón de administración: grupos ${grupo.join("|")}`);
   await areasTactiles(pagina, "cajón de administración abierto 390px");
+  const salirCajon = dlg.getByRole("link", { name: "Cerrar sesión" });
+  const ultimo = await dlg.evaluate((d) => { const as = [...d.querySelectorAll("a, button")]; return as[as.length - 1]?.textContent?.trim(); });
+  ver((await salirCajon.isVisible()) && ultimo === "Cerrar sesión" && (await dlg.getByText("Ricardo Vega").first().isVisible()), "cajón de administración: «Cerrar sesión» al final, con el nombre y el rol arriba", `cajón de administración: «Cerrar sesión» visible=${await salirCajon.isVisible()}, último control «${ultimo}»`);
   await pagina.keyboard.press("Escape");
   ver(!(await dlg.evaluate((d: HTMLDialogElement) => d.open)) && (await abrir.evaluate((b) => b === document.activeElement)), "cajón de administración: Escape lo cierra y el foco regresa al botón", "cajón de administración: Escape no cerró o no devolvió el foco");
+  await contexto.close();
+
+  // Barra lateral del administrador (escritorio): avatar, nombre, rol y «Cerrar sesión» al pie.
+  ({ contexto, pagina } = await nuevaPagina(navegador, 1280));
+  await irA(pagina, "/dev/plantillas/admin");
+  const lateral = pagina.locator("aside");
+  const pie = await lateral.evaluate((a) => {
+    const salir = [...a.querySelectorAll("a")].find((x) => x.textContent?.includes("Cerrar sesión"));
+    const r = salir?.getBoundingClientRect();
+    const ar = a.getBoundingClientRect();
+    return { hay: !!salir, alPie: !!r && ar.bottom - r.bottom < 40, avatar: !!a.querySelector('[role=img][aria-label^="Avatar de"]'), texto: a.textContent ?? "" };
+  });
+  ver(pie.hay && pie.alPie && pie.avatar && pie.texto.includes("Ricardo Vega") && pie.texto.includes("Administrador"), "barra lateral del administrador: avatar, nombre, rol y «Cerrar sesión» al pie", `barra lateral del administrador: ${JSON.stringify({ ...pie, texto: undefined })}`);
+  ver((await pagina.getByRole("button", { name: /^Cuenta de / }).count()) === 0, "administrador: el encabezado no tiene menú de cuenta (el mockup solo muestra el avatar)", "administrador: aún hay menú de cuenta en el encabezado");
+  await areasTactiles(pagina, "barra lateral del administrador 1280px");
   await contexto.close();
 
   // Menú de cuenta de la persona tutora.

@@ -5,15 +5,37 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Avatar } from "@/components/ui/Avatar";
 import { BotonIcono } from "@/components/ui/BotonIcono";
+import { clasesBoton } from "@/components/ui/clasesBoton";
+import { Icono } from "@/components/ui/Icono";
 import { Etiqueta } from "@/components/ui/Etiqueta";
 import { Logo } from "@/components/ui/Logo";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import type { SesionAdmin } from "@/mocks/sesion";
 import { EnlaceSaltar } from "./EnlaceSaltar";
-import { MenuCuenta } from "./MenuCuenta";
 import { NavegacionAdmin } from "./NavegacionAdmin";
 import { GRUPOS_ADMIN, hrefActivo } from "./navegacion";
 import { PieSitio } from "./PieSitio";
+
+/** Al final del cajón y de la barra lateral: avatar, nombre y rol (en escritorio) y «Cerrar sesión». */
+function PieCuenta({ sesion, soloAccion = false }: { sesion: SesionAdmin; soloAccion?: boolean }) {
+  return (
+    <div className="flex flex-col gap-3 border-t border-border bg-surface-raised p-4">
+      {!soloAccion && (
+        <div className="flex items-center gap-3">
+          <Avatar nombre={sesion.nombre} />
+          <div className="flex min-w-0 flex-col items-start gap-1">
+            <p className="text-small font-bold">{sesion.nombre}</p>
+            <Etiqueta>{sesion.rol}</Etiqueta>
+          </div>
+        </div>
+      )}
+      <Link href="/" className={clasesBoton({ variante: "secundario", anchoCompleto: true })}>
+        <Icono nombre="logout" tamano={20} />
+        Cerrar sesión
+      </Link>
+    </div>
+  );
+}
 
 type Props = {
   children: ReactNode;
@@ -61,7 +83,7 @@ export function PlantillaAdmin({ children, sesion, itemActivo, menuAbiertoInicia
           </Link>
           <div className="ml-auto flex items-center gap-2">
             <ThemeToggle compacto />
-            <MenuCuenta nombre={sesion.nombre} rol={sesion.rol} hrefCerrarSesion="/" />
+            <Avatar nombre={sesion.nombre} />
             <Etiqueta className="hidden lg:inline-flex">{sesion.rol}</Etiqueta>
             <BotonIcono
               icono="menu"
@@ -75,8 +97,11 @@ export function PlantillaAdmin({ children, sesion, itemActivo, menuAbiertoInicia
         </div>
       </header>
       <div className="flex flex-1">
-        <aside className="hidden w-64 shrink-0 border-r border-border bg-surface lg:block">
-          <NavegacionAdmin grupos={GRUPOS_ADMIN} activo={activo} />
+        <aside className="hidden w-64 shrink-0 flex-col border-r border-border bg-surface lg:flex">
+          <div className="flex-1">
+            <NavegacionAdmin grupos={GRUPOS_ADMIN} activo={activo} />
+          </div>
+          <PieCuenta sesion={sesion} />
         </aside>
         <main id="contenido" tabIndex={-1} className="min-w-0 flex-1 px-4 py-6 focus:outline-none! md:px-8">
           {children}
@@ -102,6 +127,7 @@ export function PlantillaAdmin({ children, sesion, itemActivo, menuAbiertoInicia
         <div className="flex-1 overflow-y-auto">
           <NavegacionAdmin grupos={GRUPOS_ADMIN} activo={activo} onNavegar={() => setAbierto(false)} etiqueta="Administración (menú)" />
         </div>
+        <PieCuenta sesion={sesion} soloAccion />
       </dialog>
     </div>
   );
