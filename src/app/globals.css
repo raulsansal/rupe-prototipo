@@ -19,7 +19,8 @@
 
   --background: #f8fafc;
   --surface: #ffffff;
-  --surface-raised: #ffffff; /* duda: la lámina 4.2 no define surface-raised en claro */
+  --surface-raised: #ffffff;
+  /* duda: la lámina 4.2 no define surface-raised en claro */
   --border: #e2e8f0;
   --border-strong: #64748b;
   --text: #0f172a;
@@ -110,8 +111,11 @@
   --estado-cerrado-fg: #cfe8e2;
 }
 
-/* Avatares (lámina 4.3): mismos 6 colores pastel en ambos modos, letra siempre negra */
+/* Avatares (lámina 4.3): mismos 6 colores pastel en ambos modos, letra siempre negra.
+   También el fondo oscurecido de diálogos y menús (--scrim), igual en ambos modos. */
 :root {
+  --on-avatar: #000000;
+  --scrim: #00000080;
   --avatar-1: #fca5a5;
   --avatar-2: #fdba74;
   --avatar-3: #fde047;
@@ -120,9 +124,12 @@
   --avatar-6: #c4b5fd;
 
   /* Medidas (láminas 4.3, 4.6 y 4.8) */
-  --anillo-foco-ancho: 3px; /* 4.6: anillo de 3 px */
-  --anillo-foco-separacion: 2px; /* 4.6: separado 2 px */
-  --campo-borde-ancho: 1.5px; /* 4.8: borde de 1.5 px con border-strong */
+  --anillo-foco-ancho: 3px;
+  /* 4.6: anillo de 3 px */
+  --anillo-foco-separacion: 2px;
+  /* 4.6: separado 2 px */
+  --campo-borde-ancho: 1.5px;
+  /* 4.8: borde de 1.5 px con border-strong */
 }
 
 @theme inline {
@@ -174,6 +181,8 @@
   --color-avatar-4: var(--avatar-4);
   --color-avatar-5: var(--avatar-5);
   --color-avatar-6: var(--avatar-6);
+  --color-on-avatar: var(--on-avatar);
+  --color-scrim: var(--scrim);
 
   /* Radios: tarjetas 14, campos y botones 8, chips radio total */
   --radius-tarjeta: 14px;
@@ -186,25 +195,33 @@
   --spacing-boton-grande: 52px;
   --spacing-boton-compacto: 36px;
   --spacing-campo: 48px;
-  --spacing-tactil: 44px; /* objetivo táctil mínimo */
+  --spacing-tactil: 44px;
+  /* objetivo táctil mínimo */
 
   /* Tipografía */
   --font-sans: var(--font-montserrat), ui-sans-serif, system-ui, sans-serif;
 
   /* Escala de la lámina 4.4 (tamaño / interlineado). Los text-xs … text-4xl nativos de Tailwind
      ya coinciden: 12/16, 14/20, 16/24, 18/28, 20/28, 24/32, 30/36 y 36/40. */
-  --text-display: 36px; /* text-4xl · 800 */
+  --text-display: 36px;
+  /* text-4xl · 800 */
   --text-display--line-height: 40px;
-  --text-display--font-weight: 800; /* título tipo portada y folio destacado */
-  --text-h2: 20px; /* text-xl · 600 · subtítulo de sección */
+  --text-display--font-weight: 800;
+  /* título tipo portada y folio destacado */
+  --text-h2: 20px;
+  /* text-xl · 600 · subtítulo de sección */
   --text-h2--line-height: 28px;
-  --text-h3: 18px; /* text-lg · 600 · título de tarjeta y de modal */
+  --text-h3: 18px;
+  /* text-lg · 600 · título de tarjeta y de modal */
   --text-h3--line-height: 28px;
-  --text-body: 16px; /* text-base */
+  --text-body: 16px;
+  /* text-base */
   --text-body--line-height: 24px;
-  --text-small: 14px; /* text-sm */
+  --text-small: 14px;
+  /* text-sm */
   --text-small--line-height: 20px;
-  --text-caption: 12px; /* text-xs */
+  --text-caption: 12px;
+  /* text-xs */
   --text-caption--line-height: 16px;
 }
 
@@ -213,6 +230,7 @@
   font-size: 24px;
   line-height: 32px;
   font-weight: 700;
+
   @media (min-width: 48rem) {
     font-size: 30px;
     line-height: 36px;
@@ -231,6 +249,7 @@
   border-style: solid;
   border-width: var(--campo-borde-ancho);
 }
+
 @utility borde-chip {
   border-style: solid;
   border-width: var(--chip-borde-ancho);
@@ -276,6 +295,7 @@ cite {
 .logo-primario {
   display: var(--logo-primario-display);
 }
+
 .logo-oscuro {
   display: var(--logo-oscuro-display);
 }
@@ -287,6 +307,7 @@ cite {
 }
 
 @media (prefers-reduced-motion: reduce) {
+
   *,
   ::before,
   ::after {

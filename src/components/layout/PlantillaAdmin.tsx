@@ -89,7 +89,7 @@ export function PlantillaAdmin({ children, sesion, itemActivo, menuAbiertoInicia
         aria-label="Menú de administración"
         onClose={() => setAbierto(false)}
         onClick={(e) => e.target === cajon.current && setAbierto(false)}
-        className="m-0 h-dvh max-h-none w-72 max-w-[85vw] bg-surface p-0 text-text backdrop:bg-black/50 open:flex open:flex-col"
+        className="m-0 h-dvh max-h-none w-72 max-w-[85vw] bg-surface p-0 text-text backdrop:bg-scrim open:flex open:flex-col"
       >
         <div className="flex items-center gap-3 border-b border-border bg-surface-raised p-4">
           <Avatar nombre={sesion.nombre} />

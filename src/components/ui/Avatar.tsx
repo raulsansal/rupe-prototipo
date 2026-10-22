@@ -10,7 +10,7 @@ export function Avatar({ nombre, color = 0, className }: Props) {
     <span
       role="img"
       aria-label={`Avatar de ${nombre}`}
-      className={cx("inline-flex size-10 items-center justify-center rounded-full text-body font-semibold text-black", COLORES[color % COLORES.length], className)}
+      className={cx("inline-flex size-10 items-center justify-center rounded-full text-body font-semibold text-on-avatar", COLORES[color % COLORES.length], className)}
     >
       {nombre.trim().charAt(0).toUpperCase()}
     </span>

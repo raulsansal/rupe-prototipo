@@ -1,8 +1,5 @@
 /** Sesiones ficticias para las plantillas: no hay autenticación en esta fase. */
 
-/** Versión ficticia del aviso de privacidad (en los mockups aparece como «[vN]»). */
-export const VERSION_AVISO_PRIVACIDAD = "v1";
-
 export type SesionTutor = { nombre: string; /** Avistamientos nuevos; 0 oculta la insignia. */ avisosNuevos: number };
 export type SesionAdmin = { nombre: string; rol: "Administrador" };
 

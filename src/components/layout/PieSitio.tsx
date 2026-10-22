@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { cx } from "@/lib/clases";
-import { VERSION_AVISO_PRIVACIDAD } from "@/mocks/sesion";
+import { PARAMETROS } from "@/mocks/parametros";
 import { IconoRedSocial } from "./IconoRedSocial";
 
 type Props = {
@@ -8,13 +8,15 @@ type Props = {
   variante?: "completo" | "minimo";
   /** Vuelve el pie inerte (p. ej. con el menú móvil abierto). */
   inert?: boolean;
+  /** Clases del contenedor central; por defecto el ancho del sitio. */
+  contenedor?: string;
   className?: string;
 };
 
 const ENLACES = [
-  { href: "/aviso-de-privacidad", etiqueta: `Aviso de privacidad ${VERSION_AVISO_PRIVACIDAD}` },
-  { href: "/preguntas-frecuentes", etiqueta: "Preguntas frecuentes" },
-  { href: "/contacto", etiqueta: "Contacto" },
+  { href: "/#aviso-de-privacidad", etiqueta: `Aviso de privacidad ${PARAMETROS.version_aviso_privacidad}` },
+  { href: "/#preguntas-frecuentes", etiqueta: "Preguntas frecuentes" },
+  { href: "/#contacto", etiqueta: "Contacto" },
 ];
 
 // Páginas de inicio de cada red: aún no hay cuentas oficiales de RUPE.
@@ -24,10 +26,10 @@ const REDES = [
   { red: "instagram", nombre: "Instagram", href: "https://www.instagram.com/" },
 ] as const;
 
-export function PieSitio({ variante = "completo", inert, className }: Props) {
+export function PieSitio({ variante = "completo", inert, contenedor = "max-w-7xl md:px-8", className }: Props) {
   return (
     <footer inert={inert} className={cx("border-t border-border bg-surface", className)}>
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-2 px-4 py-4 md:px-8">
+      <div className={cx("mx-auto flex w-full flex-col gap-2 px-4 py-4", contenedor)}>
         <nav aria-label="Información del sitio">
           <ul className="flex flex-wrap gap-x-6">
             {ENLACES.map((e) => (

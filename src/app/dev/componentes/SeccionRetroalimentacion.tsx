@@ -92,7 +92,7 @@ function Contenido() {
         </div>
       </Grupo>
       <Grupo titulo="Diálogo de confirmación (acción destructiva)">
-        <div className="mb-3 flex justify-center rounded-tarjeta bg-black/50 p-6">
+        <div className="mb-3 flex justify-center rounded-tarjeta bg-scrim p-6">
           <PanelDialogo titulo="¿Cancelar este registro?" descripcion="Dejará de mostrarse en la búsqueda y su ficha ya no será válida. Esta acción no se puede deshacer." textoConfirmar="Cancelar registro" />
         </div>
         <DialogoDemo />

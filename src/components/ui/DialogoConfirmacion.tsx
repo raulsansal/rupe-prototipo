@@ -67,7 +67,7 @@ export function DialogoConfirmacion({ abierto, onCerrar, ...panel }: Props) {
       aria-labelledby={`${id}-t`}
       aria-describedby={`${id}-d`}
       onClose={onCerrar}
-      className="m-auto w-[calc(100%-2rem)] max-w-sm bg-transparent p-0 backdrop:bg-black/50"
+      className="m-auto w-[calc(100%-2rem)] max-w-sm bg-transparent p-0 backdrop:bg-scrim"
     >
       <PanelDialogo idTitulo={`${id}-t`} idDescripcion={`${id}-d`} onCancelar={onCerrar} {...panel} />
     </dialog>

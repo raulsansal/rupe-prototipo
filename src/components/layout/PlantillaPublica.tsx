@@ -8,7 +8,7 @@ import { clasesBoton } from "@/components/ui/clasesBoton";
 import { Icono, type NombreIcono } from "@/components/ui/Icono";
 import { Logo } from "@/components/ui/Logo";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
-import { VERSION_AVISO_PRIVACIDAD } from "@/mocks/sesion";
+import { PARAMETROS } from "@/mocks/parametros";
 import { EnlaceSaltar } from "./EnlaceSaltar";
 import { EnlacesNavegacion } from "./EnlacesNavegacion";
 import { hrefActivo } from "./navegacion";
@@ -23,10 +23,10 @@ const CUENTA: EnlaceMenu[] = [
 const EXPLORAR: EnlaceMenu[] = [
   { href: "/", etiqueta: "Inicio", icono: "home" },
   { href: "/#como-funciona", etiqueta: "¿Cómo funciona RUPE?", icono: "info" },
-  { href: "/consultar-folio", etiqueta: "Consultar folio", icono: "search" },
-  { href: "/preguntas-frecuentes", etiqueta: "Preguntas frecuentes", icono: "help" },
-  { href: "/aviso-de-privacidad", etiqueta: `Aviso de privacidad ${VERSION_AVISO_PRIVACIDAD}`, icono: "lock" },
-  { href: "/contacto", etiqueta: "Contacto", icono: "mail" },
+  { href: "/#buscar-folio", etiqueta: "Consultar folio", icono: "search" },
+  { href: "/#preguntas-frecuentes", etiqueta: "Preguntas frecuentes", icono: "help" },
+  { href: "/#aviso-de-privacidad", etiqueta: `Aviso de privacidad ${PARAMETROS.version_aviso_privacidad}`, icono: "lock" },
+  { href: "/#contacto", etiqueta: "Contacto", icono: "mail" },
 ];
 const NAVEGACION_ESCRITORIO = EXPLORAR.slice(0, 3);
 
@@ -130,7 +130,7 @@ export function PlantillaPublica({ children, menuAbiertoInicial = false, rutaAct
           </div>
         )}
       </header>
-      {abierto && <div aria-hidden="true" onClick={() => setAbierto(false)} className="fixed inset-0 top-16 z-30 bg-black/50 lg:hidden" />}
+      {abierto && <div aria-hidden="true" onClick={() => setAbierto(false)} className="fixed inset-0 top-16 z-30 bg-scrim lg:hidden" />}
       <main id="contenido" tabIndex={-1} inert={abierto} className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 focus:outline-none! md:px-8">
         {children}
       </main>
