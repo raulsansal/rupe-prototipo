@@ -152,6 +152,42 @@ async function barrasResponsivas(navegador: Browser) {
   }
 }
 
+/** Con scroll hasta el final, la barra inferior del tutor no tapa el último contenido ni el pie (en móvil). */
+async function barraInferiorNoTapa(navegador: Browser) {
+  for (const ruta of ["/dev/plantillas/tutor", "/tutor"]) {
+    const { contexto, pagina } = await nuevaPagina(navegador, 390);
+    await irA(pagina, ruta);
+    // Con la página corta no hay scroll que probar: se alarga el contenido para que la barra pegajosa sí se superponga.
+    await pagina.evaluate(() => {
+      const relleno = document.createElement("div");
+      relleno.id = "relleno-prueba";
+      relleno.style.height = "2400px";
+      relleno.textContent = "último contenido";
+      document.querySelector("main")!.appendChild(relleno);
+    });
+    await pagina.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    await pagina.waitForTimeout(150);
+    const r = await pagina.evaluate(() => {
+      const barra = document.querySelector('nav[aria-label="Navegación inferior"]')!.getBoundingClientRect();
+      const pie = document.querySelector("footer")!.getBoundingClientRect();
+      const enlaces = [...document.querySelectorAll("footer a")];
+      const tapados = enlaces.filter((a) => {
+        const b = a.getBoundingClientRect();
+        const alto = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+        return alto !== a && !a.contains(alto);
+      }).length;
+      const ultimo = document.getElementById("relleno-prueba")!.getBoundingClientRect();
+      return { barraTop: barra.top, barraBottom: barra.bottom, pieBottom: pie.bottom, ultimoBottom: ultimo.bottom, alto: window.innerHeight, tapados, enlaces: enlaces.length };
+    });
+    ver(
+      r.pieBottom <= r.barraTop + 0.5 && r.ultimoBottom <= r.barraTop + 0.5 && r.tapados === 0 && Math.abs(r.barraBottom - r.alto) < 1,
+      `${ruta} 390px, scroll al final: la barra inferior queda bajo el pie (${r.enlaces} enlaces del pie sin tapar) y no cubre el último contenido`,
+      `${ruta} 390px, scroll al final: ${JSON.stringify(r)}`,
+    );
+    await contexto.close();
+  }
+}
+
 async function flujo(navegador: Browser) {
   for (const ancho of [390, 767, 768, 1280]) {
     const { contexto, pagina } = await nuevaPagina(navegador, ancho);
@@ -160,6 +196,14 @@ async function flujo(navegador: Browser) {
     const circulos = await visible(pagina, "main ol");
     const movil = ancho < 768;
     ver(barra === movil && circulos === !movil, `flujo ${ancho}px: indicador de pasos en ${barra ? "barra segmentada" : "círculos"} (esperado)`, `flujo ${ancho}px: barra=${barra}, círculos=${circulos}`);
+    if (ancho === 1280) {
+      const x = await pagina.evaluate(() => {
+        const e = document.querySelector("header > div")!.getBoundingClientRect();
+        const p = document.querySelector("footer > div")!.getBoundingClientRect();
+        return { encabezado: e.left, pie: p.left, anchoE: e.width, anchoP: p.width };
+      });
+      ver(x.encabezado === x.pie && x.anchoE === x.anchoP, `flujo 1280px: el pie comparte contenedor central con el encabezado (x=${x.encabezado}, ancho=${x.anchoE})`, `flujo 1280px: encabezado ${JSON.stringify([x.encabezado, x.anchoE])} y pie ${JSON.stringify([x.pie, x.anchoP])} no coinciden`);
+    }
     if (ancho === 390) {
       const texto = await pagina.locator("main [role=progressbar]").evaluate((e) => ({ vt: e.getAttribute("aria-valuetext"), t: e.textContent?.replace(/\s+/g, " ").trim() }));
       ver(texto.vt === "Paso 3 de 6: Ubicación" && texto.t === "Paso 3 de 6 · Ubicación", `flujo: la barra dice «${texto.t}»`, `flujo: texto de la barra ${JSON.stringify(texto)}`);
@@ -273,6 +317,7 @@ async function main() {
       }
     }
     await barrasResponsivas(navegador);
+    await barraInferiorNoTapa(navegador);
     await flujo(navegador);
     await menus(navegador);
     await temaPersistente(navegador);

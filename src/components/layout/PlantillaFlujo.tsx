@@ -49,7 +49,9 @@ export function PlantillaFlujo({ pasos, pasoActual, titulo, children, regresar, 
       </header>
       <main id="contenido" tabIndex={-1} className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-4 py-6 focus:outline-none!">
         <IndicadorPasos pasos={pasos} actual={pasoActual} />
-        <h1 className="mt-4 text-h1">{titulo}</h1>
+        <h1 id="titulo-paso" tabIndex={-1} className="mt-4 text-h1 focus:outline-none!">
+          {titulo}
+        </h1>
         <div className="mt-4 flex-1">{children}</div>
         <div className="mt-8 flex gap-3">
           {regresar &&
@@ -73,7 +75,7 @@ export function PlantillaFlujo({ pasos, pasoActual, titulo, children, regresar, 
           </Boton>
         </div>
       </main>
-      <PieSitio variante="minimo" />
+      <PieSitio variante="minimo" contenedor="max-w-2xl" />
     </div>
   );
 }
