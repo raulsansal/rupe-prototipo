@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { PlantillaFlujo } from "@/components/layout/PlantillaFlujo";
 import type { FichaPublica } from "@/mocks/tipos";
@@ -30,7 +31,7 @@ export function FlujoAvistamiento({ ficha, inicial }: Props) {
   const [datos, setDatos] = useState<DatosAvistamiento>({ ...DATOS_VACIOS, ...inicial.datos });
   const [errores, setErrores] = useState<Errores>({});
   const [intentos, setIntentos] = useState(0);
-  const [enviado, setEnviado] = useState(false);
+  const router = useRouter();
   const montado = useRef(false);
 
   // Al cambiar de paso, el foco va al título y la página vuelve arriba.
@@ -80,7 +81,8 @@ export function FlujoAvistamiento({ ficha, inicial }: Props) {
       const faltan = validarPaso(n, datos);
       if (Object.keys(faltan).length) return fallar(n, faltan);
     }
-    setEnviado(true);
+    // Maqueta: no se envía nada; solo se muestra la pantalla «Reporte enviado» (PUB-06).
+    router.push(`/ficha/${ficha.folio}/avistamiento/enviado`);
   }
 
   function regresar() {
@@ -94,7 +96,7 @@ export function FlujoAvistamiento({ ficha, inicial }: Props) {
     <PasoUbicacion key={3} datos={datos} errores={errores} actualizar={actualizar} fijarErrores={(e) => fallar(3, e)} />,
     <PasoEstadoAnimal key={4} datos={datos} errores={errores} actualizar={actualizar} abrirTodas={inicial.abrirTodasCategorias} />,
     <PasoComentario key={5} valor={datos.comentario} onCambio={(comentario) => actualizar({ comentario })} />,
-    <PasoConfirmar key={6} ficha={ficha} datos={datos} enviado={enviado} />,
+    <PasoConfirmar key={6} ficha={ficha} datos={datos} />,
   ];
 
   return (

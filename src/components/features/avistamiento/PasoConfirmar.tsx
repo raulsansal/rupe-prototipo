@@ -8,8 +8,6 @@ import { alcaldiaDelPunto, formatoCoordenada, NOMBRE_FORMA, type DatosAvistamien
 type Props = {
   ficha: Pick<FichaPublica, "folio" | "nombre">;
   datos: DatosAvistamiento;
-  /** La persona pulsó «Enviar reporte» y todo está completo. */
-  enviado: boolean;
 };
 
 function Fila({ etiqueta, children }: { etiqueta: string; children: React.ReactNode }) {
@@ -21,8 +19,8 @@ function Fila({ etiqueta, children }: { etiqueta: string; children: React.ReactN
   );
 }
 
-/** Paso 6 (PUB-05.6): resumen de lo capturado antes de enviar. El mockup no define una pantalla posterior al envío. */
-export function PasoConfirmar({ ficha, datos, enviado }: Props) {
+/** Paso 6 (PUB-05.6): resumen de lo capturado antes de enviar; al enviar se muestra PUB-06. */
+export function PasoConfirmar({ ficha, datos }: Props) {
   const estados = nombresElegidos(datos.estados);
   const alcaldia = alcaldiaDelPunto(datos);
   return (
@@ -65,11 +63,6 @@ export function PasoConfirmar({ ficha, datos, enviado }: Props) {
       <Alerta tipo="info" titulo="Qué pasa al enviar">
         Tras el envío, la persona tutora recibe un aviso con tu reporte. Tus datos personales no se piden ni se guardan.
       </Alerta>
-      {enviado && (
-        <Alerta tipo="advertencia" titulo="Maqueta: el envío aún no está conectado">
-          El reporte está completo, pero en esta fase no se envía a ningún lado y el diseño aún no define la pantalla de confirmación.
-        </Alerta>
-      )}
     </div>
   );
 }
