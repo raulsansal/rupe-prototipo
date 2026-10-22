@@ -1,11 +1,12 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { PlantillaFlujo } from "@/components/layout/PlantillaFlujo";
 import { FOLIO_NUEVO } from "@/mocks/casos";
 import { hoyLocal } from "../avistamiento/datos";
 import { AvisoPublicoReservado } from "./AvisoPublicoReservado";
+import { DialogoConfirmacion } from "@/components/ui/DialogoConfirmacion";
 import { PASOS_REGISTRO, REGISTRO_VACIO, TITULOS_REGISTRO, validarRegistro, type DatosRegistro, type ErroresRegistro } from "./datos";
 import { PasoCircunstancias } from "./PasoCircunstancias";
 import { PasoDatosPerro, type ActualizarRegistro } from "./PasoDatosPerro";
@@ -22,6 +23,7 @@ export function FlujoRegistro({ inicial }: { inicial: EstadoInicialRegistro }) {
   const [datos, setDatos] = useState<DatosRegistro>({ ...REGISTRO_VACIO, ...inicial.datos });
   const [errores, setErrores] = useState<ErroresRegistro>({});
   const [intentos, setIntentos] = useState(0);
+  const [confirmarSalida, setConfirmarSalida] = useState(false);
   const montado = useRef(false);
 
   useEffect(() => {
@@ -53,6 +55,16 @@ export function FlujoRegistro({ inicial }: { inicial: EstadoInicialRegistro }) {
     }
   };
 
+  // Hay algo capturado si algún campo difiere del formulario vacío (la unidad de edad ya trae «años» por defecto).
+  const hayCapturado = (Object.keys(REGISTRO_VACIO) as (keyof DatosRegistro)[]).some((k) => datos[k] !== REGISTRO_VACIO[k]);
+
+  /** Salir del registro (flecha del encabezado o «Cancelar»): con datos capturados pide confirmación. */
+  function alSalir(e: MouseEvent<HTMLElement>) {
+    if (!hayCapturado) return; // vacío: el enlace navega sin preguntar
+    e.preventDefault();
+    setConfirmarSalida(true);
+  }
+
   function continuar() {
     const e = validarRegistro(paso, datos, hoyLocal());
     if (Object.keys(e).length) {
@@ -71,18 +83,28 @@ export function FlujoRegistro({ inicial }: { inicial: EstadoInicialRegistro }) {
       pasoActual={paso}
       titulo={TITULOS_REGISTRO[paso - 1]}
       hrefSalir="/tutor"
-      regresar={paso === 1 ? { href: "/tutor", etiqueta: "Cancelar" } : { onClick: () => { setErrores({}); setPaso(1); } }}
+      onSalir={alSalir}
+      regresar={paso === 1 ? { href: "/tutor", etiqueta: "Cancelar", onClick: alSalir } : { onClick: () => { setErrores({}); setPaso(1); } }}
       continuar={{ etiqueta: paso === 1 ? "Guardar y continuar" : "Guardar registro", onClick: continuar }}
     >
       <div className="flex flex-col gap-4">
-        <AvisoPublicoReservado />
-        <div data-paso={1} hidden={paso !== 1}>
+        <div data-paso={1} hidden={paso !== 1} className="flex flex-col gap-4">
+          <AvisoPublicoReservado />
           <PasoDatosPerro datos={datos} errores={errores} actualizar={actualizar} fotoInicial={inicial.datos.fotoUrl} />
         </div>
         <div data-paso={2} hidden={paso !== 2}>
           <PasoCircunstancias datos={datos} errores={errores} actualizar={actualizar} />
         </div>
       </div>
+      <DialogoConfirmacion
+        abierto={confirmarSalida}
+        onCerrar={() => setConfirmarSalida(false)}
+        titulo="¿Salir del registro?"
+        descripcion="Se perderá lo capturado."
+        textoConfirmar="Salir"
+        textoCancelar="Seguir aquí"
+        onConfirmar={() => router.push("/tutor")}
+      />
     </PlantillaFlujo>
   );
 }

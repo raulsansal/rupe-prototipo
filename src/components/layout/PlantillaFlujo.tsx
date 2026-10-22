@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { ReactNode } from "react";
+import type { MouseEventHandler, ReactNode } from "react";
 import { Boton } from "@/components/ui/Boton";
 import { clasesBoton } from "@/components/ui/clasesBoton";
 import { EnlaceIcono } from "@/components/ui/EnlaceIcono";
@@ -9,7 +9,7 @@ import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { EnlaceSaltar } from "./EnlaceSaltar";
 import { PieSitio } from "./PieSitio";
 
-type AccionRegresar = { href?: string; onClick?: () => void; etiqueta?: string };
+type AccionRegresar = { href?: string; onClick?: MouseEventHandler<HTMLElement>; etiqueta?: string };
 type AccionContinuar = { etiqueta?: string; type?: "button" | "submit"; onClick?: () => void; deshabilitado?: boolean; cargando?: boolean };
 
 type Props = {
@@ -25,6 +25,8 @@ type Props = {
   continuar?: AccionContinuar;
   /** Destino del botón del encabezado (salir del flujo). */
   hrefSalir?: string;
+  /** Intercepta el botón de salir del encabezado (llama a preventDefault para no navegar). */
+  onSalir?: MouseEventHandler<HTMLAnchorElement>;
 };
 
 /**
@@ -32,7 +34,7 @@ type Props = {
  * Es un componente, no un layout: varias pantallas de públicos distintos lo comparten. Sin barra inferior de
  * navegación y con pie mínimo.
  */
-export function PlantillaFlujo({ pasos, pasoActual, titulo, children, regresar, continuar = {}, hrefSalir = "/" }: Props) {
+export function PlantillaFlujo({ pasos, pasoActual, titulo, children, regresar, continuar = {}, hrefSalir = "/", onSalir }: Props) {
   return (
     <div className="flex min-h-dvh flex-col">
       <EnlaceSaltar />
@@ -43,7 +45,7 @@ export function PlantillaFlujo({ pasos, pasoActual, titulo, children, regresar, 
           </Link>
           <div className="ml-auto flex items-center gap-1">
             <ThemeToggle compacto />
-            <EnlaceIcono href={hrefSalir} icono="arrow_back" etiqueta="Salir y regresar" contorno />
+            <EnlaceIcono href={hrefSalir} icono="arrow_back" etiqueta="Salir y regresar" contorno onClick={onSalir} />
           </div>
         </div>
       </header>
@@ -56,7 +58,7 @@ export function PlantillaFlujo({ pasos, pasoActual, titulo, children, regresar, 
         <div className="mt-8 flex gap-3">
           {regresar &&
             (regresar.href ? (
-              <Link href={regresar.href} className={clasesBoton({ variante: "secundario", className: "flex-1" })}>
+              <Link href={regresar.href} onClick={regresar.onClick} className={clasesBoton({ variante: "secundario", className: "flex-1" })}>
                 {regresar.etiqueta ?? "Regresar"}
               </Link>
             ) : (

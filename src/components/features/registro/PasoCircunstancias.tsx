@@ -25,8 +25,10 @@ export function PasoCircunstancias({ datos, errores, actualizar }: Props) {
 
   return (
     <div className="flex flex-col gap-4">
-      <fieldset className="flex min-w-0 flex-col gap-4 rounded-tarjeta border border-border bg-surface p-4">
-        <legend className="px-1 text-h3 font-semibold">Públicos en la ficha</legend>
+      <section aria-labelledby="circ-publicos" className="flex min-w-0 flex-col gap-4 rounded-tarjeta border border-border bg-surface p-4">
+        <h2 id="circ-publicos" className="text-h3 font-semibold">
+          Públicos en la ficha
+        </h2>
         <CampoTexto
           etiqueta="Fecha del extravío"
           type="date"
@@ -54,10 +56,12 @@ export function PasoCircunstancias({ datos, errores, actualizar }: Props) {
           onChange={(e) => actualizar({ colonia: e.target.value }, ["colonia"])}
           error={errores.colonia}
         />
-      </fieldset>
+      </section>
 
-      <fieldset className="flex min-w-0 flex-col gap-4 rounded-tarjeta border-2 border-dashed border-border-strong bg-surface p-4">
-        <legend className="px-1 text-h3 font-semibold">Reservados: no aparecen en la ficha</legend>
+      <section aria-labelledby="circ-reservados" className="flex min-w-0 flex-col gap-4 rounded-tarjeta border-2 border-dashed border-border-strong bg-surface p-4">
+        <h2 id="circ-reservados" className="text-h3 font-semibold">
+          Reservados: no aparecen en la ficha
+        </h2>
         <GrupoRadio
           leyenda="Momento del día"
           name="momento"
@@ -108,7 +112,7 @@ export function PasoCircunstancias({ datos, errores, actualizar }: Props) {
           value={datos.descripcion}
           onChange={(e) => actualizar({ descripcion: e.target.value })}
         />
-      </fieldset>
+      </section>
     </div>
   );
 }

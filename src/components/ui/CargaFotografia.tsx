@@ -21,11 +21,13 @@ type Props = {
   onCambio?: (vista: string | undefined) => void;
   /** Error de validación del formulario (p. ej. «La fotografía es obligatoria»); se asocia al control con aria-describedby. */
   errorExterno?: string;
+  /** Centra la caja de carga (por defecto queda a la izquierda). */
+  centrada?: boolean;
   className?: string;
 };
 
 /** Carga de una fotografía (JPG o PNG, máx. 4 MB), con vista previa 1:1. El recorte es solo de presentación. */
-export function CargaFotografia({ etiqueta, name, requerido, vistaPreviaInicial, errorInicial, onCambio, errorExterno, className }: Props) {
+export function CargaFotografia({ etiqueta, name, requerido, vistaPreviaInicial, errorInicial, onCambio, errorExterno, centrada, className }: Props) {
   const id = useId();
   const [vista, setVista] = useState<string | undefined>(vistaPreviaInicial);
   const [error, setError] = useState<ErrorFoto | undefined>(errorInicial);
@@ -80,6 +82,7 @@ export function CargaFotografia({ etiqueta, name, requerido, vistaPreviaInicial,
       <div
         className={cx(
           "foco-hijo relative aspect-square w-full max-w-56 overflow-hidden rounded-tarjeta",
+          centrada && "mx-auto",
           vista ? "border border-border" : cx("border-2 border-dashed", hayError ? "border-danger bg-danger-bg" : "border-border-strong bg-surface"),
         )}
       >

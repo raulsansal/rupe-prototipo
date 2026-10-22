@@ -123,6 +123,7 @@ export function PasoDatosPerro({ datos, errores, actualizar, fotoInicial }: Prop
       <CargaFotografia
         etiqueta="Fotografía del perro"
         requerido
+        centrada
         vistaPreviaInicial={fotoInicial}
         onCambio={(fotoUrl) => actualizar({ fotoUrl }, ["foto"])}
         errorExterno={errores.foto}
