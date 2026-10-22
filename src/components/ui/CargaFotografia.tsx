@@ -17,11 +17,15 @@ type Props = {
   /** Estado inicial (la galería lo usa para mostrar «con foto» y «error»). */
   vistaPreviaInicial?: string;
   errorInicial?: ErrorFoto;
+  /** Se llama al elegir o quitar la foto, con la dirección de su vista previa (o nada si se quitó o no es válida). */
+  onCambio?: (vista: string | undefined) => void;
+  /** Error de validación del formulario (p. ej. «La fotografía es obligatoria»); se asocia al control con aria-describedby. */
+  errorExterno?: string;
   className?: string;
 };
 
 /** Carga de una fotografía (JPG o PNG, máx. 4 MB), con vista previa 1:1. El recorte es solo de presentación. */
-export function CargaFotografia({ etiqueta, name, requerido, vistaPreviaInicial, errorInicial, className }: Props) {
+export function CargaFotografia({ etiqueta, name, requerido, vistaPreviaInicial, errorInicial, onCambio, errorExterno, className }: Props) {
   const id = useId();
   const [vista, setVista] = useState<string | undefined>(vistaPreviaInicial);
   const [error, setError] = useState<ErrorFoto | undefined>(errorInicial);
@@ -37,14 +41,18 @@ export function CargaFotografia({ etiqueta, name, requerido, vistaPreviaInicial,
     if (!archivo) return;
     if (!TIPOS.includes(archivo.type)) {
       setVista(undefined);
+      onCambio?.(undefined);
       return setError({ titulo: "Solo se admite JPG o PNG", detalle: "Elige otra foto" });
     }
     if (archivo.size > MAX_BYTES) {
       setVista(undefined);
+      onCambio?.(undefined);
       return setError({ titulo: "La foto pesa más de 4 MB", detalle: "Elige otra o redúcela" });
     }
     setError(undefined);
-    setVista(URL.createObjectURL(archivo));
+    const url = URL.createObjectURL(archivo);
+    setVista(url);
+    onCambio?.(url);
   }
 
   function quitar(e: React.MouseEvent<HTMLButtonElement>) {
@@ -52,10 +60,13 @@ export function CargaFotografia({ etiqueta, name, requerido, vistaPreviaInicial,
     if (input) input.value = "";
     setVista(undefined);
     setError(undefined);
+    onCambio?.(undefined);
     e.currentTarget.blur();
   }
 
   const descripcionId = `${id}-ayuda`;
+  const errorId = `${id}-error`;
+  const hayError = Boolean(error || errorExterno);
   return (
     <div className={cx("flex flex-col gap-1", className)}>
       <span className="text-small font-semibold">
@@ -69,7 +80,7 @@ export function CargaFotografia({ etiqueta, name, requerido, vistaPreviaInicial,
       <div
         className={cx(
           "foco-hijo relative aspect-square w-full max-w-56 overflow-hidden rounded-tarjeta",
-          vista ? "border border-border" : cx("border-2 border-dashed", error ? "border-danger bg-danger-bg" : "border-border-strong bg-surface"),
+          vista ? "border border-border" : cx("border-2 border-dashed", hayError ? "border-danger bg-danger-bg" : "border-border-strong bg-surface"),
         )}
       >
         <input
@@ -80,8 +91,8 @@ export function CargaFotografia({ etiqueta, name, requerido, vistaPreviaInicial,
           required={requerido && !vista}
           className="sr-only"
           onChange={alElegir}
-          aria-invalid={error ? true : undefined}
-          aria-describedby={descripcionId}
+          aria-invalid={hayError ? true : undefined}
+          aria-describedby={errorExterno ? `${errorId} ${descripcionId}` : descripcionId}
         />
         {vista ? (
           <>
@@ -109,6 +120,12 @@ export function CargaFotografia({ etiqueta, name, requerido, vistaPreviaInicial,
           </label>
         )}
       </div>
+      {errorExterno && (
+        <p id={errorId} className="flex items-start gap-1 text-small text-danger">
+          <Icono nombre="error" tamano={16} className="mt-0.5" />
+          {errorExterno}
+        </p>
+      )}
       <p id={descripcionId} className="text-small text-text-muted">
         Una sola fotografía; se muestra recortada en 1:1 solo como vista previa.
       </p>
