@@ -176,7 +176,15 @@ async function misRegistros(navegador: Browser) {
 async function registro(navegador: Browser) {
   const { contexto, pagina } = await nuevaPagina(navegador);
   await irA(pagina, "/tutor/registrar");
-  ver((await barra(pagina)) === "Paso 1 de 2: Datos del perro" && (await pagina.locator("main").innerText()).includes("Públicos: aparecen en la ficha") && (await pagina.locator("main").innerText()).includes("Reservados: nunca aparecen en la ficha"), "TUT-02: abre en «Paso 1 de 2: Datos del perro» e indica qué datos son públicos y cuáles reservados", `TUT-02: ${await barra(pagina)}`);
+  ver((await barra(pagina)) === "Paso 1 de 2: Datos del perro", "TUT-02: abre en «Paso 1 de 2: Datos del perro»", `TUT-02: ${await barra(pagina)}`);
+  const aviso = pagina.getByRole("button", { name: "Qué datos serán públicos y cuáles reservados" });
+  const resumen = pagina.getByText("Tus datos personales y las circunstancias del extravío nunca aparecen en la ficha.");
+  ver((await aviso.getAttribute("aria-expanded")) === "false" && (await resumen.isVisible()) && !(await pagina.getByText("Públicos: aparecen en la ficha").isVisible()), "TUT-02: el aviso de públicos y reservados es un bloque plegable cerrado, con su línea de resumen siempre visible", "TUT-02: el aviso no empieza plegado o falta la línea de resumen");
+  await aviso.click();
+  ver((await pagina.getByText("Públicos: aparecen en la ficha").isVisible()) && (await pagina.getByText("Reservados: nunca aparecen en la ficha").isVisible()) && (await resumen.isVisible()), "TUT-02: al desplegarlo muestra las listas de datos públicos y reservados (y la línea sigue visible)", "TUT-02: el aviso desplegado no muestra las listas");
+  await aviso.click();
+  const caja = await pagina.locator('[data-paso="1"] div.aspect-square').evaluate((e) => { const r = e.getBoundingClientRect(); const c = e.parentElement!.getBoundingClientRect(); return { centro: r.left + r.width / 2, medio: c.left + c.width / 2, ancho: r.width, total: c.width }; });
+  ver(Math.abs(caja.centro - caja.medio) < 1.5 && caja.ancho < caja.total, `TUT-02: la caja de la fotografía está centrada (desviación ${Math.abs(caja.centro - caja.medio).toFixed(1)} px)`, `TUT-02: caja de fotografía descentrada ${JSON.stringify(caja)}`);
   const p1 = eIso(pagina, 1);
   const cont = boton(pagina, /^(Guardar y continuar|Guardar registro)$/);
   ver((await enlace(pagina, "Cancelar").getAttribute("href")) === "/tutor" && (await pagina.locator("nav[aria-label='Navegación inferior']").count()) === 0, "TUT-02: «Cancelar» vuelve a /tutor y no hay barra inferior (plantilla de flujo)", "TUT-02: Cancelar o barra inferior incorrectos");
@@ -225,6 +233,9 @@ async function registro(navegador: Browser) {
   const p2 = eIso(pagina, 2);
   const texto2 = await p2.innerText();
   ver(/Públicos en la ficha/.test(texto2) && /Reservados: no aparecen en la ficha/.test(texto2), "TUT-03: separa «Públicos en la ficha» y «Reservados: no aparecen en la ficha»", "TUT-03: no separa públicos de reservados");
+  ver((await pagina.getByRole("button", { name: "Qué datos serán públicos y cuáles reservados" }).filter({ visible: true }).count()) === 0 && (await pagina.getByText(/nunca aparecen en la ficha/).filter({ visible: true }).count()) === 0, "TUT-03: sin el bloque superior de públicos y reservados (las dos secciones ya lo comunican)", "TUT-03: aún muestra el bloque superior");
+  const titulos = await p2.evaluate(() => ["circ-publicos", "circ-reservados"].map((id) => { const h = document.getElementById(id)!; const sec = h.closest("section")!; const hr = h.getBoundingClientRect(); const sr = sec.getBoundingClientRect(); return { tag: h.tagName, dentro: hr.top - sr.top >= 12 && hr.left - sr.left >= 12 && sr.right - hr.right >= 12, borde: getComputedStyle(sec).borderStyle, legends: sec.querySelectorAll(":scope > legend").length }; }));
+  ver(titulos.every((t) => t.tag === "H2" && t.dentro && t.legends === 0) && titulos[1].borde === "dashed", "TUT-03: los títulos «Públicos…» y «Reservados…» son encabezados dentro de su tarjeta, con relleno normal (no leyendas sobre el borde)", `TUT-03: títulos ${JSON.stringify(titulos)}`);
   ver((await max(p2.getByLabel(/^Calle o cruce/))) === "200" && (await max(p2.getByLabel(/^Colonia o zona/))) === "100" && (await max(p2.getByLabel(/^Referencias del lugar/))) === "500" && (await max(p2.getByLabel(/^Descripción de las circunstancias/))) === "1000", "TUT-03: longitudes del diccionario (calle 200, colonia 100, referencias 500, descripción 1000)", "TUT-03: longitudes incorrectas");
   ver((await p2.getByLabel(/^Alcaldía/).locator("option").count()) === 17 && !(await p2.getByLabel(/^Alcaldía/).locator("option").allTextContents()).includes("Fuera de la Ciudad de México") && (await p2.getByLabel(/^Motivo del extravío/).locator("option").count()) === 16 && (await p2.getByRole("radio").count()) === 5, "TUT-03: 16 alcaldías (sin «Fuera de la Ciudad de México»), 15 motivos y 5 momentos del día", "TUT-03: catálogos incorrectos");
   await cont.click();
@@ -261,6 +272,54 @@ async function registro(navegador: Browser) {
   await irA(r.pagina, "/tutor/registrar?paso=2");
   ver((await barra(r.pagina)) === "Paso 2 de 2: Circunstancias", "?paso=2: abre en el paso 2", "?paso=2: no abrió en el paso 2");
   await r.contexto.close();
+}
+
+// ---------- salida del registro ----------
+async function salidaRegistro(navegador: Browser) {
+  // Formulario vacío: salir no pregunta.
+  for (const via of ["«Cancelar»", "la flecha de regreso"] as const) {
+    const { contexto, pagina } = await nuevaPagina(navegador);
+    await irA(pagina, "/tutor/registrar");
+    await (via === "«Cancelar»" ? enlace(pagina, "Cancelar") : enlace(pagina, "Salir y regresar")).click();
+    await pagina.waitForURL("**/tutor");
+    ver(!(await dialogoAbierto(pagina)), `salida del registro vacío: ${via} navega a /tutor sin preguntar`, `salida del registro vacío: ${via} no navegó`);
+    await contexto.close();
+  }
+  // Con algo capturado: pide confirmación.
+  for (const via of ["«Cancelar»", "la flecha de regreso"] as const) {
+    const nombreBoton = via === "«Cancelar»" ? "Cancelar" : "Salir y regresar";
+    for (const cierre of ["«Seguir aquí»", "Escape", "clic fuera"] as const) {
+      const { contexto, pagina } = await nuevaPagina(navegador);
+      await irA(pagina, "/tutor/registrar");
+      await pagina.getByLabel(/^Nombre del perro/).fill("Canela");
+      const origen = enlace(pagina, nombreBoton);
+      await origen.click();
+      const dlg = pagina.getByRole("dialog", { name: "¿Salir del registro?" });
+      const abrio = (await dlg.isVisible()) && /Se perderá lo capturado/.test(await dlg.innerText()) && new URL(pagina.url()).pathname === "/tutor/registrar";
+      if (cierre === "«Seguir aquí»") await boton(dlg, "Seguir aquí").click();
+      else if (cierre === "Escape") await pagina.keyboard.press("Escape");
+      else await pagina.mouse.click(4, 4);
+      const sigue = !(await dialogoAbierto(pagina)) && new URL(pagina.url()).pathname === "/tutor/registrar" && (await pagina.getByLabel(/^Nombre del perro/).inputValue()) === "Canela";
+      const devuelto = (await foco(pagina)) === nombreBoton;
+      ver(abrio && sigue && devuelto, `salida con datos (${via}): pide «¿Salir del registro?»; ${cierre} cierra, conserva lo capturado y devuelve el foco`, `salida con datos (${via}, ${cierre}): abrió=${abrio}, sigue=${sigue}, foco devuelto=${devuelto} (${await foco(pagina)})`);
+      await contexto.close();
+    }
+    const { contexto, pagina } = await nuevaPagina(navegador);
+    await irA(pagina, "/tutor/registrar");
+    await pagina.getByLabel(/^Color/).fill("Café");
+    await enlace(pagina, nombreBoton).click();
+    await boton(pagina.getByRole("dialog", { name: "¿Salir del registro?" }), "Salir").click();
+    await pagina.waitForURL("**/tutor");
+    ver(true, `salida con datos (${via}): «Salir» confirma y navega a /tutor`, "");
+    await contexto.close();
+  }
+  // En el paso 2 también pide confirmación si hay algo capturado.
+  const { contexto, pagina } = await nuevaPagina(navegador);
+  await irA(pagina, "/tutor/registrar?paso=2");
+  await pagina.getByLabel(/^Colonia o zona/).fill("Roma");
+  await enlace(pagina, "Salir y regresar").click();
+  ver(await pagina.getByRole("dialog", { name: "¿Salir del registro?" }).isVisible(), "salida desde el paso 2 con datos: pide confirmación", "salida desde el paso 2: no pidió confirmación");
+  await contexto.close();
 }
 
 // ---------- TUT-04 ----------
@@ -415,6 +474,17 @@ async function fugas(navegador: Browser) {
         const css = await pagina.locator("style").evaluateAll((ss) => ss.map((s) => s.textContent ?? "").find((t) => t.includes("@page")) ?? "");
         ver(css.includes(hoja === "carta" ? "21.6cm 27.9cm" : "21.6cm 14cm"), `ficha ${hoja}: la regla de impresión fija la página en ${hoja === "carta" ? "21.6 × 27.9 cm" : "21.6 × 14 cm"}`, `ficha ${hoja}: sin regla @page (${css})`);
         await pagina.emulateMedia({ media: "print" });
+        // Proporción real de la fotografía respecto de la hoja, medida con la hoja a su tamaño de impresión (21.6 cm de ancho).
+        const prop = await pagina.evaluate(() => {
+          const a = document.querySelector(".ficha-impresion article")!.getBoundingClientRect();
+          const marco = document.querySelector(".ficha-impresion [data-foto-ficha]")!.getBoundingClientRect();
+          const img = document.querySelector<HTMLImageElement>(".ficha-impresion [data-foto-ficha] img")!;
+          const k = Math.min(marco.width / img.naturalWidth, marco.height / img.naturalHeight); // object-fit: contain
+          return { hoja: a.width * a.height, marco: marco.width * marco.height, dibujada: img.naturalWidth * k * img.naturalHeight * k, ancho: a.width };
+        });
+        const pMarco = prop.marco / prop.hoja;
+        console.log(`  (ficha ${hoja}: marco de la fotografía = ${(pMarco * 100).toFixed(1)} % de la hoja; imagen dibujada = ${((prop.dibujada / prop.hoja) * 100).toFixed(1)} % con la foto de ejemplo cuadrada)`);
+        ver(pMarco >= 0.4 && Math.abs(prop.ancho - 21.6 * 37.795) < 2, `ficha ${hoja}: la fotografía (sin recorte) ocupa ${(pMarco * 100).toFixed(1)} % de la hoja (≥ 40 %, lámina 4.11)`, `ficha ${hoja}: la fotografía ocupa solo ${(pMarco * 100).toFixed(1)} % de la hoja (ancho de hoja ${Math.round(prop.ancho)} px)`);
         const imp = await pagina.evaluate(() => ({ hoja: getComputedStyle(document.querySelector(".ficha-impresion article")!).visibility, encabezado: getComputedStyle(document.querySelector("header")!).visibility, titulo: getComputedStyle(document.querySelector("main h1")!).visibility, ancho: document.querySelector(".ficha-impresion")!.getBoundingClientRect().width }));
         ver(imp.hoja === "visible" && imp.encabezado === "hidden" && imp.titulo === "hidden" && Math.abs(imp.ancho - 21.6 * 37.795) < 2, `ficha ${hoja}: en impresión solo se ve la hoja (a 21.6 cm de ancho) y no el resto de la página`, `ficha ${hoja}: CSS de impresión ${JSON.stringify(imp)}`);
       }
@@ -484,6 +554,75 @@ async function modalesFicha(navegador: Browser) {
   await c2.contexto.close();
 }
 
+// ---------- enlaces internos sin 404 ----------
+async function enlacesInternos(navegador: Browser) {
+  const pantallas = ["/acceso", "/tutor", "/tutor?estado=vacio", `${CASO}/creado`, `${CASO}?estado=en-curso`, `${CASO}?estado=localizado`, `${CASO}?estado=cerrado`, `${CASO}/ficha`];
+  const { contexto, pagina } = await nuevaPagina(navegador, 1280);
+  const vistos = new Map<string, string>();
+  for (const ruta of pantallas) {
+    await irA(pagina, ruta);
+    // En escritorio el encabezado ya muestra la navegación; el menú móvil de la plantilla pública se abre aparte.
+    const hrefs = await pagina.locator("a[href]").evaluateAll((as) => as.map((a) => a.getAttribute("href")!));
+    for (const h of hrefs) if (h.startsWith("/")) vistos.set(h.split("#")[0] || "/", ruta);
+  }
+  // Menú móvil de ACC-01 (Cuenta y Explorar) y pie.
+  const m = await nuevaPagina(navegador, 390);
+  await irA(m.pagina, "/acceso");
+  await m.pagina.getByRole("button", { name: "Menú", exact: true }).click();
+  for (const h of await m.pagina.locator("a[href]").evaluateAll((as) => as.map((a) => a.getAttribute("href")!))) if (h.startsWith("/")) vistos.set(h.split("#")[0] || "/", "/acceso (menú móvil)");
+  await m.contexto.close();
+  await contexto.close();
+  const malos: string[] = [];
+  for (const [ruta, origen] of vistos) {
+    const r = await fetch(`${base}${ruta}`, { redirect: "follow" });
+    if (r.status === 404 || r.status >= 500) malos.push(`${ruta} → ${r.status} (desde ${origen})`);
+  }
+  ver(malos.length === 0, `enlaces internos de ACC-01, TUT-01, TUT-04, TUT-05 y TUT-07: ${vistos.size} rutas distintas, ninguna responde 404`, `enlaces rotos: ${malos.join(" | ")}`);
+  // Las pantallas pendientes dicen lo que son y ofrecen volver.
+  const p = await nuevaPagina(navegador);
+  for (const [ruta, volver, destino] of [["/registro", "Volver a iniciar sesión", "/acceso"], ["/recuperar-contrasena", "Volver a iniciar sesión", "/acceso"], [`${CASO}/avistamientos`, "Regresar al detalle del caso", CASO], [`${CASO}/mapa`, "Regresar al detalle del caso", CASO], [`${CASO}/editar`, "Regresar al detalle del caso", CASO], [`${CASO}/notificaciones`, "Regresar al detalle del caso", CASO], ["/tutor/consultar-folio", "Ir a mis registros", "/tutor"], ["/tutor/avistamientos", "Ir a mis registros", "/tutor"]] as const) {
+    const r = await p.pagina.goto(`${base}${ruta}`, { waitUntil: "load" });
+    const t = await p.pagina.locator("main").innerText();
+    ver(r?.status() === 200 && /Esta pantalla se construye en un bloque posterior/.test(t) && (await enlace(p.pagina, volver).getAttribute("href")) === destino, `${ruta}: PantallaPendiente con «${volver}»`, `${ruta}: HTTP ${r?.status()} o sin mensaje de pantalla pendiente`);
+  }
+  const ajeno = await p.pagina.goto(`${base}/tutor/casos/RUPE-Z5C6VR4P/mapa`, { waitUntil: "load" });
+  ver(ajeno?.status() === 404, "una pantalla pendiente de un folio ajeno responde 404", `folio ajeno en pantalla pendiente: HTTP ${ajeno?.status()}`);
+  await p.contexto.close();
+}
+
+// ---------- TUT-05 en escritorio ----------
+async function detalleEscritorio(navegador: Browser) {
+  for (const ancho of [1024, 1280, 1440]) {
+    const { contexto, pagina } = await nuevaPagina(navegador, ancho);
+    await irA(pagina, `${CASO}?estado=en-curso`);
+    const g = await pagina.evaluate(() => {
+      const sels: [string, string][] = [["foto", "[data-foto-caso]"], ["perro", "section[aria-labelledby=datos-perro]"], ["extravio", "section[aria-labelledby=datos-extravio]"], ["reservados", "section[aria-labelledby=datos-reservados]"], ["acciones", "section[aria-labelledby=acciones-titulo]"], ["historial", "section[aria-labelledby=historial-titulo]"]];
+      const cajas = Object.fromEntries(
+        sels.map(([k, sel]) => {
+          const r = document.querySelector(sel)!.getBoundingClientRect();
+          return [k, { x: r.left, y: r.top + window.scrollY, w: r.width, h: r.height, r: r.right, b: r.bottom + window.scrollY }];
+        }),
+      );
+      return { ...cajas, alto: document.documentElement.scrollHeight } as Record<"foto" | "perro" | "extravio" | "reservados" | "acciones" | "historial", { x: number; y: number; w: number; h: number; r: number; b: number }> & { alto: number };
+    });
+    const f = g.foto;
+    ver(f.w <= 421 && Math.abs(f.w - f.h) <= 1, `TUT-05 ${ancho}px: la fotografía mide ${Math.round(f.w)}×${Math.round(f.h)} px (cuadrada, máx. ≈420)`, `TUT-05 ${ancho}px: fotografía ${Math.round(f.w)}×${Math.round(f.h)}`);
+    ver(f.r <= g.perro.x + 1 && Math.abs(f.y - g.perro.y) <= 1, `TUT-05 ${ancho}px: la fotografía queda junto a «Datos del perro», a su izquierda y a la misma altura`, `TUT-05 ${ancho}px: foto ${JSON.stringify(f)} y datos ${JSON.stringify(g.perro)}`);
+    ver(g.acciones.x >= g.perro.r - 1 && g.historial.x >= g.perro.r - 1 && g.historial.y >= g.acciones.b - 1 && Math.abs(g.acciones.y - f.y) <= 1, `TUT-05 ${ancho}px: «Acciones» e «Historial de estados» van en la columna derecha, uno bajo el otro`, `TUT-05 ${ancho}px: acciones ${JSON.stringify(g.acciones)} historial ${JSON.stringify(g.historial)}`);
+    ver(g.extravio.y >= Math.max(f.b, g.perro.b) - 1 && g.reservados.y >= g.extravio.b - 1 && g.extravio.x <= f.x + 1, `TUT-05 ${ancho}px: «Datos del extravío» y «Datos reservados» siguen bajo la foto, en la columna izquierda`, `TUT-05 ${ancho}px: orden de tarjetas incorrecto`);
+    const hueco = Math.max(g.acciones.b, g.historial.b) - Math.max(g.reservados.b, g.historial.b);
+    console.log(`  (TUT-05 ${ancho}px: alto de página ${g.alto} px; la columna derecha termina ${Math.round(Math.abs(g.reservados.b - g.historial.b))} px ${g.reservados.b > g.historial.b ? "antes" : "después"} que la izquierda${hueco ? "" : ""})`);
+    await desborde(pagina, `TUT-05 ${ancho}px`);
+    await contexto.close();
+  }
+  // Móvil: sin cambios (orden: foto, acciones, datos, historial al final).
+  const { contexto, pagina } = await nuevaPagina(navegador, 390);
+  await irA(pagina, `${CASO}?estado=en-curso`);
+  const y = await pagina.evaluate(() => ["[data-foto-caso]", "section[aria-labelledby=acciones-titulo]", "section[aria-labelledby=datos-perro]", "section[aria-labelledby=datos-extravio]", "section[aria-labelledby=datos-reservados]", "section[aria-labelledby=historial-titulo]"].map((s) => document.querySelector(s)!.getBoundingClientRect().top));
+  ver(y.every((v, i) => i === 0 || v > y[i - 1]), "TUT-05 390px: el orden en móvil no cambia (foto, acciones, datos del perro, extravío, reservados, historial)", `TUT-05 390px: orden ${y.map(Math.round).join(",")}`);
+  await contexto.close();
+}
+
 // ---------- (e) geometría ----------
 async function geometria(navegador: Browser) {
   const rutas = [
@@ -541,8 +680,11 @@ async function main() {
     await acceso(navegador);
     await misRegistros(navegador);
     await registro(navegador);
+    await salidaRegistro(navegador);
+    await enlacesInternos(navegador);
     await creado(navegador);
     await detalle(navegador);
+    await detalleEscritorio(navegador);
     await fugas(navegador);
     await modalesFicha(navegador);
     await geometria(navegador);

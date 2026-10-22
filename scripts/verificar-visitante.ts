@@ -504,6 +504,29 @@ async function geometria(navegador: Browser) {
   }
 }
 
+// ---------- enlaces internos sin 404 ----------
+async function enlacesInternos(navegador: Browser) {
+  const pantallas = ["/", FICHA, `${FICHA}?estado=localizado`, `${FICHA}?estado=no-disponible`, `${AVISTAMIENTO}?paso=1`, `${AVISTAMIENTO}?paso=3`, `${AVISTAMIENTO}?paso=6&datos=ejemplo`, `${FICHA}/avistamiento/enviado`, "/ruta-que-no-existe", "/dev/transversales/error"];
+  const { contexto, pagina } = await nuevaPagina(navegador, { ancho: 1280 });
+  const vistos = new Map<string, string>();
+  for (const ruta of pantallas) {
+    await pagina.goto(`${base}${ruta}`, { waitUntil: "load" });
+    for (const h of await pagina.locator("a[href]").evaluateAll((as) => as.map((a) => a.getAttribute("href")!))) if (h.startsWith("/")) vistos.set(h.split("#")[0] || "/", ruta);
+  }
+  await contexto.close();
+  const m = await nuevaPagina(navegador, { ancho: 390 });
+  await m.pagina.goto(`${base}/`, { waitUntil: "load" });
+  await m.pagina.getByRole("button", { name: "Menú", exact: true }).click();
+  for (const h of await m.pagina.locator("a[href]").evaluateAll((as) => as.map((a) => a.getAttribute("href")!))) if (h.startsWith("/")) vistos.set(h.split("#")[0] || "/", "/ (menú móvil)");
+  await m.contexto.close();
+  const malos: string[] = [];
+  for (const [ruta, origen] of vistos) {
+    const r = await fetch(`${base}${ruta}`, { redirect: "follow" });
+    if (r.status === 404 || r.status >= 500) malos.push(`${ruta} → ${r.status} (desde ${origen})`);
+  }
+  ver(malos.length === 0, `enlaces internos de las pantallas del Visitante: ${vistos.size} rutas distintas, ninguna responde 404`, `enlaces rotos: ${malos.join(" | ")}`);
+}
+
 // ---------- TRA-01 y TRA-04 ----------
 async function transversales(navegador: Browser) {
   const { contexto, pagina } = await nuevaPagina(navegador);
@@ -541,6 +564,7 @@ async function main() {
     await estadoAnimal(navegador);
     await ubicacion(navegador);
     await transversales(navegador);
+    await enlacesInternos(navegador);
     await geometria(navegador);
   } finally {
     await navegador?.close();
