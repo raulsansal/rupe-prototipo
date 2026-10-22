@@ -106,3 +106,34 @@ export type FichaPublica = {
 
 /** Lo que ve la persona tutora en su lista «Mis registros»: la ficha pública más la fecha del último cambio de estado. */
 export type FichaTutor = FichaPublica & Pick<CasoExtravio, "fechaCambioEstado">;
+
+export type TipoMovimiento =
+  | "registro"
+  | "ficha generada"
+  | "avistamiento recibido"
+  | "avistamiento revisado"
+  | "localización"
+  | "reactivación"
+  | "cierre confirmado"
+  | "cancelación"
+  | "deshabilitación"
+  | "restauración";
+
+/** Movimiento del historial de estados (tbl_historial_estado_caso). Es reservado: solo lo ve la persona tutora dueña y el Administrador. */
+export type MovimientoHistorial = {
+  consecutivo: number;
+  fechaHora: string; // ISO 8601, UTC
+  tipo: TipoMovimiento;
+  motivo?: string; // ≤ 300; obligatorio en cancelación, deshabilitación y reactivación
+  estado: EstadoCaso; // estado al que llegó el caso
+};
+
+/**
+ * Lo que ve la persona tutora DUEÑA del caso (TUT-05): los datos del perro y del extravío, incluidos los reservados,
+ * y el historial. Nunca incluye datos de la persona (nombre, correo, teléfono) ni el token del QR.
+ */
+export type CasoTutor = Perro & CasoExtravio & { fechaRegistro: string; historial: MovimientoHistorial[] };
+
+/** Estados en los que el caso está «activo»: acepta avistamientos, se puede editar, cancelar, compartir y generar su ficha. */
+export const ESTADOS_ACTIVOS: readonly EstadoCaso[] = ["Extraviado", "En búsqueda", "Avistamiento reportado", "En seguimiento"];
+export const esCasoActivo = (e: EstadoCaso) => ESTADOS_ACTIVOS.includes(e);
