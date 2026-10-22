@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { cx } from "@/lib/clases";
-import { PARAMETROS } from "@/mocks/parametros";
+import { etiquetaVersionAviso } from "@/mocks/parametros";
 import { IconoRedSocial } from "./IconoRedSocial";
 
 type Props = {
@@ -14,7 +14,7 @@ type Props = {
 };
 
 const ENLACES = [
-  { href: "/#aviso-de-privacidad", etiqueta: `Aviso de privacidad ${PARAMETROS.version_aviso_privacidad}` },
+  { href: "/#aviso-de-privacidad", etiqueta: `Aviso de privacidad ${etiquetaVersionAviso()}` },
   { href: "/#preguntas-frecuentes", etiqueta: "Preguntas frecuentes" },
   { href: "/#contacto", etiqueta: "Contacto" },
 ];

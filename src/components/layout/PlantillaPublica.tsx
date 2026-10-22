@@ -8,7 +8,7 @@ import { clasesBoton } from "@/components/ui/clasesBoton";
 import { Icono, type NombreIcono } from "@/components/ui/Icono";
 import { Logo } from "@/components/ui/Logo";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
-import { PARAMETROS } from "@/mocks/parametros";
+import { etiquetaVersionAviso } from "@/mocks/parametros";
 import { EnlaceSaltar } from "./EnlaceSaltar";
 import { EnlacesNavegacion } from "./EnlacesNavegacion";
 import { hrefActivo } from "./navegacion";
@@ -17,7 +17,7 @@ import { PieSitio } from "./PieSitio";
 type EnlaceMenu = { href: string; etiqueta: string; icono: NombreIcono };
 
 const CUENTA: EnlaceMenu[] = [
-  { href: "/iniciar-sesion", etiqueta: "Iniciar sesión", icono: "login" },
+  { href: "/acceso", etiqueta: "Iniciar sesión", icono: "login" },
   { href: "/registro", etiqueta: "Registrarse como persona tutora", icono: "person_add" },
 ];
 const EXPLORAR: EnlaceMenu[] = [
@@ -25,7 +25,7 @@ const EXPLORAR: EnlaceMenu[] = [
   { href: "/#como-funciona", etiqueta: "¿Cómo funciona RUPE?", icono: "info" },
   { href: "/#buscar-folio", etiqueta: "Consultar folio", icono: "search" },
   { href: "/#preguntas-frecuentes", etiqueta: "Preguntas frecuentes", icono: "help" },
-  { href: "/#aviso-de-privacidad", etiqueta: `Aviso de privacidad ${PARAMETROS.version_aviso_privacidad}`, icono: "lock" },
+  { href: "/#aviso-de-privacidad", etiqueta: `Aviso de privacidad ${etiquetaVersionAviso()}`, icono: "lock" },
   { href: "/#contacto", etiqueta: "Contacto", icono: "mail" },
 ];
 const NAVEGACION_ESCRITORIO = EXPLORAR.slice(0, 3);
@@ -104,7 +104,7 @@ export function PlantillaPublica({ children, menuAbiertoInicial = false, rutaAct
           <EnlacesNavegacion enlaces={NAVEGACION_ESCRITORIO} activo={activo} etiqueta="Navegación principal" className="ml-4 hidden flex-1 lg:block" />
           <div className="ml-auto flex items-center gap-2">
             <ThemeToggle compacto />
-            <Link href="/iniciar-sesion" className={clasesBoton({ variante: "secundario", className: "whitespace-nowrap max-md:hidden" })}>
+            <Link href="/acceso" className={clasesBoton({ variante: "secundario", className: "whitespace-nowrap max-md:hidden" })}>
               Iniciar sesión
             </Link>
             <Link href="/registro" className={clasesBoton({ className: "whitespace-nowrap max-md:hidden" })}>
