@@ -3,7 +3,8 @@ import { FOLIO_EN_CURSO } from "./src/mocks/casos";
 // Configuración del script `npm run capturas`.
 // Una ruta sin `secciones` se captura completa; con `secciones`, cada [data-seccion="..."] por separado.
 // `anchos` sustituye a ANCHOS para esa entrada; `archivo` fija el nombre base (por defecto, la ruta sin parámetros).
-export type Captura = { ruta: string; secciones?: string[]; anchos?: number[]; archivo?: string };
+// `ventana`: con un modal abierto se captura la ventana visible (390×ALTO_TELEFONO) en lugar de la página completa.
+export type Captura = { ruta: string; secciones?: string[]; anchos?: number[]; archivo?: string; ventana?: boolean };
 
 export const RUTAS: Captura[] = [
   { ruta: "/dev/fundaciones" },
@@ -55,12 +56,13 @@ RUTAS.push(
   { ruta: `${CASO}?estado=localizado`, archivo: "tutor-caso-localizado", anchos: M },
   { ruta: `${CASO}?estado=cerrado`, archivo: "tutor-caso-cerrado", anchos: M },
   { ruta: `${CASO}/ficha`, archivo: "tutor-ficha" },
-  { ruta: `${CASO}/ficha?modal=visor`, archivo: "tutor-ficha-visor-carta", anchos: M },
-  { ruta: `${CASO}/ficha?modal=visor&hoja=media-carta`, archivo: "tutor-ficha-visor-media-carta", anchos: M },
-  { ruta: `${CASO}/ficha?modal=compartir`, archivo: "tutor-ficha-compartir", anchos: M },
-  { ruta: `${CASO}/ficha?modal=regenerar`, archivo: "tutor-ficha-regenerar", anchos: M },
+  { ruta: `${CASO}/ficha?modal=visor`, archivo: "tutor-ficha-visor-carta", anchos: M, ventana: true },
+  { ruta: `${CASO}/ficha?modal=visor&hoja=media-carta`, archivo: "tutor-ficha-visor-media-carta", anchos: M, ventana: true },
+  { ruta: `${CASO}/ficha?modal=compartir`, archivo: "tutor-ficha-compartir", anchos: M, ventana: true },
+  { ruta: `${CASO}/ficha?modal=regenerar`, archivo: "tutor-ficha-regenerar", anchos: M, ventana: true },
 );
 export const ANCHOS = [390, 1280];
 export const TEMAS = ["claro", "oscuro"] as const; // se aplican como data-theme light | dark
 export const ALTO_VENTANA = 900;
+export const ALTO_TELEFONO = 844; // ventana de un teléfono (capturas con modal)
 export const PUERTO = 3100;
