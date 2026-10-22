@@ -252,51 +252,62 @@ export function DetalleCasoTutor({ caso }: { caso: CasoTutor }) {
         </div>
         <ChipEstado estado={estado} />
       </div>
-      <div className="flex flex-col gap-4 lg:grid lg:grid-flow-dense lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)] lg:items-start">
-        <div className={cx("relative aspect-[4/3] overflow-hidden rounded-tarjeta border border-border bg-disabled-bg lg:col-start-1", !activo && "opacity-90")}>
-          <Image src={caso.fotografiaUrl} alt={`Fotografía de ${caso.nombre}`} fill sizes="(min-width: 1024px) 60vw, 100vw" className="object-cover" priority />
+      {/* Móvil: una columna con `order` (foto, acciones, datos, extravío, reservados, historial). Desde 1024 px, los envoltorios `contents`
+          se vuelven columnas reales: izquierda = foto junto a «Datos del perro», extravío y reservados; derecha = acciones e historial. */}
+      <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start xl:grid-cols-[minmax(0,1fr)_24rem]">
+        <div className="contents lg:flex lg:min-w-0 lg:flex-col lg:gap-4">
+          <div className="contents lg:grid lg:grid-cols-2 lg:items-start lg:gap-4">
+            <div
+              data-foto-caso
+              className={cx("relative order-1 aspect-[4/3] overflow-hidden rounded-tarjeta border border-border bg-disabled-bg lg:order-none lg:aspect-square lg:max-w-[420px]", !activo && "opacity-90")}
+            >
+              <Image src={caso.fotografiaUrl} alt={`Fotografía de ${caso.nombre}`} fill sizes="(min-width: 1280px) 420px, (min-width: 1024px) 30vw, 100vw" className="object-cover" priority />
+            </div>
+            <div className="order-3 lg:order-none">
+              <TarjetaDatos
+                id="datos-perro"
+                titulo="Datos del perro"
+                filas={[
+                  ["Nombre", caso.nombre],
+                  ["Sexo", caso.sexo],
+                  ["Raza", caso.razaEspecificada ? `Otra: ${caso.razaEspecificada}` : caso.raza],
+                  ["Edad", edadAproximada(caso)],
+                  ["Tamaño", etiquetaTamano(caso.tamano)],
+                  ["Color", caso.color],
+                  ["Características distintivas", caso.caracteristicasDistintivas ?? "Sin características registradas"],
+                ]}
+              />
+            </div>
+          </div>
+          <div className="order-4 lg:order-none">
+            <TarjetaDatos
+              id="datos-extravio"
+              titulo="Datos del extravío · públicos en la ficha"
+              filas={[
+                ["Fecha del extravío", formatearFechaCorta(caso.fechaExtravio)],
+                ["Alcaldía", caso.alcaldia],
+                ["Colonia o zona", caso.coloniaZona],
+              ]}
+            />
+          </div>
+          <div className="order-5 lg:order-none">
+            <TarjetaDatos
+              id="datos-reservados"
+              variante="reservado"
+              titulo="Datos reservados · no aparecen en la ficha"
+              filas={[
+                ["Momento del día", momento],
+                ["Calle o cruce", caso.direccionAproximada ?? "No registrada"],
+                ["Referencias del lugar", caso.referenciasDelLugar ?? "No registradas"],
+                ["Motivo", caso.motivo],
+                ["Descripción de las circunstancias", caso.descripcionCircunstancias ?? "No registrada"],
+              ]}
+            />
+          </div>
         </div>
-        <div className="lg:col-start-2">{acciones}</div>
-        <div className="lg:col-start-1">
-          <TarjetaDatos
-            id="datos-perro"
-            titulo="Datos del perro"
-            filas={[
-              ["Nombre", caso.nombre],
-              ["Sexo", caso.sexo],
-              ["Raza", caso.razaEspecificada ? `Otra: ${caso.razaEspecificada}` : caso.raza],
-              ["Edad", edadAproximada(caso)],
-              ["Tamaño", etiquetaTamano(caso.tamano)],
-              ["Color", caso.color],
-              ["Características distintivas", caso.caracteristicasDistintivas ?? "Sin características registradas"],
-            ]}
-          />
-        </div>
-        <div className="lg:col-start-2 lg:row-span-3">{historialVista}</div>
-        <div className="lg:col-start-1">
-          <TarjetaDatos
-            id="datos-extravio"
-            titulo="Datos del extravío · públicos en la ficha"
-            filas={[
-              ["Fecha del extravío", formatearFechaCorta(caso.fechaExtravio)],
-              ["Alcaldía", caso.alcaldia],
-              ["Colonia o zona", caso.coloniaZona],
-            ]}
-          />
-        </div>
-        <div className="lg:col-start-1">
-          <TarjetaDatos
-            id="datos-reservados"
-            variante="reservado"
-            titulo="Datos reservados · no aparecen en la ficha"
-            filas={[
-              ["Momento del día", momento],
-              ["Calle o cruce", caso.direccionAproximada ?? "No registrada"],
-              ["Referencias del lugar", caso.referenciasDelLugar ?? "No registradas"],
-              ["Motivo", caso.motivo],
-              ["Descripción de las circunstancias", caso.descripcionCircunstancias ?? "No registrada"],
-            ]}
-          />
+        <div className="contents lg:flex lg:flex-col lg:gap-4">
+          <div className="order-2 lg:order-none">{acciones}</div>
+          <div className="order-6 lg:order-none">{historialVista}</div>
         </div>
       </div>
 
