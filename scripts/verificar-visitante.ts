@@ -121,13 +121,19 @@ async function ficha(navegador: Browser) {
   ver((await boton.isDisabled()) && (await pagina.getByRole("link", { name: "Reportar avistamiento" }).count()) === 0 && /ya no se reciben avistamientos/.test(aviso), "ficha B (localizado): botón deshabilitado y mensaje «ya no se reciben avistamientos»", "ficha B: botón no deshabilitado o sin mensaje");
   ver(aviso.includes("Localizado"), "ficha B: el estado «Localizado» se muestra con texto", "ficha B: no muestra «Localizado»");
 
-  await irA(pagina, `${FICHA}?estado=no-disponible`);
-  const c = await pagina.locator("main").innerText();
-  ver(/Este caso ya no está disponible/.test(c) && (await pagina.getByRole("img", { name: /^Fotografía de/ }).count()) === 0 && !c.includes("Max"), "ficha C (cerrado, cancelado o deshabilitado): mensaje informativo, sin ficha ni fotografía", "ficha C: muestra la ficha o no el mensaje");
-
-  await irA(pagina, `/ficha/${FOLIO_INEXISTENTE}`);
-  const nf = await pagina.locator("main").innerText();
-  ver(/Folio no encontrado/.test(nf) && (await pagina.getByRole("link", { name: "Buscar otro folio" }).isVisible()) && (await pagina.getByRole("link", { name: "Ir al inicio" }).isVisible()), "ficha C (folio inexistente): «Folio no encontrado», «Buscar otro folio» e «Ir al inicio»", "ficha C: folio inexistente mal resuelto");
+  // Estado C: una sola pantalla con dos tarjetas; folio inexistente, caso cerrado y ?estado=no-disponible son IDÉNTICOS.
+  const rocky0 = CASOS_ORIGEN.find((x) => x.estado === "Cerrado")!;
+  const rutasC = [`/ficha/${FOLIO_INEXISTENTE}`, `/ficha/${rocky0.folio}`, `${FICHA}?estado=no-disponible`];
+  const vistas: { estado: number; html: string; texto: string }[] = [];
+  for (const ruta of rutasC) {
+    const r = await pagina.goto(`${base}${ruta}`, { waitUntil: "load" });
+    vistas.push({ estado: r!.status(), html: await pagina.locator("main").innerHTML(), texto: await pagina.locator("main").innerText() });
+  }
+  const t = vistas[0].texto;
+  ver(/Folio no encontrado/.test(t) && /Gracias por ayudar/.test(t) && (await pagina.locator("main section").count()) === 2, "ficha C: una sola pantalla con dos tarjetas apiladas («Folio no encontrado» y la de agradecimiento)", "ficha C: no son dos tarjetas");
+  ver((await pagina.getByRole("link", { name: "Buscar otro folio" }).isVisible()) && (await pagina.getByRole("link", { name: "Ir al inicio" }).isVisible()) && (await pagina.getByRole("img", { name: /^Fotografía de/ }).count()) === 0, "ficha C: «Buscar otro folio» e «Ir al inicio», sin fotografía ni ficha", "ficha C: faltan botones o muestra la ficha");
+  ver(vistas.every((v) => v.estado === vistas[0].estado && v.html === vistas[0].html), `ficha C: folio inexistente, caso cerrado y ?estado=no-disponible responden igual (HTTP ${vistas[0].estado}) y con el mismo contenido`, "ficha C: las tres respuestas difieren, se revelaría que el caso existió");
+  ver(!/cerrad|cancelad|deshabilitad/i.test(t) && !t.includes(rocky0.nombre) && !t.includes(rocky0.folio), "ficha C: no menciona cierre, cancelación, deshabilitación, nombre ni folio", "ficha C: revela algo del caso");
   await contexto.close();
 
   // Estados por defecto según el caso: Toby (Localizado) → B; Rocky (Cerrado) → C.
@@ -137,7 +143,7 @@ async function ficha(navegador: Browser) {
   await irA(p2, `/ficha/${toby.folio}`);
   ver(await p2.getByRole("button", { name: "Reportar avistamiento" }).isDisabled(), "un caso «Localizado» abre en el estado B por sí solo (R13)", "un caso Localizado no abrió en el estado B");
   await irA(p2, `/ficha/${rocky.folio}`);
-  ver(/Este caso ya no está disponible/.test(await p2.locator("main").innerText()), "un caso «Cerrado» abre en el estado C por sí solo", "un caso Cerrado no abrió en el estado C");
+  ver(/Folio no encontrado/.test(await p2.locator("main").innerText()), "un caso «Cerrado» abre en el estado C por sí solo", "un caso Cerrado no abrió en el estado C");
   await irA(p2, `/ficha/${toby.folio}/avistamiento`);
   ver(new URL(p2.url()).pathname === `/ficha/${toby.folio}`, "el reporte de un caso «Localizado» vuelve a su ficha (no acepta avistamientos)", `el reporte de un caso Localizado no redirigió: ${p2.url()}`);
   await c2.close();
@@ -277,7 +283,12 @@ async function flujo(navegador: Browser) {
   ver((await comentario.inputValue()) === "Iba hacia el parque.", "paso 5 al regresar: el comentario se conserva", "paso 5 al regresar: se perdió el comentario");
   await continuar(pagina).click();
   await continuar(pagina).click();
-  ver((await paso(pagina, 6).getByText(/Maqueta: el envío aún no está conectado/).isVisible()), "paso 6: «Enviar reporte» con todo completo muestra el aviso de maqueta (no hay pantalla posterior en el diseño)", "paso 6: no respondió al envío");
+  await pagina.waitForURL(`**${FICHA}/avistamiento/enviado`);
+  ver(true, "paso 6: «Enviar reporte» con todo completo lleva a «Reporte enviado» (PUB-06)", "");
+  const env = await pagina.locator("main").innerText();
+  const hrefVer = await pagina.getByRole("link", { name: "Ver ficha" }).getAttribute("href");
+  ver((await pagina.getByRole("heading", { level: 1, name: "Reporte enviado" }).isVisible()) && /persona tutora recibirá un aviso/.test(env) && /Gracias/.test(env) && hrefVer === FICHA && (await pagina.getByRole("link", { name: "Ir al inicio" }).isVisible()), "PUB-06: título, agradecimiento, aviso a la persona tutora, «Ver ficha» e «Ir al inicio»", "PUB-06: contenido incorrecto");
+  ver(!/Av\. Insurgentes|Roma Sur|Iba hacia el parque|18 oct/.test(env), "PUB-06: no repite lo capturado ni muestra datos personales", "PUB-06: muestra datos capturados");
   // Nada se guarda en el navegador.
   const almacen = await pagina.evaluate(() => ({ local: Object.keys(localStorage).filter((k) => k !== "rupe-tema"), sesion: Object.keys(sessionStorage), cookies: document.cookie }));
   ver(almacen.local.length === 0 && almacen.sesion.length === 0 && almacen.cookies === "", "lo capturado no se guarda en localStorage, sessionStorage ni cookies", `almacenamiento: ${JSON.stringify(almacen)}`);
@@ -473,6 +484,7 @@ async function geometria(navegador: Browser) {
     `${FICHA}?estado=en-curso`,
     `${FICHA}?estado=localizado`,
     `${FICHA}?estado=no-disponible`,
+    `${FICHA}/avistamiento/enviado`,
     `/ficha/${FOLIO_INEXISTENTE}`,
     ...[1, 2, 3, 4, 5, 6].map((n) => `${AVISTAMIENTO}?paso=${n}&datos=ejemplo`),
     ...["direccion", "mapa", "gps", "denegado"].map((u) => `${AVISTAMIENTO}?ubicacion=${u}`),
@@ -500,7 +512,7 @@ async function transversales(navegador: Browser) {
   ver((await pagina.getByRole("heading", { level: 1, name: "Página no encontrada" }).isVisible()) && (await pagina.getByRole("link", { name: "Ir al inicio" }).isVisible()) && (await pagina.getByRole("link", { name: "Consultar un folio" }).isVisible()), "TRA-01: título, «Ir al inicio» y «Consultar un folio» dentro de la plantilla pública", "TRA-01: contenido incorrecto");
   ver((await pagina.locator("main#contenido").count()) === 1 && (await pagina.locator("header").count()) >= 1 && (await pagina.locator("footer").count()) === 1, "TRA-01: un solo <main id=\"contenido\"> con encabezado y pie", "TRA-01: estructura incorrecta");
   await irA(pagina, "/dev/transversales/error");
-  ver((await pagina.getByRole("heading", { level: 1, name: "Algo salió mal" }).isVisible()) && (await pagina.getByRole("button", { name: "Reintentar" }).isVisible()) && /Tus datos capturados se conservan/.test(await pagina.locator("main").innerText()), "TRA-04: título, mensaje «Tus datos capturados se conservan», «Reintentar» e «Ir al inicio»", "TRA-04: contenido incorrecto");
+  ver((await pagina.getByRole("heading", { level: 1, name: "Algo salió mal" }).isVisible()) && (await pagina.getByRole("button", { name: "Reintentar" }).isVisible()) && !/datos capturados se conservan/.test(await pagina.locator("main").innerText()) && (await pagina.getByRole("link", { name: "Ir al inicio" }).isVisible()), "TRA-04: título, texto neutral (sin «Tus datos capturados se conservan»), «Reintentar» e «Ir al inicio»", "TRA-04: contenido incorrecto");
   await contexto.close();
 }
 
