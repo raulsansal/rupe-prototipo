@@ -18,23 +18,23 @@ Sin ORM ni librerías de UI, mapas, estado global o formularios: componentes a m
   y `PlantillaFlujo` (flujos por pasos, rutas en `(flujo)`); un solo `<main id="contenido">` cada una. Con `inline-flex` ocultar con `max-md:hidden`, no `hidden`.
 - Datos ficticios en `src/mocks` (importes relativos): `casos.ts` (origen con reservados → `aFichaPublica`), `catalogos.ts`, `parametros.ts`.
   Los datos de la persona tutora y los reservados nunca son públicos: la ficha pública usa solo `FichaPublica` (`tipos.ts`).
-- Alcance: solo perros, sin integración con registros oficiales. Mapa (`MapaIlustrativo`) y QR (`QrIlustrativo`) son ilustrativos.
-- Un enlace interno nunca da 404: la ruta sin pantalla usa `PantallaPendiente`. `verificar-visitante` y `verificar-tutor` lo comprueban.
-- Parámetros de consulta solo para variantes de capturas y pruebas (lo capturado en los flujos vive en memoria):
-  `?estado=` en `/ficha/[clave]` (en-curso|localizado|no-disponible), `/acceso` (bloqueo|deshabilitada), `/tutor` (vacio|cargando) y
-  `/tutor/casos/[folio]` (en-curso|localizado|cerrado); `/ficha/[clave]/avistamiento`: `?paso=1..6`, `?ubicacion=direccion|mapa|gps|denegado`,
-  `?caso=fallecido|combinadas|vacio`, `?datos=ejemplo`; `/tutor/registrar`: `?paso=1|2`, `?raza=otra`; `/tutor/casos/[folio]/ficha`:
-  `?modal=visor|compartir|regenerar`, `?hoja=carta|media-carta`; demos de plantillas: `?menu=abierto`.
+- Solo perros, sin registros oficiales. Mapas (`MapaIlustrativo`, TUT-09) y QR (`QrIlustrativo`) son ilustrativos. Ningún enlace interno da 404:
+  la ruta sin pantalla usa `PantallaPendiente` (`verificar-visitante` y `verificar-tutor` lo comprueban).
+- Parámetros de consulta solo para variantes de capturas y pruebas (lo capturado en los flujos vive en memoria): `?estado=` en `/ficha/[clave]`
+  (en-curso|localizado|no-disponible), `/acceso` (bloqueo|deshabilitada|aviso-actualizado), `/registro` (aviso), `/tutor` (vacio|cargando),
+  `/tutor/casos/[folio]` (en-curso|localizado|cerrado); `/` `?aviso=abierto`; `/ficha/[clave]/avistamiento`: `?paso=1..6`, `?ubicacion=`
+  (direccion|mapa|gps|denegado), `?caso=` (fallecido|combinadas|vacio), `?datos=ejemplo`; `/tutor/registrar`: `?paso=1|2`, `?raza=otra`;
+  `.../ficha`: `?modal=` (visor|compartir|regenerar), `?hoja=` (carta|media-carta); `.../avistamientos`: `?filtros=abiertos`; `.../mapa`:
+  `?ruta=visible`, `?filtro=abierto`; `.../avistamientos/[id]`: `?foto=visible`; demos de plantillas: `?menu=abierto`.
 - Nunca escribir valores de claves, tokens o contraseñas (solo sus nombres) ni crear `.env` reales. Sin comandos de git que modifiquen: proponer commits pequeños.
 ## Referencias
-- Láminas: `docs/diseno/sistema-de-diseno/` (4.1 a 4.13); mockups por rol: `docs/diseno/mockups/`. Si algo no es inequívoco, anotarlo como duda.
-- Historias de usuario y diccionario de datos: `docs/referencia/` (el diccionario manda sobre los prompts).
+Láminas: `docs/diseno/sistema-de-diseno/`; mockups por rol: `docs/diseno/mockups/`; HU y diccionario (manda sobre prompts): `docs/referencia/`. Si algo no es inequívoco, anotarlo como duda.
 ## Comandos
-`npm run dev` · `build` · `lint` · `npx tsc --noEmit` · `verificar-tokens` · `verificar-logos` · `verificar-contraste` ·
-`verificar-componentes` · `verificar-plantillas` · `verificar-visitante` · `verificar-tutor`. `npm run capturas` → PNG en `capturas/` (`--secciones=a,b`, `--rutas=/prefijo`).
+`npm run dev` · `build` · `lint` · `npx tsc --noEmit` · `verificar-tokens` · `-logos` · `-contraste` · `-componentes` · `-plantillas` · `-visitante` · `-tutor`.
+`npm run capturas` → PNG en `capturas/` (`--secciones=a,b`, `--rutas=/prefijo`, `--autoprueba`).
 ## Decisiones resueltas
-- B1: texto deshabilitado con tokens `disabled-*` (no los tonos de la lámina 4.6); alertas en oscuro con tokens `*-bg`.
-- B2: admin con barra lateral desde 1024 px (cajón `<dialog>` antes); pública con navegación desde 1024 px; pie del flujo sin redes.
-- B3: menú y pie enlazan a anclas de `/`; «Leer aviso completo» despliega el texto; PUB-06 «Reporte enviado» tras «Enviar reporte».
-- B4: folio inexistente y caso cerrado idénticos (PUB-03 C); aviso «v1.0»; modales con `Modal` (`<dialog>`); salir del registro con datos pide confirmación;
-  la ficha impresa se escala con `EscalaHoja` y su foto ocupa ≥ 40 % (medido en `verificar-tutor`). Capturas: ventana al alto de la página (con modal, 390×844) y medición de solapes (`--autoprueba`).
+- B1: texto deshabilitado con `disabled-*`; alertas en oscuro con `*-bg`. B2: admin con barra lateral desde 1024 px (cajón antes); pública con navegación desde 1024 px; pie del flujo sin redes.
+- B3: menú y pie enlazan a anclas de `/`; el aviso completo es el modal MOD-01 (v1.0); PUB-06 «Reporte enviado» tras enviar.
+- B4: folio inexistente y caso cerrado idénticos (PUB-03 C); modales con `Modal` (`<dialog>`); salir del registro con datos pide confirmación; ficha impresa
+  con `EscalaHoja` y foto ≥ 40 %. Capturas: ventana al alto de la página (con modal, 390×844) y medición de solapes (`--autoprueba`).
+- B4b: dirección y referencias de un avistamiento solo en TUT-10; foto «Fallecido» no se dibuja hasta «Ver fotografía»; TRA-02/03 son modales con props.

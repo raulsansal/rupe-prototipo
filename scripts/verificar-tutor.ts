@@ -7,6 +7,8 @@
 // Opciones: --sin-build  reutiliza el build existente · --base=URL  usa un servidor que ya corre
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { chromium, type Browser, type BrowserContext, type Locator, type Page } from "playwright";
+import { PARAMETROS } from "../src/mocks/parametros";
+import { AVISTAMIENTOS, avistamientosDelCaso, FOLIO_CON_AVISTAMIENTOS, FOLIO_UN_AVISTAMIENTO, FOTO_SENSIBLE } from "../src/mocks/avistamientos";
 import { CASOS_ORIGEN, FOLIO_EN_CURSO, FOLIO_NUEVO, casosDeLaPersonaTutora, valoresReservados } from "../src/mocks/casos";
 import { CLAVE_TEMA } from "../src/lib/tema";
 
@@ -15,6 +17,8 @@ const baseExterna = process.argv.find((a) => a.startsWith("--base="))?.split("="
 const base = baseExterna ?? `http://localhost:${PUERTO}`;
 const ANCHOS = [390, 768, 1280];
 const CASO = `/tutor/casos/${FOLIO_EN_CURSO}`;
+const CON_AV = `/tutor/casos/${FOLIO_CON_AVISTAMIENTOS}`;
+const UN_AV = `/tutor/casos/${FOLIO_UN_AVISTAMIENTO}`;
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
 
 let fallos = 0;
@@ -81,7 +85,7 @@ async function areasTactiles(pagina: Page, etiqueta: string) {
       if (el.closest("[hidden]") || el.closest("[inert]")) continue;
       const rect = el.getBoundingClientRect();
       if (getComputedStyle(el).display === "none" || (rect.width <= 2 && rect.height <= 2)) continue;
-      if (el instanceof HTMLAnchorElement && el.closest("p")) continue; // enlaces dentro de texto corrido
+      if (el instanceof HTMLAnchorElement && el.closest("p, label")) continue; // enlaces dentro de texto corrido (la fila de la casilla sí mide ≥ 44 px)
       total++;
       if (rect.height < 43.5) malos.push(`${el.tagName.toLowerCase()} "${(el.getAttribute("aria-label") ?? el.textContent ?? "").trim().slice(0, 28)}" ${Math.round(rect.height * 10) / 10}px`);
     }
@@ -183,8 +187,21 @@ async function registro(navegador: Browser) {
   await aviso.click();
   ver((await pagina.getByText("Públicos: aparecen en la ficha").isVisible()) && (await pagina.getByText("Reservados: nunca aparecen en la ficha").isVisible()) && (await resumen.isVisible()), "TUT-02: al desplegarlo muestra las listas de datos públicos y reservados (y la línea sigue visible)", "TUT-02: el aviso desplegado no muestra las listas");
   await aviso.click();
-  const caja = await pagina.locator('[data-paso="1"] div.aspect-square').evaluate((e) => { const r = e.getBoundingClientRect(); const c = e.parentElement!.getBoundingClientRect(); return { centro: r.left + r.width / 2, medio: c.left + c.width / 2, ancho: r.width, total: c.width }; });
-  ver(Math.abs(caja.centro - caja.medio) < 1.5 && caja.ancho < caja.total, `TUT-02: la caja de la fotografía está centrada (desviación ${Math.abs(caja.centro - caja.medio).toFixed(1)} px)`, `TUT-02: caja de fotografía descentrada ${JSON.stringify(caja)}`);
+  const paso1 = pagina.locator('[data-paso="1"]');
+  const ayudaFoto = `Solo una fotografía por caso. JPG o PNG, máx. ${PARAMETROS.tamano_maximo_archivo_mb} MB. Reemplazable.`;
+  const caja = await pagina.locator('[data-paso="1"]').evaluate((paso) => {
+    const dentro = [...paso.querySelectorAll<HTMLElement>("div.border-dashed")].find((d) => d.textContent?.includes("Agregar fotografía"))!;
+    const r = dentro.getBoundingClientRect();
+    const f = paso.querySelector("div.flex.flex-col.gap-4")!.getBoundingClientRect();
+    return { ancho: r.width, total: f.width, estilo: getComputedStyle(dentro).borderStyle, icono: !!dentro.querySelector("svg"), centro: Math.abs(r.left + r.width / 2 - (f.left + f.width / 2)) };
+  });
+  ver(caja.estilo === "dashed" && caja.ancho >= caja.total - 2 && caja.icono && caja.centro < 2, `TUT-02: la fotografía vacía es una caja punteada a todo el ancho (${Math.round(caja.ancho)} de ${Math.round(caja.total)} px) con ícono de cámara`, `TUT-02: caja de fotografía incorrecta ${JSON.stringify(caja)}`);
+  ver((await paso1.getByText("Agregar fotografía", { exact: true }).isVisible()) && (await paso1.getByText("Tomar foto", { exact: true }).isVisible()) && (await paso1.getByText("Elegir de galería", { exact: true }).isVisible()) && (await paso1.getByText(ayudaFoto, { exact: true }).isVisible()) && (await paso1.getByRole("button", { name: "Quitar fotografía" }).count()) === 0, "TUT-02: «Agregar fotografía», «Tomar foto», «Elegir de galería» y la ayuda «Solo una fotografía por caso. JPG o PNG, máx. 4 MB. Reemplazable.» (máximo del parámetro tamano_maximo_archivo_mb)", "TUT-02: faltan textos o botones de la fotografía");
+  const botonesFoto = await Promise.all(["Tomar foto", "Elegir de galería"].map((n) => paso1.getByRole("button", { name: n }).evaluate((b) => { const r = b.getBoundingClientRect(); return { alto: r.height, ancho: r.width, y: r.top, envuelve: b.scrollHeight > b.clientHeight + 1 }; })));
+  ver(botonesFoto.every((b) => b.alto >= 43.5 && !b.envuelve) && Math.abs(botonesFoto[0].ancho - botonesFoto[1].ancho) < 1.5 && Math.abs(botonesFoto[0].y - botonesFoto[1].y) < 1, `TUT-02 a 390 px: «Tomar foto» y «Elegir de galería» son botones de ${Math.round(botonesFoto[0].alto)} px de alto, en dos columnas del mismo ancho (${Math.round(botonesFoto[0].ancho)} px) y sin partir el texto`, `TUT-02 a 390 px: botones de la fotografía ${JSON.stringify(botonesFoto)}`);
+  const [selector] = await Promise.all([pagina.waitForEvent("filechooser"), paso1.getByRole("button", { name: "Tomar foto" }).click()]);
+  ver(!!selector, "TUT-02: «Tomar foto» abre el selector de archivos (en teléfono, la cámara)", "TUT-02: «Tomar foto» no abrió el selector");
+  ver((await paso1.locator("input[type=file][capture]").count()) === 1 && (await paso1.locator("input[type=file]:not([capture])").count()) === 1, "TUT-02: «Tomar foto» abre la cámara (capture) y «Elegir de galería» el selector de archivos", "TUT-02: entradas de archivo incorrectas")
   const p1 = eIso(pagina, 1);
   const cont = boton(pagina, /^(Guardar y continuar|Guardar registro)$/);
   ver((await enlace(pagina, "Cancelar").getAttribute("href")) === "/tutor" && (await pagina.locator("nav[aria-label='Navegación inferior']").count()) === 0, "TUT-02: «Cancelar» vuelve a /tutor y no hay barra inferior (plantilla de flujo)", "TUT-02: Cancelar o barra inferior incorrectos");
@@ -223,9 +240,20 @@ async function registro(navegador: Browser) {
   await p1.getByLabel(/^Características distintivas/).fill("Mancha en la pata.");
   ver(await p1.getByText("18/300").isVisible(), "TUT-02: el contador de características marca «18/300»", "TUT-02: contador incorrecto");
   await cont.click();
-  ver((await barra(pagina)) === "Paso 1 de 2: Datos del perro" && /Especifica la raza/.test(await textoDescrito(p1.getByLabel(/^Especifique la raza/))) && (await p1.locator("input[type=file]").getAttribute("aria-invalid")) === "true", "TUT-02: con «Otra» sin especificar y sin fotografía no avanza", "TUT-02: avanzó sin raza específica o sin foto");
+  ver((await barra(pagina)) === "Paso 1 de 2: Datos del perro" && /Especifica la raza/.test(await textoDescrito(p1.getByLabel(/^Especifique la raza/))) && (await p1.locator("input[type=file]:not([capture])").getAttribute("aria-invalid")) === "true", "TUT-02: con «Otra» sin especificar y sin fotografía no avanza", "TUT-02: avanzó sin raza específica o sin foto");
   await p1.getByLabel(/^Especifique la raza/).fill("Perro de agua");
-  await p1.locator("input[type=file]").setInputFiles({ name: "perro.png", mimeType: "image/png", buffer: PNG });
+  await p1.locator("input[type=file]:not([capture])").setInputFiles({ name: "perro.png", mimeType: "image/png", buffer: PNG });
+  const prev = await p1.evaluate((paso) => {
+    const img = paso.querySelector<HTMLImageElement>("img[alt='Vista previa de la fotografía']")!;
+    const marco = img.parentElement!.getBoundingClientRect();
+    const reemplazar = [...paso.querySelectorAll<HTMLElement>("button")].find((l) => l.textContent === "Reemplazar fotografía")!.getBoundingClientRect();
+    const f = paso.querySelector("div.flex.flex-col.gap-4")!.getBoundingClientRect();
+    return { ajuste: getComputedStyle(img).objectFit, marcoAncho: marco.width, total: f.width, reemplazarAlto: reemplazar.height, reemplazarAncho: reemplazar.width, reemplazarY: reemplazar.top, marcoB: marco.bottom, centro: Math.abs(marco.left + marco.width / 2 - (f.left + f.width / 2)) };
+  }, undefined).catch(() => undefined);
+  ver(!!prev && prev.ajuste === "contain" && prev.marcoAncho >= prev.total - 2 && prev.centro < 2 && Math.abs(prev.reemplazarAncho - prev.marcoAncho) < 2 && Math.abs(prev.reemplazarY - prev.marcoB) < 2 && prev.reemplazarAlto >= 43.5, "TUT-02 con foto: vista previa ancha y centrada, SIN recorte (object-contain) y «Reemplazar fotografía» a todo el ancho, de 44 px, justo debajo", `TUT-02 con foto: ${JSON.stringify(prev)}`);
+  ver((await p1.getByRole("button", { name: "Quitar fotografía" }).count()) === 0 && (await p1.getByText("Tomar foto", { exact: true }).count()) === 0 && (await p1.getByText("recortada en 1:1").count()) === 0, "TUT-02 con foto: sin la × para quitar, sin «Tomar foto» y sin el texto del recorte 1:1 (la foto se reemplaza, no se quita)", "TUT-02 con foto: aún hay × de quitar, «Tomar foto» o el texto del recorte");
+  await p1.locator("input[type=file]:not([capture])").setInputFiles({ name: "otro.png", mimeType: "image/png", buffer: PNG });
+  ver((await p1.getByAltText("Vista previa de la fotografía").count()) === 1 && (await p1.getByText(ayudaFoto, { exact: true }).isVisible()), "TUT-02: «Reemplazar fotografía» cambia la foto (sigue habiendo una sola) y la ayuda se mantiene", "TUT-02: el reemplazo no funcionó");
   await cont.click();
 
   // TUT-03.
@@ -269,9 +297,17 @@ async function registro(navegador: Browser) {
   const r = await nuevaPagina(navegador);
   await irA(r.pagina, "/tutor/registrar?raza=otra");
   ver((await barra(r.pagina)) === "Paso 1 de 2: Datos del perro" && (await r.pagina.getByLabel(/^Especifique la raza/).isVisible()) && (await r.pagina.getByAltText("Vista previa de la fotografía").count()) === 1, "?raza=otra: paso 1 con «Especifique la raza» y la fotografía cargada", "?raza=otra: variante incorrecta");
-  await irA(r.pagina, "/tutor/registrar?paso=2");
-  ver((await barra(r.pagina)) === "Paso 2 de 2: Circunstancias", "?paso=2: abre en el paso 2", "?paso=2: no abrió en el paso 2");
   await r.contexto.close();
+  // En una pantalla estrecha (320 px) los botones de la fotografía se apilan, sin partir el texto y de 44 px.
+  const estrecho = await nuevaPagina(navegador, 320);
+  await irA(estrecho.pagina, "/tutor/registrar");
+  const apilados = await Promise.all(["Tomar foto", "Elegir de galería"].map((n) => estrecho.pagina.getByRole("button", { name: n }).evaluate((b) => { const q = b.getBoundingClientRect(); return { alto: q.height, ancho: q.width, y: q.top, envuelve: b.scrollHeight > b.clientHeight + 1 }; })));
+  ver(apilados.every((b) => b.alto >= 43.5 && !b.envuelve) && apilados[1].y > apilados[0].y + 40 && Math.abs(apilados[0].ancho - apilados[1].ancho) < 1.5, "TUT-02 a 320 px: los botones de la fotografía se apilan (uno bajo el otro), de 44 px y sin partir el texto", `TUT-02 a 320 px: ${JSON.stringify(apilados)}`);
+  await estrecho.contexto.close();
+  const r2 = await nuevaPagina(navegador);
+  await irA(r2.pagina, "/tutor/registrar?paso=2");
+  ver((await barra(r2.pagina)) === "Paso 2 de 2: Circunstancias", "?paso=2: abre en el paso 2", "?paso=2: no abrió en el paso 2");
+  await r2.contexto.close();
 }
 
 // ---------- salida del registro ----------
@@ -430,6 +466,8 @@ async function detalle(navegador: Browser) {
 async function fugas(navegador: Browser) {
   let comprobaciones = 0;
   let filtradas = 0;
+  // Dirección aproximada, referencias y comentario de los avistamientos: solo en TUT-10, nunca en la ficha ni en TUT-04.
+  const reservadosAvistamientos = AVISTAMIENTOS.flatMap((a) => [a.direccionAproximada, a.referencias, a.comentario]).filter((v): v is string => Boolean(v));
   const rutas = (f: string) => [`/tutor/casos/${f}/creado`, `/tutor/casos/${f}/ficha`, `/tutor/casos/${f}/ficha?modal=visor`, `/tutor/casos/${f}/ficha?modal=visor&hoja=media-carta`, `/tutor/casos/${f}/ficha?modal=compartir`, `/tutor/casos/${f}/ficha?modal=regenerar`];
   for (const o of CASOS_ORIGEN) {
     const reservados = valoresReservados(o);
@@ -437,7 +475,7 @@ async function fugas(navegador: Browser) {
     for (const ruta of rutas(o.folio)) {
       const html = await (await fetch(`${base}${ruta}`)).text();
       comprobaciones++;
-      const dentro = [...reservados, o.tokenPublico].filter((v) => html.includes(v));
+      const dentro = [...reservados, o.tokenPublico, ...reservadosAvistamientos].filter((v) => html.includes(v));
       if (dentro.length) {
         filtradas++;
         console.log(`✗ fuga en ${ruta.replace(o.folio, "<folio>")} de ${o.folio}: ${dentro.length} valor(es) reservado(s), de la persona tutora o el token`);
@@ -450,7 +488,7 @@ async function fugas(navegador: Browser) {
   const max = CASOS_ORIGEN[0];
   const detalleHtml = await (await fetch(`${base}/tutor/casos/${max.folio}`)).text();
   ver(detalleHtml.includes(max.direccionAproximada!) && detalleHtml.includes(max.referenciasDelLugar!) && detalleHtml.includes(max.motivo) && detalleHtml.includes(max.descripcionCircunstancias!), "control: TUT-05 sí muestra a su dueña los reservados del caso (la búsqueda de fugas los detecta)", "control: TUT-05 no muestra los reservados");
-  ver(![max.tutor.nombreCompleto, max.tutor.correo, max.tutor.telefono, max.tokenPublico].some((v) => detalleHtml.includes(v)), "TUT-05 no contiene su nombre, correo ni teléfono ni el token del QR", "TUT-05 filtra datos de la persona tutora o el token");
+  ver(![max.tutor.nombreCompleto, max.tutor.correo, max.tutor.telefono, max.tokenPublico, ...reservadosAvistamientos].some((v) => detalleHtml.includes(v)), "TUT-05 no contiene su nombre, correo ni teléfono, el token del QR ni los datos reservados de avistamientos", "TUT-05 filtra datos de la persona tutora, el token o reservados de avistamientos");
   const fichaHtml = await (await fetch(`${base}/tutor/casos/${max.folio}/ficha`)).text();
   ver(fichaHtml.includes(max.folio) && fichaHtml.includes(max.coloniaZona), "control: la vista previa sí contiene los campos públicos (folio, colonia)", "control: la vista previa no trae los campos públicos");
 
@@ -556,7 +594,7 @@ async function modalesFicha(navegador: Browser) {
 
 // ---------- enlaces internos sin 404 ----------
 async function enlacesInternos(navegador: Browser) {
-  const pantallas = ["/acceso", "/tutor", "/tutor?estado=vacio", `${CASO}/creado`, `${CASO}?estado=en-curso`, `${CASO}?estado=localizado`, `${CASO}?estado=cerrado`, `${CASO}/ficha`];
+  const pantallas = ["/acceso", "/acceso?estado=aviso-actualizado", "/registro", `/tutor/casos/${FOLIO_CON_AVISTAMIENTOS}/avistamientos`, `/tutor/casos/${FOLIO_CON_AVISTAMIENTOS}/mapa?ruta=visible`, `/tutor/casos/${FOLIO_CON_AVISTAMIENTOS}/avistamientos/101`, `/tutor/casos/${FOLIO_CON_AVISTAMIENTOS}/avistamientos/102`, `${CASO}/avistamientos`, "/dev/transversales/sesion-expirada", "/tutor", "/tutor?estado=vacio", `${CASO}/creado`, `${CASO}?estado=en-curso`, `${CASO}?estado=localizado`, `${CASO}?estado=cerrado`, `${CASO}/ficha`];
   const { contexto, pagina } = await nuevaPagina(navegador, 1280);
   const vistos = new Map<string, string>();
   for (const ruta of pantallas) {
@@ -580,12 +618,12 @@ async function enlacesInternos(navegador: Browser) {
   ver(malos.length === 0, `enlaces internos de ACC-01, TUT-01, TUT-04, TUT-05 y TUT-07: ${vistos.size} rutas distintas, ninguna responde 404`, `enlaces rotos: ${malos.join(" | ")}`);
   // Las pantallas pendientes dicen lo que son y ofrecen volver.
   const p = await nuevaPagina(navegador);
-  for (const [ruta, volver, destino] of [["/registro", "Volver a iniciar sesión", "/acceso"], ["/recuperar-contrasena", "Volver a iniciar sesión", "/acceso"], [`${CASO}/avistamientos`, "Regresar al detalle del caso", CASO], [`${CASO}/mapa`, "Regresar al detalle del caso", CASO], [`${CASO}/editar`, "Regresar al detalle del caso", CASO], [`${CASO}/notificaciones`, "Regresar al detalle del caso", CASO], ["/tutor/consultar-folio", "Ir a mis registros", "/tutor"], ["/tutor/avistamientos", "Ir a mis registros", "/tutor"]] as const) {
+  for (const [ruta, volver, destino] of [["/recuperar-contrasena", "Volver a iniciar sesión", "/acceso"], [`${CASO}/editar`, "Regresar al detalle del caso", CASO], [`${CASO}/notificaciones`, "Regresar al detalle del caso", CASO], ["/tutor/consultar-folio", "Ir a mis registros", "/tutor"], ["/tutor/avistamientos", "Ir a mis registros", "/tutor"]] as const) {
     const r = await p.pagina.goto(`${base}${ruta}`, { waitUntil: "load" });
     const t = await p.pagina.locator("main").innerText();
     ver(r?.status() === 200 && /Esta pantalla se construye en un bloque posterior/.test(t) && (await enlace(p.pagina, volver).getAttribute("href")) === destino, `${ruta}: PantallaPendiente con «${volver}»`, `${ruta}: HTTP ${r?.status()} o sin mensaje de pantalla pendiente`);
   }
-  const ajeno = await p.pagina.goto(`${base}/tutor/casos/RUPE-Z5C6VR4P/mapa`, { waitUntil: "load" });
+  const ajeno = await p.pagina.goto(`${base}/tutor/casos/RUPE-Z5C6VR4P/editar`, { waitUntil: "load" });
   ver(ajeno?.status() === 404, "una pantalla pendiente de un folio ajeno responde 404", `folio ajeno en pantalla pendiente: HTTP ${ajeno?.status()}`);
   await p.contexto.close();
 }
@@ -623,6 +661,242 @@ async function detalleEscritorio(navegador: Browser) {
   await contexto.close();
 }
 
+// ---------- ACC-02 y MOD-01 ----------
+async function registroCuenta(navegador: Browser) {
+  let { contexto, pagina } = await nuevaPagina(navegador);
+  await irA(pagina, "/registro");
+  const campo = (n: RegExp | string) => pagina.getByLabel(n);
+  const nombre = campo(/^Nombre completo/);
+  const correo = campo(/^Correo electrónico/);
+  const clave = campo(/^Contraseña/);
+  const tel = campo(/^Teléfono de contacto/);
+  const aviso = pagina.getByRole("checkbox", { name: /He leído y acepto el/ });
+  ver((await pagina.getByRole("heading", { level: 1, name: "Crear cuenta de persona tutora" }).isVisible()) && (await pagina.locator("main#contenido").count()) === 1 && (await pagina.locator("header").count()) >= 1, "ACC-02: «Crear cuenta de persona tutora» en la plantilla pública", "ACC-02: estructura incorrecta");
+  ver((await nombre.getAttribute("maxlength")) === "150" && (await correo.getAttribute("maxlength")) === "254" && (await tel.getAttribute("maxlength")) === "15", "ACC-02: longitudes del diccionario (nombre 150, correo 254, teléfono 15)", "ACC-02: longitudes incorrectas");
+  ver(/mínimo 8 caracteres con letras y números/i.test(await textoDescrito(clave)) && (await pagina.getByText("El teléfono se reserva y no se publica en la ficha.").isVisible()), "ACC-02: ayuda de la contraseña y nota de que el teléfono se reserva", "ACC-02: faltan la ayuda o la nota del teléfono");
+  ver((await enlace(pagina, "Cancelar").getAttribute("href")) === "/" && (await boton(pagina, "Registrarse").isVisible()), "ACC-02: «Registrarse» y «Cancelar»", "ACC-02: faltan botones");
+  await boton(pagina, "Registrarse").click();
+  const invalidos = await Promise.all([nombre, correo, clave, tel, aviso].map((l) => l.getAttribute("aria-invalid")));
+  ver(invalidos.every((v) => v === "true") && (await nombre.evaluate((e) => e === document.activeElement)) && /aviso de privacidad/.test(await textoDescrito(aviso)), "ACC-02: vacío → los 5 campos marcados con error asociado (aria-describedby) y el foco va al primero", `ACC-02: invalidos ${invalidos}`);
+  await nombre.fill("Rosa Hernández Ficticia");
+  await correo.fill("sin-arroba");
+  await clave.fill("soloLetras");
+  await tel.fill("55-1234");
+  await boton(pagina, "Registrarse").click();
+  ver(/correo válido/.test(await textoDescrito(correo)) && /mínimo 8 caracteres, con letras y números/.test(await textoDescrito(clave)) && /10 a 15 dígitos/.test(await textoDescrito(tel)), "ACC-02: correo inválido, contraseña sin números y teléfono con guiones se rechazan con su mensaje", "ACC-02: no validó correo, contraseña o teléfono");
+  await correo.fill("rosa@correo.com");
+  await clave.fill("Segura2026");
+  await tel.fill("5512345678");
+  await boton(pagina, "Registrarse").click();
+  ver(new URL(pagina.url()).pathname === "/registro" && (await aviso.getAttribute("aria-invalid")) === "true" && (await aviso.evaluate((e) => e === document.activeElement)), "ACC-02: con todo válido pero sin aceptar el aviso NO se completa el registro (HU 003)", "ACC-02: se registró sin aceptar el aviso");
+  const ojo = boton(pagina, "Mostrar contraseña");
+  await ojo.click();
+  ver((await clave.getAttribute("type")) === "text" && (await ojo.getAttribute("aria-pressed")) === "true", "ACC-02: «Mostrar contraseña» la muestra", "ACC-02: no mostró la contraseña");
+
+  // MOD-01 desde ACC-02: Rechazar, Escape, clic fuera, Aceptar.
+  const enlaceAviso = enlace(pagina.locator("#contenido"), "Aviso de privacidad v1.0");
+  for (const via of ["«Rechazar»", "Escape", "clic fuera"] as const) {
+    await enlaceAviso.click();
+    const dlg = pagina.getByRole("dialog", { name: "Aviso de privacidad v1.0" });
+    if (via === "«Rechazar»") {
+      ver((await dlg.isVisible()) && (await dlg.getByRole("button").allInnerTexts()).join("|") === "Rechazar|Aceptar", "MOD-01 desde ACC-02: «Aviso de privacidad v1.0» con «Rechazar» y «Aceptar»", "MOD-01 desde ACC-02: botones incorrectos");
+      await boton(dlg, "Rechazar").click();
+    } else if (via === "Escape") await pagina.keyboard.press("Escape");
+    else await pagina.mouse.click(4, 4);
+    ver(!(await dialogoAbierto(pagina)) && !(await aviso.isChecked()) && (await foco(pagina)) === "Aviso de privacidad v1.0", `MOD-01 desde ACC-02: ${via} cierra sin aceptar y devuelve el foco al enlace`, `MOD-01 desde ACC-02: ${via} → abierto=${await dialogoAbierto(pagina)}, aceptado=${await aviso.isChecked()}, foco=${await foco(pagina)}`);
+  }
+  await enlaceAviso.click();
+  await boton(pagina.getByRole("dialog", { name: "Aviso de privacidad v1.0" }), "Aceptar").click();
+  ver(!(await dialogoAbierto(pagina)) && (await aviso.isChecked()), "MOD-01 desde ACC-02: «Aceptar» cierra el aviso y marca la casilla", "MOD-01 desde ACC-02: «Aceptar» no marcó la casilla");
+  await boton(pagina, "Registrarse").click();
+  await pagina.waitForURL("**/tutor");
+  ver(true, "ACC-02: aceptado el aviso y con todo válido, «Registrarse» navega a /tutor (maqueta)", "");
+  await contexto.close();
+
+  // Casilla manual y variante ?estado=aviso.
+  ({ contexto, pagina } = await nuevaPagina(navegador));
+  await irA(pagina, "/registro");
+  await pagina.locator("label", { hasText: "He leído y acepto el" }).click({ position: { x: 4, y: 10 } });
+  ver(await pagina.getByRole("checkbox", { name: /He leído y acepto el/ }).isChecked(), "ACC-02: la casilla también se marca a mano", "ACC-02: la casilla no se marcó");
+  await irA(pagina, "/registro?estado=aviso");
+  ver(await pagina.getByRole("dialog", { name: "Aviso de privacidad v1.0" }).isVisible(), "ACC-02 ?estado=aviso: abre MOD-01 al cargar", "ACC-02 ?estado=aviso: no abrió el aviso");
+  await contexto.close();
+}
+
+// ---------- TUT-08, TUT-09 y TUT-10 ----------
+async function avistamientos(navegador: Browser) {
+  const todas = avistamientosDelCaso(FOLIO_CON_AVISTAMIENTOS);
+  const fallecido = todas.find((a) => a.estadosAnimal.includes("Fallecido"))!;
+  const cronologico = [...todas].reverse();
+  ver(AVISTAMIENTOS.length > 0, `datos de ejemplo: ${AVISTAMIENTOS.length} avistamientos que cumplen las reglas del catálogo (excluyentes, Fallecido sin Conducta)`, "datos de ejemplo vacíos");
+
+  // TUT-08 sin avistamientos.
+  let { contexto, pagina } = await nuevaPagina(navegador);
+  await irA(pagina, `${CASO}/avistamientos`);
+  const sin = await pagina.locator("main").innerText();
+  ver(/Max aún no registra avistamientos\./.test(sin) && (await pagina.getByAltText("Fotografía de Max").isVisible()) && (await pagina.getByRole("link", { name: "Mapa", exact: true }).count()) === 0 && (await pagina.locator('[aria-disabled="true"]', { hasText: "Mapa" }).count()) === 1 && (await pagina.getByRole("link", { name: "Lista" }).getAttribute("aria-current")) === "page", "TUT-08 sin avistamientos: foto del perro, «Max aún no registra avistamientos.» y «Mapa» deshabilitado", "TUT-08 sin avistamientos: contenido incorrecto");
+  ver((await pagina.locator("nav[aria-label='Navegación inferior']").isVisible()) && (await enlace(pagina, "Regresar al detalle del caso").getAttribute("href")) === CASO && (await boton(pagina, "Actualizar listado").isVisible()), "TUT-08: con la barra inferior de la plantilla tutora, «Regresar al detalle del caso» y «Actualizar listado»", "TUT-08: faltan barra, enlace o botón");
+  const r = await pagina.goto(`${base}${CASO}/mapa`, { waitUntil: "load" });
+  ver(new URL(pagina.url()).pathname === `${CASO}/avistamientos` && r?.status() === 200, "TUT-09 sin avistamientos vuelve a la lista (el mapa no aplica)", `TUT-09 sin avistamientos: ${pagina.url()}`);
+  await contexto.close();
+
+  // TUT-08 con avistamientos.
+  ({ contexto, pagina } = await nuevaPagina(navegador));
+  await irA(pagina, `${CON_AV}/avistamientos`);
+  const tarjetas = pagina.locator("main article");
+  const ordenIds = await tarjetas.evaluateAll((as) => as.map((a) => a.querySelector("a[href*='/avistamientos/']")!.getAttribute("href")!.split("/").pop()));
+  ver(JSON.stringify(ordenIds) === JSON.stringify(todas.map((a) => String(a.id))), `TUT-08: ${ordenIds.length} tarjetas por fecha de recepción descendente`, `TUT-08: orden ${ordenIds}`);
+  const tFalle = pagina.locator(`article:has(a[href$='/avistamientos/${fallecido.id}'])`);
+  ver((await tFalle.locator("img").count()) === 0 && /estado «Fallecido»/.test(await tFalle.innerText()) && !/Libre en vía pública|Fallecido\b.*,/.test(await tFalle.innerText()), "TUT-08: el avistamiento «Fallecido» va con redacción sobria y marcador neutro, sin fotografía ni estados", "TUT-08: el «Fallecido» muestra imagen o estados");
+  const normal = pagina.locator(`article:has(a[href$='/avistamientos/101'])`);
+  ver((await normal.locator("img").count()) === 1 && /Herido \/ lesionado, Enfermo \/ débil/.test(await normal.innerText()), "TUT-08: un avistamiento normal muestra su fotografía, fecha y hora, alcaldía y estados", "TUT-08: tarjeta normal incorrecta");
+  const html = await (await fetch(`${base}${CON_AV}/avistamientos`)).text();
+  ver(!html.includes(FOTO_SENSIBLE) && !AVISTAMIENTOS.some((a) => a.direccionAproximada && html.includes(a.direccionAproximada)), "TUT-08: el HTML no contiene la fotografía del «Fallecido» ni la dirección aproximada de ningún avistamiento", "TUT-08: el HTML trae la foto sensible o direcciones reservadas");
+  ver((await pagina.getByRole("link", { name: "Mapa", exact: true }).getAttribute("href")) === `${CON_AV}/mapa`, "TUT-08: el selector «Mapa» lleva a TUT-09", "TUT-08: «Mapa» no enlaza a TUT-09");
+  // Filtros.
+  const filtros = pagina.getByRole("button", { name: "Filtros", exact: true });
+  ver((await filtros.getAttribute("aria-expanded")) === "false" && !(await pagina.getByLabel("Desde").isVisible()), "TUT-08: los filtros empiezan plegados", "TUT-08: los filtros empiezan desplegados");
+  await filtros.click();
+  await pagina.getByLabel("Desde").fill("2026-10-03");
+  await boton(pagina, "Aplicar filtros").click();
+  ver(/anterior al registro del caso/.test(await textoDescrito(pagina.getByLabel("Desde"))) && (await tarjetas.count()) === 4, "TUT-08: una fecha anterior al registro del caso se rechaza (HU 041)", "TUT-08: aceptó una fecha anterior al registro");
+  await pagina.getByLabel("Desde").fill("2026-10-07");
+  await boton(pagina, "Aplicar filtros").click();
+  ver((await tarjetas.count()) === 2 && /2 de 4 avistamientos/.test(await pagina.locator("main").innerText()), "TUT-08: «Desde» 7 oct deja 2 de 4 avistamientos", "TUT-08: el filtro «Desde» no filtró");
+  await pagina.getByLabel("Hasta").fill("2026-10-07");
+  await boton(pagina, "Aplicar filtros").click();
+  ver((await tarjetas.count()) === 1, "TUT-08: «Desde» y «Hasta» combinados dejan 1", "TUT-08: el rango no filtró");
+  await pagina.getByLabel("Hasta").fill("2026-10-06");
+  await boton(pagina, "Aplicar filtros").click();
+  ver(/no puede ser anterior a «Desde»/.test(await textoDescrito(pagina.getByLabel("Hasta"))), "TUT-08: «Hasta» anterior a «Desde» se rechaza", "TUT-08: aceptó un rango invertido");
+  await boton(pagina, "Limpiar filtros").click();
+  await pagina.getByLabel("Alcaldía o zona").selectOption("Iztacalco");
+  await boton(pagina, "Aplicar filtros").click();
+  ver((await tarjetas.count()) === 0 && /Ningún avistamiento coincide con los filtros/.test(await pagina.locator("main").innerText()), "TUT-08: una alcaldía sin avistamientos muestra «Ningún avistamiento coincide con los filtros»", "TUT-08: el filtro por alcaldía no funcionó");
+  await boton(pagina, "Limpiar filtros").click();
+  ver((await tarjetas.count()) === 4, "TUT-08: «Limpiar filtros» restaura los 4 avistamientos", "TUT-08: Limpiar no restauró");
+  await boton(pagina, "Actualizar listado").click();
+  ver(await pagina.getByRole("status").getByText("Listado actualizado").waitFor({ timeout: 3000 }).then(() => true, () => false), "TUT-08: «Actualizar listado» lo anuncia (role=\"status\")", "TUT-08: Actualizar listado no respondió");
+  await irA(pagina, `${CON_AV}/avistamientos?filtros=abiertos`);
+  ver((await pagina.getByRole("button", { name: "Filtros", exact: true }).getAttribute("aria-expanded")) === "true" && (await pagina.getByLabel("Desde").isVisible()), "TUT-08 ?filtros=abiertos: filtros desplegados", "TUT-08 ?filtros=abiertos: no desplegó");
+  await contexto.close();
+
+  // TUT-09.
+  const externas: string[] = [];
+  ({ contexto, pagina } = await nuevaPagina(navegador, 1280));
+  pagina.on("request", (q) => {
+    if (!q.url().startsWith(base) && !q.url().startsWith("data:")) externas.push(q.url());
+  });
+  await irA(pagina, `${CON_AV}/mapa`);
+  const marcadores = pagina.locator("[role=group][aria-label^='Mapa ilustrativo'] a");
+  const hrefs = await marcadores.evaluateAll((as) => as.map((a) => [a.textContent, a.getAttribute("href")]));
+  ver(JSON.stringify(hrefs) === JSON.stringify(cronologico.map((a, i) => [String(i + 1), `${CON_AV}/avistamientos/${a.id}`])), "TUT-09: 4 marcadores numerados en orden cronológico, cada uno enlaza a su detalle", `TUT-09: marcadores ${JSON.stringify(hrefs)}`);
+  const ruta = boton(pagina, /^(Ver|Ocultar) ruta$/);
+  const rutaEl = () => pagina.locator("[role=group][aria-label^='Mapa ilustrativo'] polyline").count();
+  ver((await ruta.isEnabled()) && (await rutaEl()) === 0 && /referencia visual; requiere al menos 2 avistamientos/.test(await pagina.locator("main").innerText()) && /Mapa ilustrativo de la maqueta/.test(await pagina.locator("main").innerText()), "TUT-09: «Ver ruta» disponible con 4 avistamientos, aviso de referencia visual y atribución del mapa", "TUT-09: faltan aviso, atribución o «Ver ruta»");
+  await ruta.click();
+  ver((await rutaEl()) === 1 && (await ruta.innerText()) === "Ocultar ruta" && (await ruta.getAttribute("aria-pressed")) === "true", "TUT-09: «Ver ruta» traza la ruta entre los puntos (alterna a «Ocultar ruta»)", "TUT-09: no trazó la ruta");
+  await ruta.click();
+  ver((await rutaEl()) === 0, "TUT-09: «Ocultar ruta» la quita", "TUT-09: la ruta siguió");
+  // Escritorio: mapa a la izquierda; lista, botones y aviso a la derecha.
+  const g = await pagina.evaluate(() => {
+    const [mapa, lista, btn, msg] = ["[role=group][aria-label^='Mapa ilustrativo']", "section[aria-labelledby$='-lista']", "button[aria-controls$='-filtro']", "p[id$='-mensaje']"].map((sel) => document.querySelector(sel)!.getBoundingClientRect());
+    return { mapaR: mapa.right, listaL: lista.left, listaB: lista.bottom, btnT: btn.top, btnB: btn.bottom, btnL: btn.left, msgT: msg.top, msgL: msg.left };
+  });
+  const lugares = await pagina.locator("section[aria-labelledby$='-lista'] li p.text-caption").evaluateAll((ps) => ps.map((p) => ({ t: p.textContent, elipsis: getComputedStyle(p).textOverflow === "ellipsis" || p.scrollWidth > p.clientWidth + 1, ws: getComputedStyle(p).whiteSpace })));
+  ver(lugares.length === 4 && lugares.every((l) => !l.elipsis && l.ws !== "nowrap"), "TUT-09: la lista lateral no corta la colonia con puntos suspensivos (el texto pasa a otra línea)", `TUT-09: lista truncada ${JSON.stringify(lugares)}`);
+  ver(g.mapaR <= g.listaL + 1 && g.btnT >= g.listaB - 1 && g.msgT > g.btnT && g.msgT - g.btnB <= 20 && Math.abs(g.btnL - g.listaL) < 2 && Math.abs(g.msgL - g.listaL) < 2, "TUT-09 en escritorio (1280 px): mapa a la izquierda; lista, botones y aviso apilados a la derecha, con el aviso justo bajo los botones (separación normal)", `TUT-09 escritorio: ${JSON.stringify(g)}`);
+  ver(externas.length === 0, "TUT-09: sin peticiones a servicios ni librerías de mapas (todo sale del propio sitio)", `TUT-09: peticiones externas ${externas.join(", ")}`);
+  await boton(pagina, "Filtrar por fecha").click();
+  await pagina.getByLabel("Desde").fill("2026-10-08");
+  await boton(pagina, "Aplicar filtros").click();
+  ver((await marcadores.count()) === 1 && (await ruta.isDisabled()), "TUT-09: filtrar por fecha deja 1 marcador y «Ver ruta» se deshabilita", "TUT-09: el filtro por fecha no funcionó");
+  await contexto.close();
+  ({ contexto, pagina } = await nuevaPagina(navegador, 390));
+  await irA(pagina, `${UN_AV}/mapa`);
+  const rutaUno = boton(pagina, "Ver ruta");
+  ver((await pagina.locator("[role=group][aria-label^='Mapa ilustrativo'] a").count()) === 1 && (await rutaUno.isDisabled()) && /requiere al menos 2/.test(await textoDescrito(rutaUno)), "TUT-09 con 1 avistamiento: «Ver ruta» deshabilitado y explicado (aria-describedby)", "TUT-09 con 1 avistamiento: «Ver ruta» activo");
+  await irA(pagina, `${CON_AV}/mapa`);
+  const orden = await pagina.evaluate(() => ["button[aria-controls$='-filtro']", "[role=group][aria-label^='Mapa ilustrativo']", "p[id$='-mensaje']", "section[aria-labelledby$='-lista']"].map((s) => document.querySelector(s)!.getBoundingClientRect().top));
+  ver(orden.every((v, i) => i === 0 || v > orden[i - 1]) && (await pagina.locator("nav[aria-label='Navegación inferior']").isVisible()), "TUT-09 en móvil: botones, mapa, aviso y lista en ese orden, con la barra inferior", `TUT-09 móvil: orden ${orden.map(Math.round)}`);
+  const lugaresMovil = await pagina.locator("section[aria-labelledby$='-lista'] li p.text-caption").evaluateAll((ps) => ps.map((p) => p.scrollWidth > p.clientWidth + 1 || getComputedStyle(p).textOverflow === "ellipsis"));
+  ver(lugaresMovil.length === 4 && lugaresMovil.every((x) => !x), "TUT-09 en móvil: la lista tampoco trunca la colonia (mismo comportamiento que en escritorio)", `TUT-09 móvil: truncado ${lugaresMovil}`);
+  await contexto.close();
+
+  // TUT-10.
+  ({ contexto, pagina } = await nuevaPagina(navegador));
+  const a = todas.find((x) => x.id === 101)!;
+  await irA(pagina, `${CON_AV}/avistamientos/101`);
+  const t = await pagina.locator("main").innerText();
+  const dt = await pagina.locator("main dt").allTextContents();
+  ver(JSON.stringify(dt) === JSON.stringify(["Fecha y hora", "Alcaldía", "Colonia o zona", "Dirección aproximada", "Referencias"]) && t.includes(a.direccionAproximada!) && t.includes(a.referencias!) && t.includes(a.coloniaZona!) && t.includes("Iztapalapa") && t.includes("5 oct 2026, 10:20"), "TUT-10: los cinco campos de la lámina 2.8 (fecha y hora, alcaldía, colonia o zona, dirección aproximada y referencias)", `TUT-10: campos ${dt.join(", ")}`);
+  const chips = async (cat: string) => pagina.locator(`section:has(h2:text-is("${cat}")) li`).allInnerTexts();
+  ver(JSON.stringify(await chips("Integridad física y salud")) === JSON.stringify(["Herido / lesionado", "Enfermo / débil"]) && JSON.stringify(await chips("Contención y ubicación")) === JSON.stringify(["Resguardado / En custodia temporal"]) && JSON.stringify(await chips("Conducta")) === JSON.stringify(["Asustado / temeroso"]), "TUT-10: estados del animal como chips por categoría, incluida «Contención y ubicación» (Resguardado / En custodia temporal)", "TUT-10: chips por categoría incorrectos");
+  ver((await pagina.getByAltText("Fotografía del avistamiento").isVisible()) && (await boton(pagina, "Ver fotografía").count()) === 0 && t.includes(a.comentario!) && /Quien reportó permanece anónimo/.test(t) && (await pagina.getByRole("group", { name: /Mapa ilustrativo con el punto/ }).isVisible()), "TUT-10: fotografía, mapa del punto, comentario y aviso de anonimato", "TUT-10: faltan fotografía, mapa, comentario o aviso de anonimato");
+  ver(!/teléfono|correo|nombre de quien|contacto del/i.test(t), "TUT-10: ningún dato de quien reporta (ni teléfono, correo ni nombre)", "TUT-10: aparece un dato de contacto");
+  ver((await enlace(pagina, "Regresar al listado").first().getAttribute("href")) === `${CON_AV}/avistamientos`, "TUT-10: «Regresar al listado»", "TUT-10: enlace de regreso incorrecto");
+
+  await irA(pagina, `${CON_AV}/avistamientos/${fallecido.id}`);
+  ver((await pagina.locator("main img").count()) === 0 && (await pagina.getByText("Esta imagen puede resultar sensible").isVisible()) && (await pagina.getByText("Se reportó un perro sin vida que podría ser el tuyo. Lamentamos esta noticia.").isVisible()), "TUT-10 «Fallecido»: la fotografía NO se dibuja, con el aviso «Esta imagen puede resultar sensible» y redacción sobria", "TUT-10 «Fallecido»: se ve la imagen o falta el aviso");
+  ver(JSON.stringify(await chips("Integridad física y salud")) === JSON.stringify(["Fallecido"]) && (await pagina.getByText("Conducta: no aplica con «Fallecido»").isVisible()) && (await pagina.locator("section:has(h2:text-is('Conducta'))").count()) === 0, "TUT-10 «Fallecido»: «Fallecido» va solo, Conducta no aplica y se explica con texto", "TUT-10 «Fallecido»: reglas de exclusión incorrectas");
+  await boton(pagina, "Ver fotografía").click();
+  ver((await pagina.locator(`main img[src*="sensible"]`).count()) === 1 && (await boton(pagina, "Ocultar fotografía").isVisible()), "TUT-10 «Fallecido»: «Ver fotografía» revela la imagen y ofrece «Ocultar fotografía»", "TUT-10 «Fallecido»: no reveló la fotografía");
+  await boton(pagina, "Ocultar fotografía").click();
+  ver((await pagina.locator("main img").count()) === 0 && (await boton(pagina, "Ver fotografía").isVisible()), "TUT-10 «Fallecido»: «Ocultar fotografía» vuelve a ocultarla", "TUT-10 «Fallecido»: no volvió a ocultar");
+  await irA(pagina, `${CON_AV}/avistamientos/${fallecido.id}?foto=visible`);
+  ver((await pagina.locator(`main img[src*="sensible"]`).count()) === 1, "TUT-10 ?foto=visible: abre con la fotografía revelada", "TUT-10 ?foto=visible: no reveló");
+  // Un id ajeno al caso o un folio ajeno: 404.
+  const c1 = await pagina.goto(`${base}${CON_AV}/avistamientos/201`, { waitUntil: "load" });
+  const c2 = await pagina.goto(`${base}/tutor/casos/RUPE-Z5C6VR4P/avistamientos/101`, { waitUntil: "load" });
+  ver(c1?.status() === 404 && c2?.status() === 404, "TUT-10: un avistamiento de otro caso o un folio ajeno responden 404", `TUT-10: ${c1?.status()} y ${c2?.status()}`);
+  await contexto.close();
+}
+
+// ---------- TRA-02 y TRA-03 ----------
+async function transversalesSesion(navegador: Browser) {
+  let { contexto, pagina } = await nuevaPagina(navegador);
+  await irA(pagina, "/dev/transversales/sesion-expirada");
+  let dlg = pagina.getByRole("dialog", { name: "Tu sesión expiró" });
+  ver((await dlg.isVisible()) && /la sesión dura 8 horas/.test(await dlg.innerText()) && (await dlg.getByRole("button").allInnerTexts()).join("|") === "Iniciar sesión", "TRA-02: «Tu sesión expiró» con el mensaje de las 8 horas y «Iniciar sesión»", "TRA-02: contenido incorrecto");
+  ver((await pagina.locator("nav[aria-label='Navegación inferior']").count()) === 1 && (await pagina.getByRole("heading", { level: 1, name: "Mis registros", includeHidden: true }).count()) === 1, "TRA-02: sobre «Mis registros», con el encabezado y la barra inferior de la plantilla tutora de fondo", "TRA-02: el fondo no es «Mis registros»");
+  await boton(dlg, "Iniciar sesión").click();
+  await pagina.waitForURL("**/acceso");
+  ver(true, "TRA-02: «Iniciar sesión» lleva a /acceso", "");
+  await contexto.close();
+  for (const via of ["Escape", "clic fuera"] as const) {
+    ({ contexto, pagina } = await nuevaPagina(navegador));
+    await irA(pagina, "/dev/transversales/sesion-expirada");
+    if (via === "Escape") await pagina.keyboard.press("Escape");
+    else await pagina.mouse.click(4, 4);
+    ver(!(await dialogoAbierto(pagina)), `TRA-02: ${via} cierra el modal`, `TRA-02: ${via} no cerró el modal`);
+    await contexto.close();
+  }
+  // TRA-03.
+  ({ contexto, pagina } = await nuevaPagina(navegador));
+  await irA(pagina, "/acceso?estado=aviso-actualizado");
+  dlg = pagina.getByRole("dialog", { name: "Aviso de privacidad actualizado v1.0" });
+  ver((await dlg.isVisible()) && /queda registrada con su fecha/.test(await dlg.innerText()) && (await dlg.getByRole("button").allInnerTexts()).join("|") === "Rechazar|Aceptar", "TRA-03: «Aviso de privacidad actualizado v1.0» con «Rechazar» y «Aceptar»", "TRA-03: contenido incorrecto");
+  ver((await pagina.locator("header").getByRole("button", { name: "Menú", exact: true }).isVisible()) && (await pagina.getByRole("heading", { level: 1, name: "Iniciar sesión", includeHidden: true }).count()) === 1 && (await pagina.locator("nav[aria-label='Navegación inferior']").count()) === 0, "TRA-03: sobre ACC-01 con el encabezado público de fondo (como la lámina M4-1), sin barra inferior", "TRA-03: el fondo no es el encabezado público de ACC-01");
+  await boton(dlg, "Aceptar").click();
+  await pagina.waitForURL("**/tutor");
+  ver(true, "TRA-03: «Aceptar» lleva a /tutor", "");
+  await contexto.close();
+  ({ contexto, pagina } = await nuevaPagina(navegador));
+  await irA(pagina, "/acceso?estado=aviso-actualizado");
+  await boton(pagina.getByRole("dialog", { name: /Aviso de privacidad actualizado/ }), "Rechazar").click();
+  await pagina.waitForURL((u) => u.pathname === "/acceso" && u.search === "");
+  ver(!(await dialogoAbierto(pagina)), "TRA-03: «Rechazar» lleva a /acceso (sin el aviso)", "TRA-03: Rechazar no llevó a /acceso");
+  await contexto.close();
+  for (const via of ["Escape", "clic fuera"] as const) {
+    ({ contexto, pagina } = await nuevaPagina(navegador));
+    await irA(pagina, "/acceso?estado=aviso-actualizado");
+    if (via === "Escape") await pagina.keyboard.press("Escape");
+    else await pagina.mouse.click(4, 4);
+    ver(!(await dialogoAbierto(pagina)) && new URL(pagina.url()).pathname === "/acceso", `TRA-03: ${via} cierra el modal sin aceptar ni salir`, `TRA-03: ${via} → ${pagina.url()}`);
+    await contexto.close();
+  }
+}
+
 // ---------- (e) geometría ----------
 async function geometria(navegador: Browser) {
   const rutas = [
@@ -644,6 +918,19 @@ async function geometria(navegador: Browser) {
     `${CASO}/ficha?modal=visor&hoja=media-carta`,
     `${CASO}/ficha?modal=compartir`,
     `${CASO}/ficha?modal=regenerar`,
+    "/registro",
+    "/registro?estado=aviso",
+    "/acceso?estado=aviso-actualizado",
+    "/dev/transversales/sesion-expirada",
+    `${CASO}/avistamientos`,
+    `${CON_AV}/avistamientos`,
+    `${CON_AV}/avistamientos?filtros=abiertos`,
+    `${CON_AV}/mapa`,
+    `${CON_AV}/mapa?ruta=visible`,
+    `${UN_AV}/mapa`,
+    `${CON_AV}/avistamientos/101`,
+    `${CON_AV}/avistamientos/102`,
+    `${CON_AV}/avistamientos/102?foto=visible`,
     "/admin",
   ];
   for (const ruta of rutas) {
@@ -678,10 +965,13 @@ async function main() {
     if (servidor) await esperarServidor(servidor);
     navegador = await abrirNavegador();
     await acceso(navegador);
+    await registroCuenta(navegador);
     await misRegistros(navegador);
     await registro(navegador);
     await salidaRegistro(navegador);
     await enlacesInternos(navegador);
+    await avistamientos(navegador);
+    await transversalesSesion(navegador);
     await creado(navegador);
     await detalle(navegador);
     await detalleEscritorio(navegador);

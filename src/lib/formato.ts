@@ -27,3 +27,8 @@ export function formatearFechaLarga(fecha: string): string {
   const [anio, mes, dia] = fecha.slice(0, 10).split("-").map(Number);
   return `${dia} de ${MESES_LARGOS[mes - 1]} de ${anio}`;
 }
+
+/** ISO 8601 en UTC → "AAAA-MM-DD" del día local en la Ciudad de México (UTC−6). */
+export function fechaLocalISO(iso: string): string {
+  return new Date(new Date(iso).getTime() - 6 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}

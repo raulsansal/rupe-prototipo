@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
-import { PantallaPendiente } from "@/components/features/PantallaPendiente";
+import { FormularioRegistro } from "@/components/features/FormularioRegistro";
 
 export const metadata: Metadata = { title: "Crear cuenta · RUPE" };
 
-// ACC-02: se construye en un bloque posterior.
-export default function Registro() {
-  return <PantallaPendiente pantalla="Crear cuenta de persona tutora" href="/acceso" etiquetaVolver="Volver a iniciar sesión" />;
+/** ACC-02. ?estado=aviso abre el aviso de privacidad completo (MOD-01) al cargar (capturas y pruebas). */
+export default async function Registro({ searchParams }: PageProps<"/registro">) {
+  const { estado } = await searchParams;
+  return <FormularioRegistro avisoAbiertoInicial={estado === "aviso"} />;
 }

@@ -9,12 +9,13 @@ import { BotonIcono } from "@/components/ui/BotonIcono";
 import { CampoTexto } from "@/components/ui/CampoTexto";
 import { clasesBoton } from "@/components/ui/clasesBoton";
 import { Modal } from "@/components/ui/Modal";
+import { ModalAvisoActualizado } from "./ModalAvisoActualizado";
 
-export type ModalAcceso = "bloqueo" | "deshabilitada";
+export type ModalAcceso = "bloqueo" | "deshabilitada" | "aviso-actualizado";
 
 const REGEX_CORREO = /^[^@ ]+@[^@ ]+\.[^@ ]+$/; // la del diccionario (tbl_usuario.correo)
 
-const AVISOS: Record<ModalAcceso, { titulo: string; texto: string; mensaje: string }> = {
+const AVISOS: Record<"bloqueo" | "deshabilitada", { titulo: string; texto: string; mensaje: string }> = {
   bloqueo: {
     titulo: "Acceso bloqueado temporalmente",
     texto: "Por seguridad, la cuenta se bloquea un rato cuando se escribe mal la contraseña varias veces.",
@@ -119,15 +120,20 @@ export function FormularioAcceso({ modalInicial }: { modalInicial?: ModalAcceso 
           Crear cuenta de persona tutora
         </Link>
       </section>
-      <Modal abierto={modal !== undefined} onCerrar={cerrarModal} titulo={AVISOS[aviso ?? "bloqueo"].titulo}>
-        <p className="text-body text-text-muted">{AVISOS[aviso ?? "bloqueo"].texto}</p>
+      <Modal abierto={modal === "bloqueo" || modal === "deshabilitada"} onCerrar={cerrarModal} titulo={AVISOS[aviso === "deshabilitada" ? "deshabilitada" : "bloqueo"].titulo}>
+        <p className="text-body text-text-muted">{AVISOS[aviso === "deshabilitada" ? "deshabilitada" : "bloqueo"].texto}</p>
         <Alerta tipo="advertencia" titulo="Aviso">
-          {AVISOS[aviso ?? "bloqueo"].mensaje}
+          {AVISOS[aviso === "deshabilitada" ? "deshabilitada" : "bloqueo"].mensaje}
         </Alerta>
         <Boton anchoCompleto onClick={cerrarModal} autoFocus>
           Entendido
         </Boton>
       </Modal>
+      {/* TRA-03: la reaceptación del aviso ocurre al iniciar sesión; se muestra sobre esta misma pantalla. */}
+      <ModalAvisoActualizado abierto={modal === "aviso-actualizado"} onCerrar={cerrarModal} onAceptar={() => router.push("/tutor")} onRechazar={() => {
+          cerrarModal();
+          router.push("/acceso");
+        }} />
     </div>
   );
 }

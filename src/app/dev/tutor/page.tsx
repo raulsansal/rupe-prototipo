@@ -1,11 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
+import { FOLIO_CON_AVISTAMIENTOS, FOLIO_UN_AVISTAMIENTO } from "@/mocks/avistamientos";
 import { FOLIO_EN_CURSO } from "@/mocks/casos";
 
 export const metadata: Metadata = { title: "Pantallas de la persona tutora · RUPE (solo desarrollo)" };
 
 const CASO = `/tutor/casos/${FOLIO_EN_CURSO}`;
+const CON_AV = `/tutor/casos/${FOLIO_CON_AVISTAMIENTOS}`;
+const UN_AV = `/tutor/casos/${FOLIO_UN_AVISTAMIENTO}`;
 
 const GRUPOS: { titulo: string; enlaces: [string, string][] }[] = [
   {
@@ -14,7 +17,16 @@ const GRUPOS: { titulo: string; enlaces: [string, string][] }[] = [
       ["/acceso", "ACC-01 · formulario"],
       ["/acceso?estado=bloqueo", "ACC-01 · bloqueo temporal"],
       ["/acceso?estado=deshabilitada", "ACC-01 · cuenta deshabilitada"],
+      ["/acceso?estado=aviso-actualizado", "TRA-03 · aviso actualizado"],
       ["/admin", "Entrar como Administrador (/admin)"],
+    ],
+  },
+  {
+    titulo: "ACC-02 y MOD-01 · Registro (?estado) y aviso de privacidad",
+    enlaces: [
+      ["/registro", "ACC-02 · formulario"],
+      ["/registro?estado=aviso", "ACC-02 + MOD-01 · aviso completo"],
+      ["/?aviso=abierto", "PUB-01 + MOD-01 · solo lectura"],
     ],
   },
   {
@@ -41,6 +53,24 @@ const GRUPOS: { titulo: string; enlaces: [string, string][] }[] = [
       [`${CASO}?estado=localizado`, "B · localizado"],
       [`${CASO}?estado=cerrado`, "C · cerrado"],
     ],
+  },
+  {
+    titulo: "TUT-08, TUT-09 y TUT-10 · Avistamientos (?filtros, ?ruta, ?foto)",
+    enlaces: [
+      [`${CASO}/avistamientos`, "TUT-08 · sin avistamientos"],
+      [`${CON_AV}/avistamientos`, "TUT-08 · con avistamientos"],
+      [`${CON_AV}/avistamientos?filtros=abiertos`, "TUT-08 · filtros desplegados"],
+      [`${CON_AV}/mapa`, "TUT-09 · mapa"],
+      [`${CON_AV}/mapa?ruta=visible`, "TUT-09 · con ruta"],
+      [`${UN_AV}/mapa`, "TUT-09 · un avistamiento (sin ruta)"],
+      [`${CON_AV}/avistamientos/101`, "TUT-10 · normal"],
+      [`${CON_AV}/avistamientos/102`, "TUT-10 · «Fallecido», foto oculta"],
+      [`${CON_AV}/avistamientos/102?foto=visible`, "TUT-10 · «Fallecido», foto mostrada"],
+    ],
+  },
+  {
+    titulo: "TRA-02 · Sesión expirada",
+    enlaces: [["/dev/transversales/sesion-expirada", "TRA-02 sobre «Mis registros»"]],
   },
   {
     titulo: "TUT-07 · Ficha de búsqueda (?modal, ?hoja)",

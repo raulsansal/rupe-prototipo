@@ -19,6 +19,24 @@ type Props = {
   className?: string;
 };
 
+/** Dibujo de fondo del mapa ilustrativo (calles, parque y río); solo tokens de color. */
+export function FondoMapa() {
+  return (
+    <svg viewBox="0 0 500 300" preserveAspectRatio="none" aria-hidden="true" focusable="false" className="absolute inset-0 size-full">
+      <rect width="500" height="300" className="fill-primary-soft" />
+      <path d="M40 40 H170 V120 H40 Z M330 160 H470 V270 H330 Z" className="fill-success-bg" />
+      <path d="M0 215 C90 190 150 250 260 225 S420 150 500 170" className="stroke-info-bg" strokeWidth="26" fill="none" />
+      <g className="stroke-surface" strokeWidth="9" fill="none" strokeLinecap="round">
+        <path d="M0 150 H500 M0 70 H500 M200 0 V300 M330 0 V300 M90 0 V300 M0 255 H500" />
+        <path d="M0 290 L500 20" strokeWidth="14" />
+      </g>
+      <g className="stroke-border-strong" strokeWidth="1.5" fill="none" opacity="0.35">
+        <path d="M0 110 H500 M145 0 V300 M265 0 V300 M0 190 H500" />
+      </g>
+    </svg>
+  );
+}
+
 const limitar = (n: number) => Math.min(1, Math.max(0, n));
 const PASO = 0.02;
 
@@ -82,18 +100,7 @@ export function MapaIlustrativo({ etiqueta, punto, editable = false, onCambio, i
           editable && "cursor-crosshair touch-none",
         )}
       >
-        <svg viewBox="0 0 500 300" preserveAspectRatio="none" aria-hidden="true" focusable="false" className="absolute inset-0 size-full">
-          <rect width="500" height="300" className="fill-primary-soft" />
-          <path d="M40 40 H170 V120 H40 Z M330 160 H470 V270 H330 Z" className="fill-success-bg" />
-          <path d="M0 215 C90 190 150 250 260 225 S420 150 500 170" className="stroke-info-bg" strokeWidth="26" fill="none" />
-          <g className="stroke-surface" strokeWidth="9" fill="none" strokeLinecap="round">
-            <path d="M0 150 H500 M0 70 H500 M200 0 V300 M330 0 V300 M90 0 V300 M0 255 H500" />
-            <path d="M0 290 L500 20" strokeWidth="14" />
-          </g>
-          <g className="stroke-border-strong" strokeWidth="1.5" fill="none" opacity="0.35">
-            <path d="M0 110 H500 M145 0 V300 M265 0 V300 M0 190 H500" />
-          </g>
-        </svg>
+        <FondoMapa />
         {p && (
           <span
             aria-hidden="true"

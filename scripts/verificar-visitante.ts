@@ -6,6 +6,8 @@
 // Opciones: --sin-build  reutiliza el build existente · --base=URL  usa un servidor que ya corre (no compila ni arranca nada)
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { chromium, type Browser, type BrowserContext, type Locator, type Page } from "playwright";
+import { AVISTAMIENTOS } from "../src/mocks/avistamientos";
+import { PARAMETROS } from "../src/mocks/parametros";
 import { CASOS_ORIGEN, FOLIO_EN_CURSO, FOLIO_INEXISTENTE, valoresReservados } from "../src/mocks/casos";
 import { CLAVE_TEMA } from "../src/lib/tema";
 
@@ -211,6 +213,21 @@ async function principal(navegador: Browser) {
   // Anclas del menú y del pie.
   const hrefs = await pagina.locator("footer a").evaluateAll((as) => as.map((a) => a.getAttribute("href")));
   ver(["/#aviso-de-privacidad", "/#preguntas-frecuentes", "/#contacto"].every((h) => hrefs.includes(h)), "el pie enlaza a las anclas de la página principal", `pie: ${hrefs.join(", ")}`);
+
+  // MOD-01 desde PUB-01: aviso completo de solo lectura.
+  const abrir = pagina.getByRole("button", { name: "Leer aviso completo" });
+  for (const via of ["«Cerrar»", "Escape", "clic fuera"] as const) {
+    await abrir.click();
+    const dlg = pagina.getByRole("dialog", { name: "Aviso de privacidad v1.0" });
+    if (via === "«Cerrar»") {
+      ver((await dlg.isVisible()) && (await dlg.getByRole("button").allInnerTexts()).join("|") === "Cerrar" && (await dlg.getByRole("button", { name: /Aceptar|Rechazar/ }).count()) === 0, "MOD-01 desde PUB-01: «Aviso de privacidad v1.0», solo lectura (único botón «Cerrar», sin Aceptar ni Rechazar)", "MOD-01 desde PUB-01: contenido o botones incorrectos");
+      await dlg.getByRole("button", { name: "Cerrar" }).click();
+    } else if (via === "Escape") await pagina.keyboard.press("Escape");
+    else await pagina.mouse.click(4, 4);
+    ver(!(await pagina.evaluate(() => [...document.querySelectorAll("dialog")].some((d) => d.open))) && (await abrir.evaluate((e) => e === document.activeElement)), `MOD-01 desde PUB-01: ${via} cierra el aviso y el foco vuelve a «Leer aviso completo»`, `MOD-01 desde PUB-01: ${via} no cerró o no devolvió el foco`);
+  }
+  await irA(pagina, "/?aviso=abierto");
+  ver(await pagina.getByRole("dialog", { name: "Aviso de privacidad v1.0" }).isVisible(), "PUB-01 ?aviso=abierto: abre el aviso completo al cargar", "PUB-01 ?aviso=abierto: no abrió el aviso");
   await contexto.close();
 }
 
@@ -225,11 +242,25 @@ async function flujo(navegador: Browser) {
   // Paso 2: fotografía obligatoria.
   ver((await barra(pagina)) === "Paso 2 de 6: Fotografía", "flujo: Continuar lleva al paso 2", `flujo: ${await barra(pagina)}`);
   await continuar(pagina).click();
-  const archivo = paso(pagina, 2).locator("input[type=file]");
+  const archivo = paso(pagina, 2).locator("input[type=file]:not([capture])");
   ver((await barra(pagina)) === "Paso 2 de 6: Fotografía" && (await archivo.getAttribute("aria-invalid")) === "true" && (await textoDescrito(archivo)).includes("obligatoria"), "paso 2: sin fotografía no avanza y el error queda asociado al control (aria-describedby)", "paso 2: avanzó sin fotografía o sin error asociado");
   ver(await archivo.evaluate((e) => e === document.activeElement), "paso 2: el foco pasa al control con error", "paso 2: el foco no pasó al error");
+  // Variante ancha (lámina 1.3): caja punteada, «Tomar foto» (cámara) y «Elegir de galería» como botones estándar de 44 px.
+  const pasoFoto = paso(pagina, 2);
+  const medidas = await Promise.all(["Tomar foto", "Elegir de galería"].map((n) => pasoFoto.getByRole("button", { name: n }).evaluate((b) => { const r = b.getBoundingClientRect(); return { alto: r.height, ancho: r.width, y: r.top, envuelve: b.scrollHeight > b.clientHeight + 1 }; })));
+  ver(medidas.every((m) => m.alto >= 43.5 && !m.envuelve) && Math.abs(medidas[0].ancho - medidas[1].ancho) < 1.5, `paso 2: «Tomar foto» y «Elegir de galería» miden ${Math.round(medidas[0].alto)} px de alto, del mismo ancho (${Math.round(medidas[0].ancho)} px) y sin partir el texto`, `paso 2: botones de la fotografía ${JSON.stringify(medidas)}`);
+  ver((await pasoFoto.locator("input[type=file][capture]").count()) === 1 && (await pasoFoto.getByText(`Una sola fotografía del avistamiento. JPG o PNG, máx. ${PARAMETROS.tamano_maximo_archivo_mb} MB. Puedes reemplazarla.`).isVisible()) && (await pasoFoto.getByRole("button", { name: "Quitar fotografía" }).count()) === 0, "paso 2: «Tomar foto» usa la cámara (capture), con la ayuda de formato y tamaño máximo del parámetro y sin × de quitar", "paso 2: faltan la cámara, la ayuda o sobra la ×");
+  const [selector] = await Promise.all([pagina.waitForEvent("filechooser"), pasoFoto.getByRole("button", { name: "Elegir de galería" }).click()]);
+  ver(!!selector, "paso 2: «Elegir de galería» abre el selector de archivos", "paso 2: «Elegir de galería» no abrió el selector");
   await archivo.setInputFiles({ name: "avistamiento.png", mimeType: "image/png", buffer: PNG });
   ver((await paso(pagina, 2).getByAltText("Vista previa de la fotografía").count()) === 1 && (await archivo.getAttribute("aria-invalid")) === null, "paso 2: con fotografía se ve la vista previa y desaparece el error", "paso 2: no hay vista previa o sigue el error");
+  const vistaP2 = await pasoFoto.evaluate((cont) => {
+    const img = cont.querySelector<HTMLImageElement>("img[alt='Vista previa de la fotografía']")!;
+    const marco = img.parentElement!.getBoundingClientRect();
+    const reemplazar = [...cont.querySelectorAll("button")].find((b) => b.textContent === "Reemplazar fotografía")!.getBoundingClientRect();
+    return { ajuste: getComputedStyle(img).objectFit, marco: marco.width, reemplazar: reemplazar.width, alto: reemplazar.height };
+  });
+  ver(vistaP2.ajuste === "contain" && Math.abs(vistaP2.marco - vistaP2.reemplazar) < 2 && vistaP2.alto >= 43.5 && (await pasoFoto.getByRole("button", { name: "Tomar foto" }).count()) === 0, "paso 2 con foto: vista previa sin recorte (object-contain) y «Reemplazar fotografía» a todo el ancho y de 44 px", `paso 2 con foto: ${JSON.stringify(vistaP2)}`);
   await continuar(pagina).click();
 
   // Paso 3: dirección + punto confirmado.
@@ -298,7 +329,7 @@ async function flujo(navegador: Browser) {
   const { contexto: c2, pagina: p2 } = await nuevaPagina(navegador);
   await irA(p2, `${AVISTAMIENTO}?paso=6`);
   await continuar(p2).click();
-  ver((await barra(p2)) === "Paso 2 de 6: Fotografía" && (await paso(p2, 2).locator("input[type=file]").getAttribute("aria-invalid")) === "true", "«Enviar reporte» sin datos regresa al primer paso incompleto, con su error", `«Enviar reporte» incompleto: ${await barra(p2)}`);
+  ver((await barra(p2)) === "Paso 2 de 6: Fotografía" && (await paso(p2, 2).locator("input[type=file]:not([capture])").getAttribute("aria-invalid")) === "true", "«Enviar reporte» sin datos regresa al primer paso incompleto, con su error", `«Enviar reporte» incompleto: ${await barra(p2)}`);
   await c2.close();
 }
 
@@ -504,9 +535,32 @@ async function geometria(navegador: Browser) {
   }
 }
 
+// ---------- reservados de los avistamientos fuera de las pantallas públicas ----------
+async function sinReservadosDeAvistamientos() {
+  // Dirección aproximada, referencias y comentario de los avistamientos solo los ve la persona tutora dueña (TUT-10).
+  const reservados = AVISTAMIENTOS.flatMap((a) => [a.direccionAproximada, a.referencias, a.comentario]).filter((v): v is string => Boolean(v));
+  const rutas = ["/", "/registro", "/registro?estado=aviso", "/acceso", "/acceso?estado=aviso-actualizado", "/ruta-que-no-existe", "/dev/transversales/error", "/dev/visitante"];
+  for (const o of CASOS_ORIGEN) {
+    for (const clave of [o.folio, o.tokenPublico]) rutas.push(`/ficha/${clave}`, `/ficha/${clave}?estado=localizado`, `/ficha/${clave}?estado=no-disponible`);
+    rutas.push(`/ficha/${o.folio}/avistamiento?paso=6&datos=ejemplo`, `/ficha/${o.folio}/avistamiento/enviado`);
+  }
+  let fugas = 0;
+  for (const ruta of rutas) {
+    const html = await (await fetch(`${base}${ruta}`)).text();
+    const dentro = reservados.filter((v) => html.includes(v));
+    if (dentro.length) {
+      fugas++;
+      console.log(`✗ ${ruta.replace(/RUPE-[A-Z0-9]{8}|\/ficha\/[A-Za-z0-9]{32}/, "<clave>")} muestra ${dentro.length} dato(s) reservado(s) de avistamientos`);
+    }
+  }
+  ver(fugas === 0, `sin dirección aproximada, referencias ni comentarios de avistamientos en ${rutas.length} respuestas públicas (PUB-01, PUB-03 en todos sus estados, PUB-05, PUB-06, ACC, TRA-01 y TRA-04)`, `${fugas} pantalla(s) pública(s) con datos reservados de avistamientos`);
+  const control = await (await fetch(`${base}/tutor/casos/${AVISTAMIENTOS[0].folio}/avistamientos/${AVISTAMIENTOS[0].id}`)).text();
+  ver(control.includes(AVISTAMIENTOS[0].direccionAproximada!), "control: TUT-10 sí muestra esos datos a la persona tutora dueña (la búsqueda de fugas los detecta)", "control: TUT-10 no muestra la dirección aproximada");
+}
+
 // ---------- enlaces internos sin 404 ----------
 async function enlacesInternos(navegador: Browser) {
-  const pantallas = ["/", FICHA, `${FICHA}?estado=localizado`, `${FICHA}?estado=no-disponible`, `${AVISTAMIENTO}?paso=1`, `${AVISTAMIENTO}?paso=3`, `${AVISTAMIENTO}?paso=6&datos=ejemplo`, `${FICHA}/avistamiento/enviado`, "/ruta-que-no-existe", "/dev/transversales/error"];
+  const pantallas = ["/", "/registro", "/acceso", FICHA, `${FICHA}?estado=localizado`, `${FICHA}?estado=no-disponible`, `${AVISTAMIENTO}?paso=1`, `${AVISTAMIENTO}?paso=3`, `${AVISTAMIENTO}?paso=6&datos=ejemplo`, `${FICHA}/avistamiento/enviado`, "/ruta-que-no-existe", "/dev/transversales/error"];
   const { contexto, pagina } = await nuevaPagina(navegador, { ancho: 1280 });
   const vistos = new Map<string, string>();
   for (const ruta of pantallas) {
@@ -564,6 +618,7 @@ async function main() {
     await estadoAnimal(navegador);
     await ubicacion(navegador);
     await transversales(navegador);
+    await sinReservadosDeAvistamientos();
     await enlacesInternos(navegador);
     await geometria(navegador);
   } finally {

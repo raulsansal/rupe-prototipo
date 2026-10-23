@@ -78,6 +78,8 @@ function Contenido() {
           <CargaFotografia etiqueta="Fotografía del perro" requerido />
           <CargaFotografia etiqueta="Con foto" vistaPreviaInicial="/mocks/perro-ejemplo.svg" />
           <CargaFotografia etiqueta="Con error" errorInicial={{ titulo: "La foto pesa más de 4 MB", detalle: "Elige otra o redúcela" }} />
+          <CargaFotografia etiqueta="Ancha (TUT-02), sin foto" variante="ancha" requerido />
+          <CargaFotografia etiqueta="Ancha (TUT-02), con foto" variante="ancha" vistaPreviaInicial="/mocks/perro-ejemplo.svg" />
         </div>
       </Grupo>
     </>

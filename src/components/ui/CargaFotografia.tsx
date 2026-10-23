@@ -1,11 +1,15 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useId, useState, type ChangeEvent } from "react";
+import { useEffect, useId, useRef, useState, type ChangeEvent } from "react";
 import { cx } from "@/lib/clases";
+import { PARAMETROS } from "@/mocks/parametros";
+import { Boton } from "./Boton";
 import { Icono } from "./Icono";
 
-const MAX_BYTES = 4 * 1024 * 1024;
+/** Tamaño máximo del parámetro `tamano_maximo_archivo_mb` del diccionario (R11). */
+const MAX_MB = PARAMETROS.tamano_maximo_archivo_mb;
+const MAX_BYTES = MAX_MB * 1024 * 1024;
 const TIPOS = ["image/jpeg", "image/png"];
 
 type ErrorFoto = { titulo: string; detalle: string };
@@ -21,14 +25,22 @@ type Props = {
   onCambio?: (vista: string | undefined) => void;
   /** Error de validación del formulario (p. ej. «La fotografía es obligatoria»); se asocia al control con aria-describedby. */
   errorExterno?: string;
-  /** Centra la caja de carga (por defecto queda a la izquierda). */
-  centrada?: boolean;
+  /**
+   * cuadrada: caja 1:1 con vista previa recortada (reporte de avistamiento).
+   * ancha: caja punteada a todo el ancho con «Tomar foto» y «Elegir de galería»; con foto, vista previa SIN recorte y «Reemplazar
+   * fotografía» (la foto se reemplaza, no se quita). Es la de las láminas 2.4 (TUT-02) y 1.3 (PUB-05.2).
+   */
+  variante?: "cuadrada" | "ancha";
+  /** Texto de ayuda de la variante ancha; «{max}» se sustituye por el máximo del parámetro (MB). */
+  ayuda?: string;
   className?: string;
 };
 
-/** Carga de una fotografía (JPG o PNG, máx. 4 MB), con vista previa 1:1. El recorte es solo de presentación. */
-export function CargaFotografia({ etiqueta, name, requerido, vistaPreviaInicial, errorInicial, onCambio, errorExterno, centrada, className }: Props) {
+/** Carga de una fotografía (JPG o PNG, con el tamaño máximo del parámetro del sistema). El recorte de la variante cuadrada es solo de presentación. */
+export function CargaFotografia({ etiqueta, name, requerido, vistaPreviaInicial, errorInicial, onCambio, errorExterno, variante = "cuadrada", ayuda = "Solo una fotografía por caso. JPG o PNG, máx. {max} MB. Reemplazable.", className }: Props) {
   const id = useId();
+  const galeria = useRef<HTMLInputElement>(null);
+  const camara = useRef<HTMLInputElement>(null);
   const [vista, setVista] = useState<string | undefined>(vistaPreviaInicial);
   const [error, setError] = useState<ErrorFoto | undefined>(errorInicial);
 
@@ -49,7 +61,7 @@ export function CargaFotografia({ etiqueta, name, requerido, vistaPreviaInicial,
     if (archivo.size > MAX_BYTES) {
       setVista(undefined);
       onCambio?.(undefined);
-      return setError({ titulo: "La foto pesa más de 4 MB", detalle: "Elige otra o redúcela" });
+      return setError({ titulo: `La foto pesa más de ${MAX_MB} MB`, detalle: "Elige otra o redúcela" });
     }
     setError(undefined);
     const url = URL.createObjectURL(archivo);
@@ -69,34 +81,90 @@ export function CargaFotografia({ etiqueta, name, requerido, vistaPreviaInicial,
   const descripcionId = `${id}-ayuda`;
   const errorId = `${id}-error`;
   const hayError = Boolean(error || errorExterno);
+  const etiquetaCampo = (
+    <span className="text-small font-semibold">
+      {etiqueta}
+      {requerido && (
+        <span aria-hidden="true" className="ml-0.5 text-danger">
+          *
+        </span>
+      )}
+    </span>
+  );
+  const errorVisible = errorExterno && (
+    <p id={errorId} className="flex items-start gap-1 text-small text-danger">
+      <Icono nombre="error" tamano={16} className="mt-0.5" />
+      {errorExterno}
+    </p>
+  );
+  // El control principal (galería) lleva el id, la validación y la descripción; con la cámara solo cambia el origen de la foto.
+  const control = (
+    <input
+      ref={galeria}
+      id={id}
+      name={name}
+      tabIndex={variante === "ancha" ? -1 : undefined}
+      type="file"
+      accept="image/jpeg,image/png"
+      required={requerido && !vista}
+      className="sr-only"
+      onChange={alElegir}
+      aria-invalid={hayError ? true : undefined}
+      aria-describedby={errorExterno ? `${errorId} ${descripcionId}` : descripcionId}
+    />
+  );
+
+  if (variante === "ancha") {
+    // Los botones son el componente Boton (44 px); abren los selectores de archivo ocultos. Los inputs no entran al orden de tabulación.
+    return (
+      <div className={cx("flex flex-col gap-1", className)}>
+        {etiquetaCampo}
+        {vista ? (
+          <div className="foco-hijo flex flex-col rounded-tarjeta">
+            <div className="relative aspect-[4/3] w-full overflow-hidden rounded-t-tarjeta border border-border bg-background">
+              <Image src={vista} alt="Vista previa de la fotografía" fill unoptimized loading="eager" className="object-contain" />
+            </div>
+            <Boton variante="secundario" anchoCompleto className="rounded-t-none!" onClick={() => galeria.current?.click()}>
+              Reemplazar fotografía
+            </Boton>
+            {control}
+          </div>
+        ) : (
+          <div className={cx("foco-hijo flex flex-col items-center gap-3 rounded-tarjeta border-2 border-dashed p-4 text-center", hayError ? "border-danger bg-danger-bg" : "border-border-strong bg-surface")}>
+            <Icono nombre={error ? "error" : "photo_camera"} tamano={32} className={error ? "text-danger" : "text-primary"} />
+            <p className={cx("text-body font-semibold", error && "text-danger")}>{error ? error.titulo : "Agregar fotografía"}</p>
+            {error && <p className="text-small text-danger">{error.detalle}</p>}
+            {/* Dos columnas del mismo ancho si el texto cabe sin partirse; si no, uno bajo el otro. */}
+            <div className="grid w-full grid-cols-[repeat(auto-fit,minmax(9.5rem,1fr))] gap-3">
+              <Boton variante="secundario" className="whitespace-nowrap" onClick={() => camara.current?.click()}>
+                Tomar foto
+              </Boton>
+              <Boton variante="secundario" className="whitespace-nowrap" onClick={() => galeria.current?.click()}>
+                Elegir de galería
+              </Boton>
+            </div>
+            {control}
+            <input ref={camara} type="file" accept="image/jpeg,image/png" capture="environment" tabIndex={-1} className="sr-only" onChange={alElegir} aria-describedby={descripcionId} />
+          </div>
+        )}
+        {errorVisible}
+        <p id={descripcionId} className="text-small text-text-muted">
+          {ayuda.replace("{max}", String(MAX_MB))}
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className={cx("flex flex-col gap-1", className)}>
-      <span className="text-small font-semibold">
-        {etiqueta}
-        {requerido && (
-          <span aria-hidden="true" className="ml-0.5 text-danger">
-            *
-          </span>
-        )}
-      </span>
+      {etiquetaCampo}
       <div
         className={cx(
           "foco-hijo relative aspect-square w-full max-w-56 overflow-hidden rounded-tarjeta",
-          centrada && "mx-auto",
           vista ? "border border-border" : cx("border-2 border-dashed", hayError ? "border-danger bg-danger-bg" : "border-border-strong bg-surface"),
         )}
       >
-        <input
-          id={id}
-          name={name}
-          type="file"
-          accept="image/jpeg,image/png"
-          required={requerido && !vista}
-          className="sr-only"
-          onChange={alElegir}
-          aria-invalid={hayError ? true : undefined}
-          aria-describedby={errorExterno ? `${errorId} ${descripcionId}` : descripcionId}
-        />
+        {control}
         {vista ? (
           <>
             <Image src={vista} alt="Vista previa de la fotografía" fill unoptimized loading="eager" className="object-cover" />
@@ -119,16 +187,11 @@ export function CargaFotografia({ etiqueta, name, requerido, vistaPreviaInicial,
           <label htmlFor={id} className="absolute inset-0 flex cursor-pointer flex-col items-center justify-center gap-2 p-4 text-center">
             <Icono nombre={error ? "error" : "add_a_photo"} tamano={32} className={error ? "text-danger" : "text-primary"} />
             <span className={cx("text-small font-semibold", error && "text-danger")}>{error ? error.titulo : "Toca para tomar o elegir una foto"}</span>
-            <span className={cx("text-caption", error ? "text-danger" : "text-text-muted")}>{error ? error.detalle : "JPG o PNG · máx. 4 MB"}</span>
+            <span className={cx("text-caption", error ? "text-danger" : "text-text-muted")}>{error ? error.detalle : `JPG o PNG · máx. ${MAX_MB} MB`}</span>
           </label>
         )}
       </div>
-      {errorExterno && (
-        <p id={errorId} className="flex items-start gap-1 text-small text-danger">
-          <Icono nombre="error" tamano={16} className="mt-0.5" />
-          {errorExterno}
-        </p>
-      )}
+      {errorVisible}
       <p id={descripcionId} className="text-small text-text-muted">
         Una sola fotografía; se muestra recortada en 1:1 solo como vista previa.
       </p>

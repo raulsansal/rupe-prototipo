@@ -24,7 +24,9 @@ const PREGUNTAS: { pregunta: string; respuesta: string }[] = [
 
 const seccion = "flex scroll-mt-20 flex-col gap-3";
 
-export default function PaginaPrincipal() {
+/** PUB-01. ?aviso=abierto abre el aviso de privacidad completo (MOD-01, solo lectura) al cargar (capturas y pruebas). */
+export default async function PaginaPrincipal({ searchParams }: PageProps<"/">) {
+  const { aviso } = await searchParams;
   return (
     <div className="flex flex-col gap-8">
       <section aria-labelledby="titulo-principal" className="flex flex-col gap-4">
@@ -95,7 +97,7 @@ export default function PaginaPrincipal() {
         <p className="mb-3 mt-2 text-small text-text-muted">
           Los datos de la persona tutora se usan solo para avisarle de un avistamiento y nunca se publican. Reportar un avistamiento no requiere registro.
         </p>
-        <AvisoPrivacidadResumen />
+        <AvisoPrivacidadResumen abiertoInicial={aviso === "abierto"} />
       </section>
 
       <section id="contacto" aria-labelledby="titulo-contacto" className="scroll-mt-20 rounded-tarjeta border border-border bg-surface p-4">
