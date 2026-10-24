@@ -50,6 +50,8 @@ async function areasTactiles(pagina: Page, ancho: number) {
       if (getComputedStyle(objetivo).display === "none" || r.width === 0 || r.height === 0) continue;
       // Enlaces dentro de un texto corrido (p. ej. «Aviso de Privacidad» en una casilla) quedan exentos.
       if (el instanceof HTMLAnchorElement && el.closest("label, p")) continue;
+      // Botones compactos (36 px) de las tablas de administración: excepción documentada, solo en esa muestra.
+      if (el.closest("[data-excepcion-tactil=compacto]")) continue;
       total++;
       if (r.height < 43.5) salida.push(`${el.tagName.toLowerCase()}${el.getAttribute("aria-label") ? `[${el.getAttribute("aria-label")}]` : ""} "${(el.textContent ?? "").trim().slice(0, 30)}" ${Math.round(r.height * 10) / 10}px`);
     }

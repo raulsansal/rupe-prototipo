@@ -3,6 +3,7 @@ import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { SeccionBotones } from "./SeccionBotones";
 import { SeccionChips } from "./SeccionChips";
 import { SeccionFormularios } from "./SeccionFormularios";
+import { SeccionGraficas } from "./SeccionGraficas";
 import { SeccionNavegacion } from "./SeccionNavegacion";
 import { SeccionRetroalimentacion } from "./SeccionRetroalimentacion";
 
@@ -23,6 +24,7 @@ export default function Componentes() {
       <SeccionFormularios />
       <SeccionNavegacion />
       <SeccionRetroalimentacion />
+      <SeccionGraficas />
     </main>
   );
 }

@@ -9,7 +9,7 @@ export type Captura = { ruta: string; secciones?: string[]; anchos?: number[]; a
 
 export const RUTAS: Captura[] = [
   { ruta: "/dev/fundaciones" },
-  { ruta: "/dev/componentes", secciones: ["botones", "chips", "formularios", "navegacion", "retroalimentacion"] },
+  { ruta: "/dev/componentes", secciones: ["botones", "chips", "formularios", "navegacion", "retroalimentacion", "graficas"] },
   { ruta: "/dev/plantillas/publica" },
   { ruta: "/dev/plantillas/tutor" },
   { ruta: "/dev/plantillas/admin" },
@@ -82,6 +82,17 @@ RUTAS.push(
   { ruta: `${CON_AV}/avistamientos/101`, archivo: "tutor-avistamiento-detalle", anchos: M },
   { ruta: `${CON_AV}/avistamientos/102`, archivo: "tutor-avistamiento-fallecido-oculta", anchos: M },
   { ruta: `${CON_AV}/avistamientos/102?foto=visible`, archivo: "tutor-avistamiento-fallecido-mostrada", anchos: M },
+);
+// Bloque 5a · Administrador: tablero (ADM-01) y usuarios (ADM-03 y MOD-10). Los modales se capturan como pantalla de teléfono.
+RUTAS.push(
+  { ruta: "/admin", archivo: "admin-tablero" },
+  { ruta: "/admin?desde=2026-09-01&hasta=2026-09-30", archivo: "admin-tablero-septiembre", anchos: M },
+  { ruta: "/admin/usuarios", archivo: "admin-usuarios" },
+  { ruta: "/admin/usuarios?modal=rol", archivo: "admin-usuarios-cambiar-rol", anchos: M, ventana: true },
+  { ruta: "/admin/usuarios?modal=deshabilitar", archivo: "admin-usuarios-deshabilitar", anchos: M, ventana: true },
+  { ruta: "/admin/usuarios?modal=habilitar", archivo: "admin-usuarios-habilitar", anchos: M, ventana: true },
+  { ruta: "/admin/usuarios?estado=cargando", archivo: "admin-usuarios-cargando", anchos: M },
+  { ruta: "/admin/usuarios?estado=vacio", archivo: "admin-usuarios-vacio", anchos: M },
 );
 export const ANCHOS = [390, 1280];
 export const TEMAS = ["claro", "oscuro"] as const; // se aplican como data-theme light | dark

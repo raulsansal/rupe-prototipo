@@ -17,6 +17,21 @@
   --accent-soft: #fef3c7;
   --on-accent: #451a03;
 
+  /* Gráficas del tablero (lámina 4.13): paleta categórica; las barras usan --chart-1 y las etiquetas directas dicen el valor */
+  --chart-1: #0f766e;
+  --chart-2: #1d4ed8;
+  --chart-3: #b45309;
+  --chart-4: #7c3aed;
+  --chart-5: #be185d;
+  --chart-6: #475569;
+  /* Barra «Casos por estado del caso»: mismo tono que cada estado, con seis matices distintos (CIEDE2000 ≥ 20 entre todas las parejas) con contraste ≥ 3:1 contra la superficie */
+  --barra-estado-extraviado: #991b1b;
+  --barra-estado-en-busqueda: #0284c7;
+  --barra-estado-avistamiento: #ea580c;
+  --barra-estado-en-seguimiento: #8b5cf6;
+  --barra-estado-localizado: #15803d;
+  --barra-estado-cerrado: #334155;
+
   --background: #f8fafc;
   --surface: #ffffff;
   --surface-raised: #ffffff;
@@ -71,6 +86,20 @@
   --accent: #fbbf24;
   --accent-soft: #4a3a0c;
   --on-accent: #2b1d03;
+
+  --chart-1: #5eead4;
+  --chart-2: #93c5fd;
+  --chart-3: #fcd34d;
+  --chart-4: #c4b5fd;
+  --chart-5: #f9a8d4;
+  --chart-6: #cbd5e1;
+  /* Barra «Casos por estado del caso»: mismo tono que cada estado, con seis matices distintos (CIEDE2000 ≥ 20 entre todas las parejas) con contraste ≥ 3:1 contra la superficie */
+  --barra-estado-extraviado: #f87171;
+  --barra-estado-en-busqueda: #0ea5e9;
+  --barra-estado-avistamiento: #f59e0b;
+  --barra-estado-en-seguimiento: #a78bfa;
+  --barra-estado-localizado: #22c55e;
+  --barra-estado-cerrado: #cbd5e1;
 
   --background: #054239;
   --surface: #0a5246;
@@ -144,6 +173,18 @@
   --color-accent: var(--accent);
   --color-accent-soft: var(--accent-soft);
   --color-on-accent: var(--on-accent);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-chart-6: var(--chart-6);
+  --color-barra-estado-extraviado: var(--barra-estado-extraviado);
+  --color-barra-estado-en-busqueda: var(--barra-estado-en-busqueda);
+  --color-barra-estado-avistamiento: var(--barra-estado-avistamiento);
+  --color-barra-estado-en-seguimiento: var(--barra-estado-en-seguimiento);
+  --color-barra-estado-localizado: var(--barra-estado-localizado);
+  --color-barra-estado-cerrado: var(--barra-estado-cerrado);
 
   --color-background: var(--background);
   --color-surface: var(--surface);

@@ -84,7 +84,7 @@ export function PlantillaAdmin({ children, sesion, itemActivo, menuAbiertoInicia
           <div className="ml-auto flex items-center gap-2">
             <ThemeToggle compacto />
             <Avatar nombre={sesion.nombre} />
-            <Etiqueta className="hidden lg:inline-flex">{sesion.rol}</Etiqueta>
+            <Etiqueta className="max-lg:hidden">{sesion.rol}</Etiqueta>
             <BotonIcono
               icono="menu"
               etiqueta="Menú"

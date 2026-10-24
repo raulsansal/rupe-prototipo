@@ -1,11 +1,12 @@
 // Captura las rutas de capturas.config.ts en cada ancho y tema → capturas/<ruta>_<ancho>_<tema>.png
 // Levanta el servidor por sí mismo (build + start) y lo apaga al terminar.
+// En una corrida completa (sin --secciones ni --rutas) borra los PNG de capturas que ya no están en la configuración.
 // Opciones: --sin-build  reutiliza el build existente en .next
 //           --autoprueba  demuestra que la verificación de solapes falla con la captura defectuosa de TUT-05 «cerrado» y pasa con la corregida
 //           --secciones=a,b  solo captura esas secciones (data-seccion) y omite las rutas completas
 //           --rutas=/dev/plantillas  solo captura las entradas cuya ruta empiece con ese prefijo
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { ALTO_TELEFONO, ALTO_VENTANA, ANCHOS, PUERTO, RUTAS, TEMAS, type Captura } from "../capturas.config";
@@ -148,6 +149,8 @@ async function autoprueba(navegador: Browser): Promise<boolean> {
   return bien;
 }
 
+const generadas = new Set<string>();
+
 async function main() {
   if (!process.argv.includes("--sin-build")) {
     const r = spawnSync("npx", ["next", "build"], { stdio: "inherit", cwd: raiz });
@@ -195,6 +198,7 @@ async function main() {
           await esperarRecursos(pagina);
           for (const seccion of secciones ?? [undefined]) {
             const archivo = nombreArchivo(entrada, seccion, ancho, tema);
+            generadas.add(archivo);
             const destino = join(salida, archivo);
             if (seccion) await pagina.locator(`[data-seccion="${seccion}"]`).screenshot({ path: destino });
             else if (entrada.ventana) {
@@ -218,6 +222,15 @@ async function main() {
             console.log(`✓ capturas/${archivo}`);
           }
           await contexto.close();
+        }
+      }
+    }
+    // Corrida completa (sin filtros): se borran los PNG de capturas que ya no existen en la configuración, para que no se acumulen.
+    if (!soloRutas && !soloSecciones && generadas.size > 0) {
+      for (const f of readdirSync(salida)) {
+        if (f.endsWith(".png") && !generadas.has(f)) {
+          rmSync(join(salida, f));
+          console.log(`🗑 capturas/${f} (sobrante de una configuración anterior)`);
         }
       }
     }

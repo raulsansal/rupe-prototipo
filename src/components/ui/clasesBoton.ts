@@ -1,7 +1,7 @@
 import { cx } from "@/lib/clases";
 
 export type VarianteBoton = "primario" | "secundario" | "terciario" | "destructivo";
-export type TamanoBoton = "estandar" | "grande";
+export type TamanoBoton = "estandar" | "grande" | "compacto";
 
 const BASE =
   "inline-flex select-none items-center justify-center gap-2 rounded-boton text-small font-semibold transition-colors motion-reduce:transition-none disabled:cursor-not-allowed";
@@ -22,6 +22,8 @@ const VARIANTES: Record<VarianteBoton, string> = {
 const TAMANOS: Record<TamanoBoton, string> = {
   estandar: "h-boton px-5",
   grande: "h-boton-grande px-6 text-body",
+  /** 36 px: solo para tablas de administración marcadas con data-tabla-compacta (excepción de la auditoría táctil). */
+  compacto: "h-boton-compacto px-3",
 };
 
 export type OpcionesClases = { variante?: VarianteBoton; tamano?: TamanoBoton; anchoCompleto?: boolean; className?: string };

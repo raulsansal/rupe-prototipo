@@ -15,7 +15,9 @@
     "verificar-contraste": "tsx scripts/verificar-contraste.ts",
     "verificar-plantillas": "tsx scripts/verificar-plantillas.ts",
     "verificar-visitante": "tsx scripts/verificar-visitante.ts",
-    "verificar-tutor": "tsx scripts/verificar-tutor.ts"
+    "verificar-tutor": "tsx scripts/verificar-tutor.ts",
+    "verificar-admin": "tsx scripts/verificar-admin.ts",
+    "auditar-tactil": "tsx scripts/auditar-tactil.ts"
   },
   "dependencies": {
     "@material-symbols/svg-400": "^0.48.0",

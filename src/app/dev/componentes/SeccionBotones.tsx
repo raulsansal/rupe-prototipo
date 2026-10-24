@@ -53,6 +53,14 @@ function Contenido() {
           </Boton>
         </div>
       </Grupo>
+      <Grupo titulo="Tamaño compacto (36 px, solo en tablas de administración marcadas como compactas)">
+        <div className="flex flex-wrap gap-2" data-excepcion-tactil="compacto">
+          <Boton tamano="compacto" variante="secundario">
+            Cambiar rol
+          </Boton>
+          <Boton tamano="compacto">Habilitar</Boton>
+        </div>
+      </Grupo>
     </>
   );
 }

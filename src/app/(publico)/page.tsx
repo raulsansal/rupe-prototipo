@@ -106,7 +106,7 @@ export default async function PaginaPrincipal({ searchParams }: PageProps<"/">) 
         </h2>
         <p className="mt-2 text-small text-text-muted">
           ¿Tienes dudas o comentarios? Escríbenos a{" "}
-          <a href="mailto:contacto@rupe.example" className="font-semibold text-primary underline">
+          <a href="mailto:contacto@rupe.example" className="-my-3.5 inline-block py-3.5 font-semibold text-primary underline">
             contacto@rupe.example
           </a>
           .
