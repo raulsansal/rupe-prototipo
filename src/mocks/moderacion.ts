@@ -100,6 +100,9 @@ const OCULTOS: AvistamientoModeracion[] = [
   },
 ];
 
+/** Datos completos de los avistamientos ocultos (el Prototipo los siembra en el almacén; el Administrador solo recibe la versión permitida). */
+export const AVISTAMIENTOS_OCULTOS_ORIGEN: readonly AvistamientoModeracion[] = OCULTOS;
+
 /**
  * Lo que el Administrador ve de un avistamiento (HU 037): sin dirección, referencias, colonia ni coordenadas, que son reservadas a la persona
  * tutora (TUT-10). Lista permitida: esos datos ni siquiera viajan en la página.

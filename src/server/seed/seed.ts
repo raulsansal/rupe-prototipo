@@ -1,0 +1,147 @@
+import "server-only";
+// Datos ficticios iniciales del Prototipo, derivados de src/mocks/ (mismos folios, usuarios, catálogos, avistamientos y bitácora que el maquetado).
+// Todo es ficticio. Las contraseñas de las 3 cuentas salen SOLO de variables de entorno (ver .env.example); sin ellas la cuenta existe sin credencial.
+//
+// PENDIENTE (P6): hoy el tablero (ADM-01) y Reportes (ADM-02) se calculan solo con los casos y avistamientos SINTÉTICOS de src/mocks/tablero.ts, y
+// sus cifras no deben cambiar. En P6 deberán SUMAR a ellos los casos y avistamientos reales de este almacén (los sembrados aquí ya están en el
+// maquetado de moderación pero no en esas cifras), sin cambiar hoy ninguna cifra.
+import { hashSync } from "bcryptjs";
+import { CASOS_ORIGEN } from "../../mocks/casos";
+import { CATEGORIAS_ESTADO_ANIMAL, CATEGORIAS_MOTIVO } from "../../mocks/catalogos";
+import { CATALOGOS } from "../../mocks/catalogosAdmin";
+import { AVISTAMIENTOS } from "../../mocks/avistamientos";
+import { BITACORA } from "../../mocks/bitacora";
+import { AVISTAMIENTOS_OCULTOS_ORIGEN, CASOS_MODERACION } from "../../mocks/moderacion";
+import { ESTADOS_CASO } from "../../mocks/tipos";
+import { USUARIOS_INICIALES } from "../../mocks/usuarios";
+import type { Almacen } from "../memoria/almacen";
+import { siguienteId } from "../memoria/almacen";
+import type * as T from "../tipos";
+
+/** Costo de bcrypt: bajo lo bastante para que el arranque y las pruebas no se vuelvan lentos, sin ser trivial. */
+export const COSTO_BCRYPT = 10;
+const ID_ADMIN = 1; // Ricardo Vega Ficticio
+const ID_TUTOR_1 = 2; // Rosa Hernández Ficticia: dueña de los casos de CASOS_ORIGEN
+const ID_TUTOR_2 = 5; // Luis Navarro Ficticio: dueño de los casos extra de moderación
+const FECHA_REGISTRO_USUARIOS = "2026-05-15T12:00:00Z";
+
+type Entorno = Record<string, string | undefined>;
+/** Cuentas con credencial: nombres de las variables de entorno (no sus valores). */
+export const CUENTAS_CON_CREDENCIAL = [
+  { idUsuario: ID_ADMIN, variableCorreo: "RUPE_ADMIN_CORREO", variableContrasena: "RUPE_ADMIN_CONTRASENA" },
+  { idUsuario: ID_TUTOR_1, variableCorreo: "RUPE_TUTOR1_CORREO", variableContrasena: "RUPE_TUTOR1_CONTRASENA" },
+  { idUsuario: ID_TUTOR_2, variableCorreo: "RUPE_TUTOR2_CORREO", variableContrasena: "RUPE_TUTOR2_CONTRASENA" },
+] as const;
+
+const idPorNombre = <X extends { nombre: string }>(lista: readonly X[], nombre: string, id: (x: X) => number, que: string): number => {
+  const x = lista.find((e) => e.nombre === nombre);
+  if (!x) throw new Error(`Seed: ${que} «${nombre}» no está en el catálogo`);
+  return id(x);
+};
+
+/** Los mocks usan nombres cortos de raza («Labrador»); se busca el del catálogo y, si no hay, es «Otra» con la raza especificada (R8). */
+function razaDe(nombre: string, razas: readonly T.Raza[]): { idRaza: number; razaEspecificada?: string } {
+  const n = nombre.toLowerCase();
+  const r = razas.find((x) => x.nombre.toLowerCase() === n) ?? razas.find((x) => x.nombre.toLowerCase().startsWith(n));
+  return r ? { idRaza: r.idRaza } : { idRaza: razas.find((x) => x.nombre === "Otra")!.idRaza, razaEspecificada: nombre };
+}
+
+const AUTOMATICOS = new Set(["registro", "ficha generada", "avistamiento recibido", "avistamiento revisado"]);
+const ETIQUETA_CATALOGO: Record<string, string> = { Alcaldías: "alcaldia", Razas: "raza", Motivos: "motivo", "Estados del animal": "estado_animal" };
+/** Token de los mocks (el mismo de src/mocks/casos.ts): así el QR de cada caso sigue coincidiendo con los enlaces del maquetado. */
+const tokenDeMaqueta = (folio: string) => `MAQUETA${folio.slice(5)}`.padEnd(32, "0");
+
+export function sembrar(a: Almacen, entorno: Entorno = process.env): Almacen {
+  // ---- Catálogos ----
+  CATALOGOS.alcaldias.elementos.forEach((e) => a.alcaldias.push({ idAlcaldia: e.id, nombre: e.nombre, claveGeoestadistica: e.clave ?? null, estatus: e.activo ? 1 : 0 }));
+  CATALOGOS.razas.elementos.forEach((e) => a.razas.push({ idRaza: e.id, nombre: e.nombre, estatus: e.activo ? 1 : 0 }));
+  CATEGORIAS_MOTIVO.forEach((c) => a.categoriasMotivo.push({ idCategoriaMotivo: c.id, nombre: c.nombre }));
+  CATALOGOS.motivos.elementos.forEach((e) => a.motivos.push({ idMotivo: e.id, idCategoriaMotivo: e.idCategoria!, nombre: e.nombre, descripcion: e.descripcion ?? "", estatus: e.activo ? 1 : 0 }));
+  CATEGORIAS_ESTADO_ANIMAL.forEach((c) => a.categoriasEstadoAnimal.push({ idCategoriaEstadoAnimal: c.id, nombre: c.nombre }));
+  CATALOGOS["estados-animal"].elementos.forEach((e) => a.estadosAnimal.push({ idEstadoAnimal: e.id, idCategoriaEstadoAnimal: e.idCategoria!, nombre: e.nombre, descripcion: e.descripcion ?? "", estatus: e.activo ? 1 : 0 }));
+  ESTADOS_CASO.forEach((nombre, i) => a.estadosCaso.push({ idEstadoCaso: i + 1, nombre, orden: i + 1 }));
+  a.parametros.push(
+    { clave: "version_aviso_privacidad", descripcion: "Versión vigente del aviso de privacidad", valor: "1.0", valorPorDefecto: "1.0" },
+    { clave: "expiracion_token_minutos", descripcion: "Minutos de vigencia del token de recuperación", valor: "60", valorPorDefecto: "60" },
+    { clave: "tamano_maximo_archivo_mb", descripcion: "Tamaño máximo de archivo permitido, en MB", valor: "4", valorPorDefecto: "4" },
+  );
+  const idEstado = (n: string) => idPorNombre(a.estadosCaso, n, (e) => e.idEstadoCaso, "estado del caso");
+
+  // ---- Usuarios ----
+  for (const u of USUARIOS_INICIALES) {
+    const cuenta = CUENTAS_CON_CREDENCIAL.find((c) => c.idUsuario === u.id);
+    const contrasena = cuenta ? entorno[cuenta.variableContrasena] : undefined;
+    a.usuarios.push({
+      idUsuario: u.id, nombreCompleto: u.nombreCompleto, correo: (cuenta && entorno[cuenta.variableCorreo]) || u.correo,
+      contrasenaHash: contrasena ? hashSync(contrasena, COSTO_BCRYPT) : null,
+      telefono: u.id === ID_TUTOR_1 ? CASOS_ORIGEN[0].tutor.telefono.replace(/\D/g, "") : `5555000${String(u.id).padStart(3, "0")}`,
+      estatus: u.activo ? 1 : 0, fechaRegistro: FECHA_REGISTRO_USUARIOS, fechaUltimaModificacion: u.fechaUltimaModificacion,
+      intentosFallidos: 0, bloqueadoHasta: null, notificacionesActivas: true, rol: u.rol,
+    });
+    a.ids.usuario = Math.max(a.ids.usuario ?? 0, u.id);
+  }
+  const usuarioPorNombre = (n: string) => a.usuarios.find((u) => u.nombreCompleto === n)!.idUsuario;
+
+  // ---- Casos, perros, fotografías, historial y QR (en orden cronológico: el id crece con la fecha de registro) ----
+  const origenPorFolio = new Map(CASOS_ORIGEN.map((c) => [c.folio, c]));
+  const casos = [...CASOS_MODERACION].sort((x, y) => x.fechaRegistro.localeCompare(y.fechaRegistro));
+  for (const c of casos) {
+    const origen = origenPorFolio.get(c.folio);
+    const idDueno = origen ? ID_TUTOR_1 : ID_TUTOR_2;
+    const foto: T.Fotografia = { idFotografia: siguienteId(a, "fotografia"), referenciaArchivo: c.fotografiaUrl, formato: "JPG", tamanoBytes: 120_000, fechaCarga: c.fechaRegistro };
+    a.fotografias.push(foto);
+    const perro: T.Perro = {
+      idPerro: siguienteId(a, "perro"), nombre: c.nombre, sexo: c.sexo, edadValor: c.edadValor, edadUnidad: c.edadUnidad, tamano: c.tamano, color: c.color,
+      caracteristicasDistintivas: c.caracteristicasDistintivas, ...razaDe(c.raza, a.razas), idUsuario: idDueno, idFotografia: foto.idFotografia,
+    };
+    if (c.razaEspecificada) perro.razaEspecificada = c.razaEspecificada;
+    a.perros.push(perro);
+    const ultimo = c.historial[c.historial.length - 1];
+    const caso: T.CasoExtravio = {
+      idCasoExtravio: siguienteId(a, "caso"), folio: c.folio, fechaExtravio: c.fechaExtravio, momentoDelDia: c.momentoDelDia, coloniaZona: c.coloniaZona,
+      direccionAproximada: c.direccionAproximada, referenciasDelLugar: c.referenciasDelLugar, descripcionCircunstancias: c.descripcionCircunstancias,
+      fechaRegistro: c.fechaRegistro, fechaUltimaModificacion: c.fechaRegistro,
+      idAlcaldia: idPorNombre(a.alcaldias, c.alcaldia, (x) => x.idAlcaldia, "alcaldía"), idMotivo: idPorNombre(a.motivos, c.motivo, (x) => x.idMotivo, "motivo"),
+      idEstadoCaso: idEstado(ultimo.estado), // E1: el estado actual repite el último movimiento
+      idPerro: perro.idPerro,
+    };
+    a.casos.push(caso);
+    for (const m of c.historial) {
+      a.historial.push({
+        idCasoExtravio: caso.idCasoExtravio, consecutivo: m.consecutivo, fechaHora: m.fechaHora, tipoMovimiento: m.tipo, motivo: m.motivo, idEstadoCaso: idEstado(m.estado),
+        idUsuario: AUTOMATICOS.has(m.tipo) ? null : m.tipo === "deshabilitación" || m.tipo === "restauración" ? ID_ADMIN : idDueno,
+      });
+    }
+    a.qr.push({ idCodigoQr: siguienteId(a, "qr"), idCasoExtravio: caso.idCasoExtravio, tokenPublico: origen?.tokenPublico ?? tokenDeMaqueta(c.folio), fechaGeneracion: c.historial[1]?.fechaHora ?? c.fechaRegistro, fechaInvalidacion: null });
+  }
+  const casoPorFolio = (folio: string) => a.casos.find((c) => c.folio === folio)!;
+
+  // ---- Avistamientos (visibles y ocultos) con sus estados del animal y su notificación ----
+  const todos = [...AVISTAMIENTOS, ...AVISTAMIENTOS_OCULTOS_ORIGEN].sort((x, y) => x.id - y.id);
+  for (const v of todos) {
+    const foto: T.Fotografia = { idFotografia: siguienteId(a, "fotografia"), referenciaArchivo: v.fotografiaUrl, formato: "JPG", tamanoBytes: 90_000, fechaCarga: v.fechaHora };
+    a.fotografias.push(foto);
+    const visible = "visible" in v ? (v as { visible: boolean }).visible : true;
+    const motivo = "motivoModeracion" in v ? (v as { motivoModeracion?: string }).motivoModeracion : undefined;
+    const av: T.Avistamiento = {
+      idAvistamiento: v.id, fechaHoraAvistamiento: v.fechaHora, direccionAproximada: v.direccionAproximada, coloniaZona: v.coloniaZona, referenciasDelLugar: v.referencias,
+      latitud: v.latitud, longitud: v.longitud, precisionGps: v.precisionGps, comentario: v.comentario, fechaHoraEnvio: v.fechaHora,
+      visible, motivoModeracion: visible ? undefined : motivo, idAlcaldia: idPorNombre(a.alcaldias, v.alcaldia, (x) => x.idAlcaldia, "alcaldía"),
+      idCasoExtravio: casoPorFolio(v.folio).idCasoExtravio, idFotografia: foto.idFotografia,
+    };
+    a.avistamientos.push(av);
+    a.ids.avistamiento = Math.max(a.ids.avistamiento ?? 0, v.id);
+    v.estadosAnimal.forEach((n) => a.avistamientoEstados.push({ idAvistamiento: v.id, idEstadoAnimal: idPorNombre(a.estadosAnimal, n, (x) => x.idEstadoAnimal, "estado del animal") }));
+    a.notificaciones.push({ idNotificacion: siguienteId(a, "notificacion"), tipo: "nuevo avistamiento", canal: "correo", fechaEnvio: v.fechaHora, estadoEnvio: "enviada", idAvistamiento: v.id });
+  }
+
+  // ---- Bitácora (la misma de ADM-12); el ID afectado sigue el diccionario: id del caso, o «catalogo:id» ----
+  [...BITACORA].sort((x, y) => x.id - y.id).forEach((b) => {
+    const [nombreCatalogo, idCatalogo] = b.idEntidad.split(" · ");
+    const idAfectada = b.entidad === "caso" ? String(casoPorFolio(b.idEntidad).idCasoExtravio) : b.entidad === "catálogo" ? `${ETIQUETA_CATALOGO[nombreCatalogo]}:${idCatalogo}` : b.idEntidad;
+    a.bitacora.push({ idBitacoraAdmin: b.id, tipoAccion: b.tipo, idAfectada, motivo: b.motivo, detalle: b.detalle, fechaHora: b.fechaHora, idUsuario: usuarioPorNombre(b.administrador) });
+    a.ids.bitacora = Math.max(a.ids.bitacora ?? 0, b.id);
+  });
+
+  return a;
+}

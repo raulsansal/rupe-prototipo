@@ -17,10 +17,13 @@
     "verificar-visitante": "tsx scripts/verificar-visitante.ts",
     "verificar-tutor": "tsx scripts/verificar-tutor.ts",
     "verificar-admin": "tsx scripts/verificar-admin.ts",
-    "auditar-tactil": "tsx scripts/auditar-tactil.ts"
+    "auditar-tactil": "tsx scripts/auditar-tactil.ts",
+    "probar": "tsx --require ./scripts/server-only-vacio.cjs --test --test-reporter=spec \"src/server/**/*.test.ts\"",
+    "verificar-secretos": "tsx scripts/verificar-secretos.ts"
   },
   "dependencies": {
     "@material-symbols/svg-400": "^0.48.0",
+    "bcryptjs": "^3.0.3",
     "next": "16.4.2",
     "react": "19.3.0",
     "react-dom": "19.3.0"
