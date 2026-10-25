@@ -45,7 +45,7 @@ export const AVISTAMIENTOS: readonly AvistamientoRecibido[] = [
   { id: 402, folio: "RUPE-B6R2TZ7C", fechaHora: "2026-10-08T20:00:00Z", direccionAproximada: "Calle Reservada Alta 41", coloniaZona: "Fuentes Brotantes", latitud: 19.2931, longitud: -99.1887, alcaldia: "Tlalpan", estadosAnimal: [ILESO, LIBRE, ASUSTADO], fotografiaUrl: FOTO },
   // Lola (Localizado): tres avistamientos.
   { id: 501, folio: "RUPE-C2J9RK6Z", fechaHora: "2026-09-26T14:20:00Z", direccionAproximada: "Calle Reservada Azul 7", coloniaZona: "San Ángel", latitud: 19.3485, longitud: -99.1905, alcaldia: "Álvaro Obregón", estadosAnimal: [ILESO, LIBRE, ASUSTADO], fotografiaUrl: FOTO },
-  { id: 502, folio: "RUPE-C2J9RK6Z", fechaHora: "2026-09-27T16:40:00Z", direccionAproximada: "Avenida Reservada Verde 90", coloniaZona: "Chimalistac", latitud: 19.3441, longitud: -99.1832, alcaldia: "Coyoacán", estadosAnimal: [HERIDO, RESGUARDADO], comentario: "Una señora la recogió; tiene un raspón en la pata.", fotografiaUrl: FOTO },
+  { id: 502, folio: "RUPE-C2J9RK6Z", fechaHora: "2026-09-27T16:40:00Z", direccionAproximada: "Avenida Reservada Verde 90", coloniaZona: "Villa Coyoacán", latitud: 19.3441, longitud: -99.1832, alcaldia: "Coyoacán", estadosAnimal: [HERIDO, RESGUARDADO], comentario: "Una señora la recogió; tiene un raspón en la pata.", fotografiaUrl: FOTO },
   { id: 503, folio: "RUPE-C2J9RK6Z", fechaHora: "2026-09-28T11:05:00Z", direccionAproximada: "Calle Reservada Roja 18", coloniaZona: "Del Carmen", latitud: 19.3402, longitud: -99.1771, alcaldia: "Coyoacán", estadosAnimal: [ILESO, CLINICA, DOCIL], fotografiaUrl: FOTO },
 ];
 

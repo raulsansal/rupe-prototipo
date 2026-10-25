@@ -12,12 +12,16 @@ type Props = {
   sensible: boolean;
   /** Solo capturas y pruebas: empieza con la fotografía revelada. */
   reveladaInicial?: boolean;
+  /** Redacción del aviso para quien consulta con la fotografía oculta (por defecto, la de la persona tutora). */
+  aviso?: string;
+  /** Redacción del aviso con la fotografía ya revelada; por defecto, la misma. */
+  avisoRevelada?: string;
 };
 
 const REDACCION_SOBRIA = "Se reportó un perro sin vida que podría ser el tuyo. Lamentamos esta noticia.";
 
 /** Fotografía del avistamiento (TUT-10). Si es sensible, la imagen ni siquiera se dibuja hasta pulsar «Ver fotografía». */
-export function FotoAvistamiento({ src, sensible, reveladaInicial = false }: Props) {
+export function FotoAvistamiento({ src, sensible, reveladaInicial = false, aviso = REDACCION_SOBRIA, avisoRevelada = aviso }: Props) {
   const id = useId();
   const [revelada, setRevelada] = useState(reveladaInicial);
   const mostrar = !sensible || revelada;
@@ -47,7 +51,7 @@ export function FotoAvistamiento({ src, sensible, reveladaInicial = false }: Pro
       )}
       {sensible && (
         <Alerta tipo="info" titulo="Aviso">
-          {REDACCION_SOBRIA}
+          {revelada ? avisoRevelada : aviso}
         </Alerta>
       )}
     </div>

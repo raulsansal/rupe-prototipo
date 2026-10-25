@@ -1,0 +1,6 @@
+Montserrat (variable, eje de peso 100–900, subconjunto latino, formato woff2), alojada localmente para que el build no dependa de la red.
+Origen: paquete npm @fontsource-variable/montserrat 5.3.0 (https://fontsource.org/fonts/montserrat), archivos files/montserrat-latin-wght-normal.woff2 y files/montserrat-latin-wght-italic.woff2.
+Licencia: SIL Open Font License 1.1 (OFL.txt, junto a los archivos).
+SHA-256:
+  06b16db7a969135d48d38c49183be7fb88d4452e2a3011957c7851941f4e4879  montserrat-latin-wght-normal.woff2
+  0eb22e3d769a66a92dbd82e3aefa5740e5bc21afa4485f62f92b22656d49182a  montserrat-latin-wght-italic.woff2

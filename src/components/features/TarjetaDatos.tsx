@@ -15,10 +15,10 @@ export function TarjetaDatos({ id, titulo, filas, variante = "publico" }: Props)
       <h2 id={id} className="text-h3 font-semibold">
         {titulo}
       </h2>
-      <dl className="mt-3 grid grid-cols-[minmax(0,2fr)_minmax(0,3fr)] gap-x-4 gap-y-3 text-small">
+      <dl className="mt-3 grid grid-cols-[minmax(min-content,2fr)_minmax(0,3fr)] gap-x-4 gap-y-3 text-small">
         {filas.map(([etiqueta, valor]) => (
           <div key={etiqueta} className="col-span-2 grid grid-cols-subgrid">
-            <dt className="font-bold">{etiqueta}</dt>
+            <dt className="min-w-0 break-words font-bold">{etiqueta}</dt>
             <dd className="min-w-0 break-words">{valor}</dd>
           </div>
         ))}

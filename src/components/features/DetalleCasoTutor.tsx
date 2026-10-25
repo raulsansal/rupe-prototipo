@@ -12,27 +12,12 @@ import { DialogoConfirmacion } from "@/components/ui/DialogoConfirmacion";
 import { Icono } from "@/components/ui/Icono";
 import { Toast } from "@/components/ui/Toast";
 import { cx } from "@/lib/clases";
-import { formatearFechaCorta, formatearFechaHora } from "@/lib/formato";
-import { edadAproximada, etiquetaTamano } from "@/lib/perro";
-import { MOMENTOS_DEL_DIA } from "@/mocks/catalogos";
 import { esCasoActivo, type CasoTutor, type EstadoCaso, type MovimientoHistorial, type TipoMovimiento } from "@/mocks/tipos";
+import { DatosDelExtravio, DatosDelPerro, DatosReservados } from "./DatosCaso";
+import { HistorialEstados } from "./HistorialEstados";
 import { ModalCompartir } from "./ModalCompartir";
-import { TarjetaDatos } from "./TarjetaDatos";
 
 type Accion = "localizar" | "cerrar" | "cancelar" | "reactivar" | "compartir";
-
-const TEXTO_MOVIMIENTO: Record<TipoMovimiento, string> = {
-  registro: "Registro creado",
-  "ficha generada": "Ficha de búsqueda generada",
-  "avistamiento recibido": "Avistamiento recibido",
-  "avistamiento revisado": "Avistamiento revisado",
-  localización: "Marcado como localizado",
-  reactivación: "Caso reactivado",
-  "cierre confirmado": "Cierre confirmado",
-  cancelación: "Registro cancelado",
-  deshabilitación: "Caso deshabilitado",
-  restauración: "Caso restaurado",
-};
 
 const LIMITE_MOTIVO = 300;
 
@@ -109,7 +94,6 @@ export function DetalleCasoTutor({ caso }: { caso: CasoTutor }) {
   const folio = caso.folio;
   const activo = esCasoActivo(estado);
   const base = `/tutor/casos/${folio}`;
-  const momento = MOMENTOS_DEL_DIA.find((m) => m.valor === caso.momentoDelDia)?.etiqueta ?? caso.momentoDelDia;
   const confirmacion = CONFIRMACIONES[ultimaConfirmacion];
   const abrir = (a: Accion) => {
     if (a !== "compartir") setUltimaConfirmacion(a);
@@ -211,31 +195,7 @@ export function DetalleCasoTutor({ caso }: { caso: CasoTutor }) {
     </section>
   );
 
-  const ultimo = historial.length - 1;
-  const historialVista = (
-    <section aria-labelledby="historial-titulo" className="rounded-tarjeta border border-border bg-surface p-4">
-      <h2 id="historial-titulo" className="text-h3 font-semibold">
-        Historial de estados
-      </h2>
-      <ol className="mt-3 flex flex-col">
-        {[...historial].reverse().map((m, i) => (
-          <li key={m.consecutivo} className="relative flex gap-3 pb-4 last:pb-0">
-            {i < historial.length - 1 && <span aria-hidden="true" className="absolute left-[7px] top-4 h-full w-0.5 bg-border-strong" />}
-            <span aria-hidden="true" className={cx("relative mt-1 box-border size-4 shrink-0 rounded-full border-2 border-border-strong", m.consecutivo === ultimo + 1 ? "bg-primary" : "bg-surface")} />
-            <div className="min-w-0 text-small">
-              <p className="font-bold">
-                {m.estado}
-                {m.consecutivo === ultimo + 1 && <span className="ml-2 font-normal text-text-muted">(actual)</span>}
-              </p>
-              <p>{TEXTO_MOVIMIENTO[m.tipo]}</p>
-              <p className="text-text-muted">{formatearFechaHora(m.fechaHora)}</p>
-              {m.motivo && <p className="mt-1 break-words">Motivo: {m.motivo}</p>}
-            </div>
-          </li>
-        ))}
-      </ol>
-    </section>
-  );
+  const historialVista = <HistorialEstados historial={historial} />;
 
   return (
     <div className="flex flex-col gap-4">
@@ -264,45 +224,14 @@ export function DetalleCasoTutor({ caso }: { caso: CasoTutor }) {
               <Image src={caso.fotografiaUrl} alt={`Fotografía de ${caso.nombre}`} fill sizes="(min-width: 1280px) 420px, (min-width: 1024px) 30vw, 100vw" className="object-cover" priority />
             </div>
             <div className="order-3 lg:order-none">
-              <TarjetaDatos
-                id="datos-perro"
-                titulo="Datos del perro"
-                filas={[
-                  ["Nombre", caso.nombre],
-                  ["Sexo", caso.sexo],
-                  ["Raza", caso.razaEspecificada ? `Otra: ${caso.razaEspecificada}` : caso.raza],
-                  ["Edad", edadAproximada(caso)],
-                  ["Tamaño", etiquetaTamano(caso.tamano)],
-                  ["Color", caso.color],
-                  ["Características distintivas", caso.caracteristicasDistintivas ?? "Sin características registradas"],
-                ]}
-              />
+              <DatosDelPerro caso={caso} />
             </div>
           </div>
           <div className="order-4 lg:order-none">
-            <TarjetaDatos
-              id="datos-extravio"
-              titulo="Datos del extravío · públicos en la ficha"
-              filas={[
-                ["Fecha del extravío", formatearFechaCorta(caso.fechaExtravio)],
-                ["Alcaldía", caso.alcaldia],
-                ["Colonia o zona", caso.coloniaZona],
-              ]}
-            />
+            <DatosDelExtravio caso={caso} />
           </div>
           <div className="order-5 lg:order-none">
-            <TarjetaDatos
-              id="datos-reservados"
-              variante="reservado"
-              titulo="Datos reservados · no aparecen en la ficha"
-              filas={[
-                ["Momento del día", momento],
-                ["Calle o cruce", caso.direccionAproximada ?? "No registrada"],
-                ["Referencias del lugar", caso.referenciasDelLugar ?? "No registradas"],
-                ["Motivo", caso.motivo],
-                ["Descripción de las circunstancias", caso.descripcionCircunstancias ?? "No registrada"],
-              ]}
-            />
+            <DatosReservados caso={caso} />
           </div>
         </div>
         <div className="contents lg:flex lg:flex-col lg:gap-4">

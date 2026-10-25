@@ -1,5 +1,6 @@
 import { FOLIO_CON_AVISTAMIENTOS, FOLIO_UN_AVISTAMIENTO } from "./src/mocks/avistamientos";
 import { FOLIO_EN_CURSO } from "./src/mocks/casos";
+import { FOLIO_MODERACION_ACTIVO, FOLIO_MODERACION_CANCELADO, FOLIO_MODERACION_DESHABILITADO } from "./src/mocks/moderacion";
 
 // Configuración del script `npm run capturas`.
 // Una ruta sin `secciones` se captura completa; con `secciones`, cada [data-seccion="..."] por separado.
@@ -93,6 +94,43 @@ RUTAS.push(
   { ruta: "/admin/usuarios?modal=habilitar", archivo: "admin-usuarios-habilitar", anchos: M, ventana: true },
   { ruta: "/admin/usuarios?estado=cargando", archivo: "admin-usuarios-cargando", anchos: M },
   { ruta: "/admin/usuarios?estado=vacio", archivo: "admin-usuarios-vacio", anchos: M },
+);
+// Bloque 5b · Administrador: moderación de registros (ADM-04, MOD-08 y TUT-05 variante Administrador), de avistamientos (ADM-05 y MOD-09)
+// y la plantilla de catálogo (ADM-06 a ADM-09 con MOD-11). Los modales se capturan como pantalla de teléfono.
+const REGISTRO = "/admin/registros";
+RUTAS.push(
+  { ruta: REGISTRO, archivo: "admin-registros" },
+  { ruta: `${REGISTRO}?modal=deshabilitar`, archivo: "admin-registros-deshabilitar", anchos: M, ventana: true },
+  { ruta: `${REGISTRO}?modal=deshabilitar&error=motivo`, archivo: "admin-registros-deshabilitar-error", anchos: M, ventana: true },
+  { ruta: `${REGISTRO}?estado=cargando`, archivo: "admin-registros-cargando", anchos: M },
+  { ruta: `${REGISTRO}?estado=vacio`, archivo: "admin-registros-vacio", anchos: M },
+  { ruta: `${REGISTRO}/${FOLIO_MODERACION_ACTIVO}`, archivo: "admin-registro-detalle" },
+  { ruta: `${REGISTRO}/${FOLIO_MODERACION_ACTIVO}?modal=deshabilitar`, archivo: "admin-registro-detalle-deshabilitar", anchos: M, ventana: true },
+  { ruta: `${REGISTRO}/${FOLIO_MODERACION_DESHABILITADO}`, archivo: "admin-registro-detalle-deshabilitado", anchos: M },
+  { ruta: `${REGISTRO}/${FOLIO_MODERACION_CANCELADO}`, archivo: "admin-registro-detalle-cancelado", anchos: M },
+  { ruta: "/admin/avistamientos", archivo: "admin-avistamientos" },
+  { ruta: "/admin/avistamientos?modal=ocultar", archivo: "admin-avistamientos-ocultar", anchos: M, ventana: true },
+  { ruta: "/admin/avistamientos?modal=ocultar&error=motivo", archivo: "admin-avistamientos-ocultar-error", anchos: M, ventana: true },
+  { ruta: "/admin/avistamientos?modal=detalle", archivo: "admin-avistamientos-detalle", anchos: M, ventana: true },
+  { ruta: "/admin/avistamientos?modal=detalle-oculto", archivo: "admin-avistamientos-detalle-oculto", anchos: M, ventana: true },
+  { ruta: "/admin/avistamientos?pagina=2", archivo: "admin-avistamientos-fallecido-y-oculto" },
+  { ruta: "/admin/avistamientos?modal=detalle-fallecido", archivo: "admin-avistamientos-detalle-fallecido", anchos: M, ventana: true },
+  { ruta: "/admin/avistamientos?modal=detalle-fallecido&foto=visible", archivo: "admin-avistamientos-detalle-fallecido-foto", anchos: M, ventana: true },
+  { ruta: "/admin/avistamientos?estado=cargando", archivo: "admin-avistamientos-cargando", anchos: M },
+  { ruta: "/admin/avistamientos?estado=vacio", archivo: "admin-avistamientos-vacio", anchos: M },
+  { ruta: "/admin/alcaldias", archivo: "admin-alcaldias" },
+  { ruta: "/admin/alcaldias?modal=nuevo", archivo: "admin-alcaldias-agregar", anchos: M, ventana: true },
+  { ruta: "/admin/alcaldias?modal=editar", archivo: "admin-alcaldias-editar", anchos: M, ventana: true },
+  { ruta: "/admin/alcaldias?modal=desactivar", archivo: "admin-alcaldias-desactivar", anchos: M, ventana: true },
+  { ruta: "/admin/alcaldias?pagina=3", archivo: "admin-alcaldias-protegida" },
+  { ruta: "/admin/alcaldias?estado=cargando", archivo: "admin-alcaldias-cargando", anchos: M },
+  { ruta: "/admin/razas", archivo: "admin-razas" },
+  { ruta: "/admin/razas?modal=editar", archivo: "admin-razas-editar", anchos: M, ventana: true },
+  { ruta: "/admin/motivos", archivo: "admin-motivos" },
+  { ruta: "/admin/motivos?modal=nuevo", archivo: "admin-motivos-agregar", anchos: M, ventana: true },
+  { ruta: "/admin/estados-animal", archivo: "admin-estados-animal" },
+  { ruta: "/admin/estados-animal?modal=editar", archivo: "admin-estados-animal-editar", anchos: M, ventana: true },
+  { ruta: "/admin/estados-animal?pagina=3", archivo: "admin-estados-animal-bloqueada" },
 );
 export const ANCHOS = [390, 1280];
 export const TEMAS = ["claro", "oscuro"] as const; // se aplican como data-theme light | dark

@@ -97,6 +97,8 @@ const pares: Par[] = [
   ...ESTADOS.map((e) => texto(`chip estado ${e}`, `estado-${e}-fg`, `estado-${e}-bg`)),
   ...[1, 2, 3, 4, 5, 6].flatMap((n) => [borde(`gráfica: chart-${n} / superficie`, `chart-${n}`, "surface"), borde(`gráfica: chart-${n} / fondo`, `chart-${n}`, "background")]),
   ...ESTADOS.flatMap((e) => [borde(`barra de estados: ${e} / superficie`, `barra-estado-${e}`, "surface"), borde(`barra de estados: ${e} / fondo`, `barra-estado-${e}`, "background")]),
+  texto("chip «Valor protegido» (texto / superficie)", "text", "surface"),
+  borde("chip «Valor protegido» (borde / superficie)", "border-strong", "surface"),
   borde("borde de controles / fondo", "border-strong", "background"),
   borde("borde de controles / superficie", "border-strong", "surface"),
   borde("anillo de foco / fondo", "focus-ring", "background"),

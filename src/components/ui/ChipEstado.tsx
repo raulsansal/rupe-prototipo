@@ -12,10 +12,10 @@ const TONOS: Record<EstadoCaso, string> = {
 };
 
 /** Chip del estado del caso: punto + texto, nunca solo color. */
-export function ChipEstado({ estado, className }: { estado: EstadoCaso; className?: string }) {
+export function ChipEstado({ estado, texto, className }: { estado: EstadoCaso; /** Reemplaza el nombre del estado (p. ej. «Cerrado (deshabilitado)»). */ texto?: string; className?: string }) {
   return (
     <Chip tono={TONOS[estado]} className={className}>
-      {estado}
+      {texto ?? estado}
     </Chip>
   );
 }

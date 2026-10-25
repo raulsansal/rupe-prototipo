@@ -4,7 +4,7 @@ import { PantallaPendiente } from "@/components/features/PantallaPendiente";
 import { GRUPOS_ADMIN } from "@/components/layout/navegacion";
 
 /** Pantallas del Administrador que ya existen: el resto de las opciones del menú llevan a «Pantalla pendiente», nunca a un 404. */
-const CONSTRUIDAS = ["/admin", "/admin/usuarios"];
+const CONSTRUIDAS = ["/admin", "/admin/usuarios", "/admin/registros", "/admin/avistamientos", "/admin/alcaldias", "/admin/razas", "/admin/motivos", "/admin/estados-animal"];
 const PENDIENTES = GRUPOS_ADMIN.flatMap((g) => g.enlaces).filter((e) => !CONSTRUIDAS.includes(e.href));
 
 export const dynamicParams = false;

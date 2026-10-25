@@ -328,12 +328,12 @@ textarea {
   outline-offset: var(--anillo-foco-separacion);
 }
 
-/* Cursiva: usa la familia de cursivas 400/600 (solo para ayudas y aclaraciones) */
+/* Cursiva: la misma familia, con su variante cursiva (solo para ayudas y aclaraciones) */
 .italic,
 em,
 i,
 cite {
-  font-family: var(--font-montserrat-cursiva), var(--font-montserrat), ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-montserrat), ui-sans-serif, system-ui, sans-serif;
   font-style: italic;
 }
 

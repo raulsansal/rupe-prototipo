@@ -277,7 +277,7 @@ async function registro(navegador: Browser) {
   await fecha.fill("2026-10-18");
   await p2.locator("label", { hasText: "Tarde" }).click();
   await p2.getByLabel(/^Alcaldía/).selectOption("Coyoacán");
-  await p2.getByLabel(/^Colonia o zona/).fill("Narvarte Poniente");
+  await p2.getByLabel(/^Colonia o zona/).fill("Del Carmen");
   await p2.getByLabel(/^Motivo del extravío/).selectOption({ label: "Portones o puertas abiertas" });
   ver(await p2.getByText(/Fallas en Infraestructura y Contención\./).isVisible(), "TUT-03: al elegir un motivo se muestra su categoría y descripción", "TUT-03: sin descripción del motivo");
 
@@ -285,7 +285,7 @@ async function registro(navegador: Browser) {
   await boton(pagina, "Regresar").click();
   ver((await barra(pagina)) === "Paso 1 de 2: Datos del perro" && (await nombre.inputValue()) === "Canela" && (await p1.getByLabel(/^Raza/).locator("option:checked").innerText()) === "Otra" && (await p1.getByLabel(/^Especifique la raza/).inputValue()) === "Perro de agua" && (await valor.locator("option:checked").innerText()) === "Menos de 1 mes" && (await unidad.inputValue()) === "meses" && (await p1.getByLabel(/^Color/).inputValue()) === "Canela con blanco" && (await p1.getByAltText("Vista previa de la fotografía").count()) === 1 && (await p1.getByRole("radio", { name: "Hembra" }).isChecked()) && (await p1.getByRole("radio", { name: "Pequeño" }).isChecked()), "Regresar: nombre, raza «Otra» y especificación, edad, sexo, tamaño, color y fotografía se conservan", "Regresar: se perdió lo capturado en el paso 1");
   await cont.click();
-  ver((await fecha.inputValue()) === "2026-10-18" && (await p2.getByLabel(/^Alcaldía/).inputValue()) === "Coyoacán" && (await p2.getByLabel(/^Colonia o zona/).inputValue()) === "Narvarte Poniente" && (await p2.getByRole("radio", { name: /^Tarde/ }).isChecked()), "al avanzar de nuevo, el paso 2 conserva lo capturado", "el paso 2 perdió lo capturado");
+  ver((await fecha.inputValue()) === "2026-10-18" && (await p2.getByLabel(/^Alcaldía/).inputValue()) === "Coyoacán" && (await p2.getByLabel(/^Colonia o zona/).inputValue()) === "Del Carmen" && (await p2.getByRole("radio", { name: /^Tarde/ }).isChecked()), "al avanzar de nuevo, el paso 2 conserva lo capturado", "el paso 2 perdió lo capturado");
   const almacen = await pagina.evaluate(() => ({ local: Object.keys(localStorage).filter((k) => k !== "rupe-tema"), sesion: Object.keys(sessionStorage), cookies: document.cookie }));
   ver(almacen.local.length === 0 && almacen.sesion.length === 0 && almacen.cookies === "", "lo capturado no se guarda en localStorage, sessionStorage ni cookies", `almacenamiento: ${JSON.stringify(almacen)}`);
   await cont.click();
@@ -626,6 +626,38 @@ async function enlacesInternos(navegador: Browser) {
   const ajeno = await p.pagina.goto(`${base}/tutor/casos/RUPE-Z5C6VR4P/editar`, { waitUntil: "load" });
   ver(ajeno?.status() === 404, "una pantalla pendiente de un folio ajeno responde 404", `folio ajeno en pantalla pendiente: HTTP ${ajeno?.status()}`);
   await p.contexto.close();
+}
+
+const medirRotulos = (pagina: Page) =>
+  pagina.evaluate(() => {
+    const malos: string[] = [];
+    let total = 0;
+    for (const dt of document.querySelectorAll("dl dt")) {
+      const dd = dt.nextElementSibling;
+      const caja = dt.getBoundingClientRect();
+      const rango = document.createRange();
+      rango.selectNodeContents(dt);
+      let derecha = 0;
+      for (const r of rango.getClientRects()) derecha = Math.max(derecha, r.right);
+      const hueco = dd ? dd.getBoundingClientRect().left - caja.right : 99;
+      total++;
+      if (dt.scrollWidth > dt.clientWidth + 1 || derecha > caja.right + 0.5 || hueco < 8) malos.push(`«${(dt.textContent ?? "").trim()}» (texto hasta ${Math.round(derecha)}, columna hasta ${Math.round(caja.right)}, separación ${Math.round(hueco)} px)`);
+    }
+    return { malos, total };
+  });
+
+/** Ningún rótulo de las tarjetas de datos invade la columna de valores (componente compartido con la variante del Administrador). */
+async function rotulosDeDatos(navegador: Browser) {
+  for (const ancho of [390, 1024, 1280]) {
+    for (const tema of ["light", "dark"] as const) {
+      const { contexto, pagina } = await nuevaPagina(navegador, ancho);
+      await pagina.addInitScript(([k, v]) => localStorage.setItem(k, v), [CLAVE_TEMA, tema]);
+      await irA(pagina, `${CASO}?estado=en-curso`);
+      const r = await medirRotulos(pagina);
+      ver(r.total >= 15 && r.malos.length === 0, `TUT-05 ${ancho}px (${tema === "light" ? "claro" : "oscuro"}): ${r.total} rótulos de las tarjetas de datos caben en su columna, con al menos 8 px antes del valor`, `TUT-05 ${ancho}px (${tema}): rótulos desbordados → ${r.malos.join(" | ")}`);
+      await contexto.close();
+    }
+  }
 }
 
 // ---------- TUT-05 en escritorio ----------
@@ -975,6 +1007,7 @@ async function main() {
     await creado(navegador);
     await detalle(navegador);
     await detalleEscritorio(navegador);
+    await rotulosDeDatos(navegador);
     await fugas(navegador);
     await modalesFicha(navegador);
     await geometria(navegador);

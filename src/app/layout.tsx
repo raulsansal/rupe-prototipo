@@ -1,23 +1,17 @@
 import type { Metadata } from "next";
-import { Montserrat } from "next/font/google";
+import localFont from "next/font/local";
 import { SCRIPT_TEMA_INICIAL } from "@/lib/tema";
 import "./globals.css";
 
-const montserrat = Montserrat({
+// Montserrat alojada en el repositorio (src/app/fonts, licencia OFL): el build no hace peticiones a Google. Una sola carga con las dos
+// variantes (normal y cursiva) y el peso variable de 100 a 900; el sistema de diseño usa 400 a 800 en normal y 400 y 600 en cursiva.
+const montserrat = localFont({
   variable: "--font-montserrat",
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "800"],
-  style: "normal",
   display: "swap",
-});
-
-// Cursivas: solo 400 y 600 (lámina 4.4). Se carga aparte para no descargar cursivas de más.
-const montserratCursiva = Montserrat({
-  variable: "--font-montserrat-cursiva",
-  subsets: ["latin"],
-  weight: ["400", "600"],
-  style: "italic",
-  display: "swap",
+  src: [
+    { path: "./fonts/montserrat-latin-wght-normal.woff2", weight: "100 900", style: "normal" },
+    { path: "./fonts/montserrat-latin-wght-italic.woff2", weight: "100 900", style: "italic" },
+  ],
 });
 
 export const metadata: Metadata = {
@@ -27,7 +21,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="es-MX" className={`${montserrat.variable} ${montserratCursiva.variable} h-full antialiased`} suppressHydrationWarning>
+    <html lang="es-MX" className={`${montserrat.variable} h-full antialiased`} suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: SCRIPT_TEMA_INICIAL }} />
       </head>

@@ -11,7 +11,7 @@ import { InsigniaContador } from "@/components/ui/InsigniaContador";
 import { ESTADOS_CASO } from "@/mocks/tipos";
 import { Grupo, PanelesTema } from "./PanelesTema";
 
-const ESTATUS: Estatus[] = ["Activo", "Inactivo", "Visible", "Oculto", "Valor protegido"];
+const ESTATUS: Estatus[] = ["Activo", "Inactivo", "Activa", "Inactiva", "Visible", "Oculto", "Valor protegido"];
 
 function Filtros() {
   const [activos, setActivos] = useState<string[]>(["Todos", "Localizado"]);

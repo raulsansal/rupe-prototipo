@@ -1,10 +1,8 @@
 # RUPE · Registro Único de Perros Extraviados (Ciudad de México)
-Fase actual: MAQUETADO fiel al diseño aprobado, con datos ficticios (sin BD, API ni autenticación).
-Después vendrá el Prototipo: MySQL en Aiven vía API Routes de Next.js (credenciales solo en variables de entorno).
+Fase actual: MAQUETADO fiel al diseño aprobado, con datos ficticios (sin BD, API ni autenticación). Después, el Prototipo: MySQL en Aiven vía API Routes de Next.js (credenciales solo en variables de entorno).
 Lee `AGENTS.md` y `node_modules/next/dist/docs/` antes de escribir código Next.js: esta versión difiere de lo habitual.
 ## Stack
-Next.js (App Router, `src/`, alias `@/*`) · React · TypeScript · Tailwind CSS v4 · Montserrat (`next/font`).
-Sin ORM ni librerías de UI, mapas, gráficas, estado global o formularios: componentes a mano con Tailwind. Íconos: Material Symbols Rounded relleno vía `<Icono nombre="..." />` (`npm run iconos` regenera `rutas.ts`).
+Next.js (App Router, `src/`, alias `@/*`) · React · TypeScript · Tailwind CSS v4 · Montserrat alojada en `src/app/fonts` (`next/font/local`; nunca `next/font/google`). Sin ORM ni librerías de UI, mapas, gráficas, estado global o formularios: componentes a mano con Tailwind. Íconos: Material Symbols Rounded relleno vía `<Icono nombre="..." />` (`npm run iconos` regenera `rutas.ts`).
 ## Convenciones
 - Rutas y textos de interfaz en español de México; "persona tutora" (salvo el nombre literal del rol "Tutor").
 - Colores solo con tokens (`bg-background`, `text-text`…), nunca hexadecimales ni `bg-black`/`text-white`. Modo oscuro con las
@@ -12,8 +10,7 @@ Sin ORM ni librerías de UI, mapas, gráficas, estado global o formularios: comp
   oscuro en `[data-theme="dark"]` (p. ej. fondo oscuro = `--background`), avatares, `--scrim` y la hoja impresa (`--papel`/`--tinta`) iguales en ambos modos en el bloque `:root` de
   avatares. Después: `verificar-tokens` (compara con el encargo del B0), `verificar-contraste` y `verificar-componentes`.
 - Mobile-first (390, 768, 1280 px). Accesibilidad: contraste AA, objetivo táctil ≥ 44 px, estado nunca solo por color, foco visible.
-- Componentes en `src/components/ui` (uno por archivo; galería `/dev/componentes`), de dominio en `features`, plantillas en `layout`.
-- Plantillas (`/dev/plantillas`): `PlantillaPublica` (layout de `(publico)`), `PlantillaTutor` (`(tutor)/tutor`), `PlantillaAdmin` (`(admin)/admin`)
+- Componentes en `src/components/ui` (uno por archivo; galería `/dev/componentes`), de dominio en `features`, plantillas en `layout`. Plantillas (`/dev/plantillas`): `PlantillaPublica` (layout de `(publico)`), `PlantillaTutor` (`(tutor)/tutor`), `PlantillaAdmin` (`(admin)/admin`)
   y `PlantillaFlujo` (flujos por pasos, rutas en `(flujo)`); un solo `<main id="contenido">` cada una. Con `inline-flex` ocultar con `max-md:hidden`, no `hidden`.
 - Datos ficticios en `src/mocks` (importes relativos): `casos.ts` (origen con reservados → `aFichaPublica`), `catalogos.ts`, `parametros.ts`.
   Los datos de la persona tutora y los reservados nunca son públicos: la ficha pública usa solo `FichaPublica` (`tipos.ts`).
@@ -25,7 +22,8 @@ Sin ORM ni librerías de UI, mapas, gráficas, estado global o formularios: comp
   (direccion|mapa|gps|denegado), `?caso=` (fallecido|combinadas|vacio), `?datos=ejemplo`; `/tutor/registrar`: `?paso=1|2`, `?raza=otra`;
   `.../ficha`: `?modal=` (visor|compartir|regenerar), `?hoja=` (carta|media-carta); `.../avistamientos`: `?filtros=abiertos`; `.../mapa`:
   `?ruta=visible`, `?filtro=abierto`; `.../avistamientos/[id]`: `?foto=visible`; `/admin`: `?desde=&hasta=`; `/admin/usuarios`: `?estado=` (cargando|vacio),
-  `?modal=` (rol|deshabilitar|habilitar); demos de plantillas: `?menu=abierto`.
+  `?modal=` (rol|deshabilitar|habilitar); `/admin/registros|avistamientos|alcaldias|razas|motivos|estados-animal`: `?estado=` (cargando|vacio), `?modal=`
+  (deshabilitar|ocultar [+ `&error=motivo`]|detalle|detalle-fallecido [+ `&foto=visible`]|detalle-oculto|nuevo|editar|desactivar), `?pagina=N`; `?error=motivo` es solo del maquetado y se retira en el Prototipo; demos de plantillas: `?menu=abierto`.
 - Nunca escribir valores de claves, tokens o contraseñas (solo sus nombres) ni crear `.env` reales. Sin git que modifique: proponer commits.
 ## Referencias
 Láminas: `docs/diseno/sistema-de-diseno/`; mockups: `docs/diseno/mockups/`; HU y diccionario (manda sobre prompts): `docs/referencia/`. Dudas: anotarlas.
@@ -38,3 +36,4 @@ Láminas: `docs/diseno/sistema-de-diseno/`; mockups: `docs/diseno/mockups/`; HU 
 - B4: folio inexistente y caso cerrado idénticos (PUB-03 C); modales con `Modal`; salir del registro con datos pide confirmación; ficha impresa con
   `EscalaHoja` (foto ≥ 40 %). Capturas: ventana al alto de la página (con modal, 390×844) y medición de solapes (`--autoprueba`). B4b: dirección y referencias de un avistamiento solo en TUT-10; foto «Fallecido» oculta hasta «Ver fotografía»; TRA-02/03 son modales con props.
 - B5a: gráficas propias con `--chart-1..6` (hex solo en globals.css); el último administrador activo no se deshabilita ni cambia de rol; opciones sin pantalla → `PantallaPendiente`.
+- B5b: el Administrador solo recibe datos permitidos (`RegistroAdmin` en el detalle, `RegistroAdminLista` sin reservados, `AvistamientoAdmin`: nunca datos de la persona tutora; los reservados del extravío solo en el detalle, HU 016); catálogos con `GestionCatalogo`, reactivar = Editar (R9, sin botón Activar); motivo ≤ 300; `data-excepcion-tactil` solo en tablas compactas.
