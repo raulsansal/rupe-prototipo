@@ -132,6 +132,28 @@ RUTAS.push(
   { ruta: "/admin/estados-animal?modal=editar", archivo: "admin-estados-animal-editar", anchos: M, ventana: true },
   { ruta: "/admin/estados-animal?pagina=3", archivo: "admin-estados-animal-bloqueada" },
 );
+// Bloque 5c · Administrador: reportes, estados del caso, parámetros y bitácora (390 y 1280 px; las variantes, solo 390).
+const PERIODO_REPORTE = "desde=2026-10-01&hasta=2026-10-18";
+RUTAS.push(
+  { ruta: "/admin/reportes", archivo: "admin-reportes" },
+  { ruta: "/admin/reportes?generar=1", archivo: "admin-reportes-error-rango", anchos: M },
+  { ruta: `/admin/reportes?${PERIODO_REPORTE}`, archivo: "admin-reportes-resultados" },
+  { ruta: `/admin/reportes?${PERIODO_REPORTE}&alcaldia=Coyoacán&estadoCaso=Localizado`, archivo: "admin-reportes-filtrado", anchos: M },
+  { ruta: "/admin/reportes?estado=vacio", archivo: "admin-reportes-sin-datos" },
+  { ruta: "/admin/reportes?estado=cargando", archivo: "admin-reportes-cargando", anchos: M },
+  { ruta: "/admin/estados-caso", archivo: "admin-estados-caso" },
+  { ruta: "/admin/parametros", archivo: "admin-parametros" },
+  { ruta: "/admin/parametros?variante=aviso", archivo: "admin-parametros-aviso" },
+  { ruta: "/admin/parametros?variante=errores", archivo: "admin-parametros-errores" },
+  { ruta: "/admin/parametros?variante=guardado", archivo: "admin-parametros-guardado" },
+  { ruta: "/admin/parametros?modal=restablecer", archivo: "admin-parametros-restablecer", anchos: M, ventana: true },
+  { ruta: "/admin/parametros?estado=cargando", archivo: "admin-parametros-cargando", anchos: M },
+  { ruta: "/admin/registros/RUPE-C2J9RK6Z", archivo: "admin-registro-detalle-restaurado" }, // deshabilitado y restaurado (27 y 28 sep): su historial coincide con la bitácora
+  { ruta: "/admin/bitacora", archivo: "admin-bitacora" },
+  { ruta: "/admin/bitacora?pagina=2", archivo: "admin-bitacora-pagina-2", anchos: M },
+  { ruta: "/admin/bitacora?estado=vacio", archivo: "admin-bitacora-sin-resultados" },
+  { ruta: "/admin/bitacora?estado=cargando", archivo: "admin-bitacora-cargando", anchos: M },
+);
 export const ANCHOS = [390, 1280];
 export const TEMAS = ["claro", "oscuro"] as const; // se aplican como data-theme light | dark
 export const ALTO_VENTANA = 900;

@@ -134,6 +134,19 @@ export function construirHistorial(estado: EstadoCaso, fechaRegistro: string, fe
   return m.map((x, i) => ({ ...x, consecutivo: i + 1 }));
 }
 
+/**
+ * Movimientos de moderación que ya ocurrieron en casos de la maqueta (los mismos que registra la bitácora, HU 058): el caso estuvo deshabilitado y se
+ * restauró al estado que tenía antes, así que su historial los conserva en orden cronológico.
+ */
+const MOVIMIENTOS_MODERACION: Record<string, Omit<MovimientoHistorial, "consecutivo">[]> = {
+  "RUPE-C2J9RK6Z": [
+    { tipo: "deshabilitación", estado: "Cerrado", fechaHora: "2026-09-27T20:20:00Z", motivo: "La fotografía requería verificación." },
+    { tipo: "restauración", estado: "En seguimiento", fechaHora: "2026-09-28T10:15:00Z" },
+  ],
+};
+const conModeracion = (folio: string, h: MovimientoHistorial[]): MovimientoHistorial[] =>
+  MOVIMIENTOS_MODERACION[folio] ? [...h, ...MOVIMIENTOS_MODERACION[folio].map((m) => ({ ...m, consecutivo: 0 }))].sort((a, b) => a.fechaHora.localeCompare(b.fechaHora)).map((m, i) => ({ ...m, consecutivo: i + 1 })) : h;
+
 /** Vista de la persona tutora dueña: todo lo suyo del caso, sin sus datos personales ni el token del QR. `estado` fuerza una variante. */
 export function aCasoTutor(c: CasoOrigen, estado: EstadoCaso = c.estado): CasoTutor {
   const { nombre, sexo, edadValor, edadUnidad, tamano, color, caracteristicasDistintivas, razaEspecificada, raza, fotografiaUrl } = c;
@@ -141,7 +154,7 @@ export function aCasoTutor(c: CasoOrigen, estado: EstadoCaso = c.estado): CasoTu
   return {
     nombre, sexo, edadValor, edadUnidad, tamano, color, caracteristicasDistintivas, razaEspecificada, raza, fotografiaUrl,
     folio, fechaExtravio, momentoDelDia, coloniaZona, direccionAproximada, referenciasDelLugar, descripcionCircunstancias, alcaldia, motivo, estado, fechaCambioEstado, fechaRegistro,
-    historial: construirHistorial(estado, fechaRegistro, fechaCambioEstado),
+    historial: estado === c.estado ? conModeracion(folio, construirHistorial(estado, fechaRegistro, fechaCambioEstado)) : construirHistorial(estado, fechaRegistro, fechaCambioEstado),
   };
 }
 

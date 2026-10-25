@@ -103,6 +103,8 @@ const pares: Par[] = [
   borde("borde de controles / superficie", "border-strong", "surface"),
   borde("anillo de foco / fondo", "focus-ring", "background"),
   borde("anillo de foco / superficie", "focus-ring", "surface"),
+  texto("texto deshabilitado / superficie (botón secundario deshabilitado)", "disabled-text", "surface"),
+  texto("texto deshabilitado / fondo (botón secundario deshabilitado)", "disabled-text", "background"),
   { nombre: "texto deshabilitado / fondo deshabilitado", fg: "disabled-text", bg: "disabled-bg", minimo: 4.5, informativo: true },
 ];
 

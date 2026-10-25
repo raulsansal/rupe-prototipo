@@ -1,4 +1,4 @@
-// Verifica el rol Administrador (plantilla, ADM-01 tablero y ADM-03 usuarios con MOD-10) con Playwright, sin abrir capturas:
+// Verifica el rol Administrador (plantilla, ADM-01 tablero, ADM-03 usuarios, moderación, catálogos y, en 5c, ADM-02 reportes, ADM-10, ADM-11 y ADM-12) con Playwright, sin abrir capturas:
 //  · armazón: sin barra inferior ni campana, cajón (abrir, foco atrapado, Esc, clic fuera, ícono, elegir opción), barra lateral,
 //    etiqueta «Administrador», «Cerrar sesión» y opciones pendientes que nunca dan 404;
 //  · tablero: indicadores y gráficas que respetan el periodo, colores leídos de los tokens (claro y oscuro), valores visibles;
@@ -18,6 +18,14 @@ import { CATEGORIAS_MOTIVO } from "../src/mocks/catalogos";
 import { AVISTAMIENTOS } from "../src/mocks/avistamientos";
 import { desactivarElemento, esUltimaActivaDeCategoria, guardarElemento, motivoNoDesactivable, validarCatalogo } from "../src/lib/catalogos";
 import { CLAVE_TEMA } from "../src/lib/tema";
+import { BITACORA, ENTIDAD_DE_TIPO, TIPOS_ACCION, TIPOS_CON_DETALLE, TIPOS_CON_MOTIVO } from "../src/mocks/bitacora";
+import { filtrarBitacora } from "../src/lib/bitacora";
+import { generarReporte } from "../src/lib/reportes";
+import { esDeshabilitado } from "../src/lib/moderacion";
+import { VALORES_POR_DEFECTO } from "../src/lib/parametros";
+import { ESTADOS_CASO_CATALOGO } from "../src/mocks/estadosCaso";
+import { ESTADOS_CASO, FUERA_DE_LA_CIUDAD } from "../src/mocks/tipos";
+import { fechaLocalISO, formatearFechaHora } from "../src/lib/formato";
 
 const PUERTO = 3108;
 const baseExterna = process.argv.find((a) => a.startsWith("--base="))?.split("=")[1];
@@ -152,16 +160,16 @@ async function armazon(navegador: Browser) {
   ver((await pagina.locator("aside").getByRole("link", { name: "Tablero" }).getAttribute("aria-current")) === "page" && (await enlace(pagina.locator("aside"), "Cerrar sesión").isVisible()), "barra lateral: «Tablero» activo y «Cerrar sesión» al pie", "barra lateral: activo o Cerrar sesión incorrectos");
   await irA(pagina, "/admin/usuarios");
   ver((await pagina.locator("aside").getByRole("link", { name: "Usuarios" }).getAttribute("aria-current")) === "page", "barra lateral: «Usuarios» activo en ADM-03", "barra lateral: «Usuarios» no está activo");
-  // Todas las opciones del menú responden (las pendientes con PantallaPendiente) y las desconocidas dan 404.
+  // Las 12 opciones del menú llevan a pantallas reales (ya no queda ninguna «Pantalla pendiente») y la opción de la ruta queda resaltada; las desconocidas dan 404.
   const hrefs = await lateral.locator("a").evaluateAll((as) => as.map((a) => [a.getAttribute("href")!, a.textContent!.trim()]));
   const malos: string[] = [];
   for (const [h, etiqueta] of hrefs) {
     const r = await pagina.goto(`${base}${h}`, { waitUntil: "load" });
     const t = await pagina.locator("main").innerText();
-    const real = !["/admin/reportes", "/admin/estados-caso", "/admin/parametros", "/admin/bitacora"].includes(h);
-    if (r?.status() !== 200 || (!real && !(/Esta pantalla se construye en un bloque posterior/.test(t) && (await enlace(pagina, "Ir al tablero").getAttribute("href")) === "/admin" && t.includes(etiqueta)))) malos.push(`${h} → ${r?.status()}`);
+    const activo = await pagina.locator("aside").getByRole("link", { name: etiqueta, exact: true }).first().getAttribute("aria-current");
+    if (r?.status() !== 200 || /Esta pantalla se construye en un bloque posterior/.test(t) || (await pagina.locator("main h1").count()) !== 1 || activo !== "page") malos.push(`${h} → ${r?.status()} ${activo}`);
   }
-  ver(hrefs.length === 12 && malos.length === 0, `menú: las ${hrefs.length} opciones responden; las 4 sin pantalla (Reportes, Estados del caso, Parámetros y Bitácora de acciones) muestran «Esta pantalla se construye en un bloque posterior» con su título`, `menú: opciones con problema ${malos.join(" | ")} (${hrefs.length} opciones)`);
+  ver(hrefs.length === 12 && malos.length === 0, `menú: las ${hrefs.length} opciones llevan a pantallas reales (sin «Pantalla pendiente»), con la opción activa resaltada`, `menú: ${malos.join("; ")}`);
   const x = await pagina.goto(`${base}/admin/no-existe`, { waitUntil: "load" });
   ver(x?.status() === 404, "una ruta de administración desconocida responde 404 (TRA-01)", `ruta desconocida: HTTP ${x?.status()}`);
   await contexto.close();
@@ -1095,9 +1103,522 @@ async function sinDatosDeUsuarios() {
   ver(fugas === 0, `los correos y nombres de ADM-03 no aparecen en ${rutas.length} respuestas públicas`, `${fugas} pantalla(s) pública(s) con datos de usuarios`);
 }
 
+
+// ---------- Bloque 5c: ADM-02 reportes, ADM-10 estados del caso, ADM-11 parámetros y ADM-12 bitácora ----------
+const SECRETOS_TUTOR_5C = [...USUARIOS_INICIALES.filter((u) => u.rol === "Tutor").flatMap((u) => [u.nombreCompleto, u.correo]), CASOS_ORIGEN[0].tutor.nombreCompleto, CASOS_ORIGEN[0].tutor.correo, CASOS_ORIGEN[0].tutor.telefono, ...CASOS_ORIGEN.map((c) => c.tokenPublico)];
+const filasDe = (p: Page, titulo: string) =>
+  p.locator("figure", { has: p.getByRole("heading", { name: titulo, exact: true }) }).locator("tbody tr").evaluateAll((trs) => trs.map((tr) => [tr.querySelector("th")!.textContent!.trim(), tr.querySelector("td")!.textContent!.trim()]));
+const comoFilas = (barras: { nombre: string; valor: number }[]) => barras.map((b) => [b.nombre, String(b.valor)]);
+
+async function reportes(navegador: Browser) {
+  // Cuadre de los cálculos con el tablero (mismo periodo, sin filtros opcionales): casos, localizados, por motivo y por estado.
+  const vacioF = { desde: PERIODO_PREDETERMINADO.desde, hasta: PERIODO_PREDETERMINADO.hasta, alcaldia: "", categoria: "", estadoCaso: "" };
+  const rep = generarReporte(vacioF)!;
+  const tab = calcularTablero(PERIODO_PREDETERMINADO);
+  // Las cifras del tablero no cambian con los mocks nuevos (alcaldía por caso, avistamiento → caso, movimientos del historial): valores fijos medidos en maquetado-b5b.
+  const foto = { totalCasos: tab.totalCasos, casosActivos: tab.casosActivos, casosLocalizados: tab.casosLocalizados, totalAvistamientos: tab.totalAvistamientos, avistamientosOcultos: tab.avistamientosOcultos, porMotivo: tab.porMotivo.map((x) => x.valor), porEstadoCaso: tab.porEstadoCaso.map((x) => x.valor), cierres: tab.cierres.map((x) => x.valor) };
+  ver(JSON.stringify(foto) === JSON.stringify({ totalCasos: 163, casosActivos: 141, casosLocalizados: 19, totalAvistamientos: 199, avistamientosOcultos: 6, porMotivo: [46, 40, 29, 38, 10], porEstadoCaso: [20, 58, 32, 31, 16, 6], cierres: [9, 6, 2] }), "cifras del tablero (1 al 18 de octubre, sin filtros) idénticas a las de maquetado-b5b: 163 casos, 19 localizados, motivo, estado y cierres", `cifras del tablero cambiaron: ${JSON.stringify(foto)}`);
+  ver(rep.totalCasos === tab.totalCasos && rep.casosLocalizados === tab.casosLocalizados && JSON.stringify(rep.porMotivo) === JSON.stringify(tab.porMotivo) && JSON.stringify(rep.porEstadoCaso) === JSON.stringify(tab.porEstadoCaso), `reporte sin filtros opcionales cuadra con el tablero (${rep.totalCasos} casos, ${rep.casosLocalizados} localizados, motivo y estado iguales)`, "el reporte no cuadra con el tablero");
+  const casosP = CASOS_TABLERO.filter((c) => c.fecha >= vacioF.desde && c.fecha <= vacioF.hasta);
+  const contables = casosP.filter((c) => c.cierre !== "Cancelación" && c.cierre !== "Deshabilitación").length;
+  ver(rep.tasaRecuperacion === Math.round((rep.casosLocalizados / contables) * 1000) / 10 && contables < rep.totalCasos, `tasa de recuperación = localizados / casos sin cancelados ni deshabilitados (${rep.casosLocalizados}/${contables} = ${rep.tasaRecuperacion} %, no ${rep.totalCasos})`, "la tasa de recuperación no excluye cancelados y deshabilitados");
+  ver(rep.porEstadoCaso.reduce((s, b) => s + b.valor, 0) === rep.totalCasos && rep.porMotivo.reduce((s, b) => s + b.valor, 0) === rep.totalCasos && rep.cierres.reduce((s, b) => s + b.valor, 0) === rep.porEstadoCaso.find((b) => b.nombre === "Cerrado")!.valor, "los desgloses del reporte suman el total de casos y los cierres suman los casos «Cerrado»", "los desgloses del reporte no suman");
+  ver(rep.porAlcaldiaAvistamiento.some((b) => b.nombre === FUERA_DE_LA_CIUDAD) && generarReporte({ ...vacioF, desde: "2026-10-19", hasta: "2026-10-31" }) === null, "avistamientos por alcaldía incluye «Fuera de la Ciudad de México»; un periodo sin casos no genera reporte", "alcaldía de avistamientos sin «Fuera de la Ciudad de México» o reporte sin datos");
+
+  let { contexto, pagina } = await nuevaPagina(navegador, 1280);
+  const descargas: string[] = [];
+  pagina.on("download", (d) => descargas.push(d.suggestedFilename()));
+  await irA(pagina, "/admin/reportes");
+  const form = pagina.getByRole("form", { name: "Filtros del reporte" });
+  const opcionesDe = (nombre: string) => form.getByLabel(nombre).locator("option").allInnerTexts();
+  ver((await pagina.getByRole("heading", { level: 1 }).innerText()) === "Reportes" && (await form.getByText("Rango de fechas *").isVisible()) && (await opcionesDe("Alcaldía · opcional")).length === 17 && (await opcionesDe("Categoría de motivo · opcional")).length === 6 && JSON.stringify(await opcionesDe("Estado del caso · opcional")) === JSON.stringify(["Todos", ...ESTADOS_CASO]) && (await pagina.getByText("Filtros aplicados", { exact: true }).count()) === 0, "ADM-02: rango de fechas obligatorio (*) y filtros opcionales (16 alcaldías, 5 categorías, 6 estados, vacío = todos); sin resultados al abrir", "ADM-02: filtros incompletos");
+  await boton(form, "Generar reporte").click();
+  const desde = pagina.locator("#reporte-desde");
+  const hasta = pagina.locator("#reporte-hasta");
+  ver(/obligatorio/.test(await textoDescrito(desde)) && /obligatorio/.test(await textoDescrito(hasta)) && (await desde.getAttribute("aria-invalid")) === "true" && (await foco(pagina)) === "INPUT" && (await pagina.evaluate(() => document.activeElement?.id)) === "reporte-desde" && (await pagina.getByText("Filtros aplicados", { exact: true }).count()) === 0, "ADM-02: sin fechas no se genera: error bajo «Desde» y «Hasta», el foco va a «Desde»", "ADM-02: sin fechas no mostró errores");
+  await desde.fill("2026-10-18");
+  await hasta.fill("2026-10-01");
+  await boton(form, "Generar reporte").click();
+  ver(/no puede ser anterior a «Desde»/.test(await textoDescrito(hasta)) && (await pagina.getByText("Filtros aplicados", { exact: true }).count()) === 0, "ADM-02: «Desde» posterior a «Hasta» da error bajo «Hasta» y no genera", "ADM-02: rango invertido sin error");
+  await desde.fill(vacioF.desde);
+  await hasta.fill(vacioF.hasta);
+  await boton(form, "Generar reporte").click();
+  const chips = await pagina.locator("section[aria-label='Resultados del reporte'] ul li").allInnerTexts();
+  ver(JSON.stringify(chips) === JSON.stringify(["Periodo: 1 oct 2026 – 18 oct 2026", "Alcaldía: todas", "Categoría: todas", "Estado: todos"]) && (await pagina.getByText("El archivo exportado conserva estos filtros.").isVisible()), "ADM-02: «Filtros aplicados» (periodo, alcaldía, categoría y estado) y la nota de que la exportación los conserva", `ADM-02: filtros aplicados ${chips}`);
+  const esperados = [["Número de casos", String(rep.totalCasos)], ["Casos localizados", String(rep.casosLocalizados)], ["Tasa de recuperación", `${rep.tasaRecuperacion!.toFixed(1)} %`], ["Avistamientos ocultos (aparte)", String(rep.avistamientosOcultos)]];
+  const leidos: string[][] = [];
+  for (const [t] of esperados) leidos.push([t, await valorDe(pagina, t)]);
+  ver(JSON.stringify(leidos) === JSON.stringify(esperados), `ADM-02: indicadores ${esperados.map((e) => `${e[0]} ${e[1]}`).join(" · ")}`, `ADM-02: indicadores ${JSON.stringify(leidos)} ≠ ${JSON.stringify(esperados)}`);
+  const cajas = await pagina.locator("article").evaluateAll((as) => as.map((a) => { const r = a.getBoundingClientRect(); return [Math.round(r.top), Math.round(r.left)]; }));
+  ver(cajas.length === 4 && new Set(cajas.map((c) => c[0])).size === 1 && new Set(cajas.map((c) => c[1])).size === 4, "ADM-02 (1280): los 4 indicadores en una sola fila", `ADM-02: indicadores ${JSON.stringify(cajas)}`);
+  const figuras = await pagina.locator("figure").evaluateAll((fs) => fs.map((f) => Math.round(f.getBoundingClientRect().left)));
+  ver(figuras.length === 5 && new Set(figuras).size === 2, "ADM-02 (1280): los desgloses en dos columnas", `ADM-02: columnas de desgloses ${JSON.stringify(figuras)}`);
+  const fMotivo = await filasDe(pagina, "Casos por categoría de motivo");
+  const fEstado = await filasDe(pagina, "Casos por estado del caso");
+  const fCierre = await filasDe(pagina, "Casos cerrados por tipo de cierre");
+  const fAnimal = await filasDe(pagina, "Avistamientos por estado del animal");
+  const fAlcaldia = await filasDe(pagina, "Avistamientos por alcaldía del avistamiento");
+  const animalEsperado = rep.porEstadoAnimal.flatMap((g) => g.barras.map((b) => [`${g.categoria}: ${b.nombre}`, String(b.valor)])).filter((f) => f[1] !== "0");
+  ver(JSON.stringify(fMotivo) === JSON.stringify(comoFilas(rep.porMotivo)) && JSON.stringify(fEstado) === JSON.stringify(comoFilas(rep.porEstadoCaso)) && fEstado.length === 6 && JSON.stringify(fCierre) === JSON.stringify(comoFilas(rep.cierres)) && fCierre.map((f) => f[0]).join() === "Cierre confirmado,Cancelación,Deshabilitación", "ADM-02: casos por motivo (5), por estado (los 6) y cerrados por tipo de cierre (3) coinciden con el cálculo", "ADM-02: desgloses de casos distintos del cálculo");
+  ver(JSON.stringify(fAnimal.map((f) => f[0])) === JSON.stringify(animalEsperado.map((f) => f[0])) && JSON.stringify(fAnimal) === JSON.stringify(animalEsperado) && rep.porEstadoAnimal.length === 4 && JSON.stringify(fAlcaldia) === JSON.stringify(comoFilas(rep.porAlcaldiaAvistamiento)) && fAlcaldia.some((f) => f[0] === FUERA_DE_LA_CIUDAD), "ADM-02: avistamientos por estado del animal (4 categorías) y por alcaldía del avistamiento (con «Fuera de la Ciudad de México») coinciden con el cálculo", "ADM-02: desgloses de avistamientos distintos del cálculo");
+  ver((await pagina.getByText("La tasa no cuenta casos cancelados ni deshabilitados. Las cuentas de avistamientos solo incluyen los visibles.").isVisible()) && (await pagina.getByText("Reporte generado en pantalla: no se almacena en el sistema.").isVisible()) && (await boton(pagina, "Exportar a PDF").isEnabled()) && (await boton(pagina, "Exportar a Excel").isEnabled()), "ADM-02: notas (tasa, solo avistamientos visibles, no se almacena) y exportaciones habilitadas", "ADM-02: faltan notas o exportaciones");
+  await boton(pagina, "Exportar a PDF").click();
+  const t1 = await pagina.getByRole("status").filter({ hasText: "Exportación simulada a PDF" }).innerText();
+  await pagina.getByRole("status").filter({ hasText: "Exportación simulada" }).getByRole("button").first().click().catch(() => undefined);
+  await boton(pagina, "Exportar a Excel").click();
+  ver(/simulada a PDF.*filtros aplicados/.test(t1) && (await pagina.getByRole("status").filter({ hasText: "Exportación simulada a Excel" }).count()) >= 1 && descargas.length === 0, "ADM-02: Exportar a PDF y a Excel son simulados (confirmación ficticia, ninguna descarga)", `ADM-02: exportación ${t1} · descargas ${descargas}`);
+  // Un filtro de alcaldía cambia el reporte y la exportación conserva los filtros de la pantalla.
+  await form.getByLabel("Alcaldía · opcional").selectOption("Coyoacán");
+  await form.getByLabel("Estado del caso · opcional").selectOption("Localizado");
+  await boton(form, "Generar reporte").click();
+  const repF = generarReporte({ ...vacioF, alcaldia: "Coyoacán", estadoCaso: "Localizado" })!;
+  ver((await valorDe(pagina, "Número de casos")) === String(repF.totalCasos) && repF.totalCasos < rep.totalCasos && (await pagina.locator("section[aria-label='Resultados del reporte'] ul li").allInnerTexts()).join("|").includes("Alcaldía: Coyoacán|Categoría: todas|Estado: Localizado"), `ADM-02: filtros opcionales (Coyoacán, Localizado) → ${repF.totalCasos} casos y «Filtros aplicados» al día`, "ADM-02: los filtros opcionales no se aplican");
+  await boton(form, "Limpiar filtros").click();
+  ver((await desde.inputValue()) === "" && (await form.getByLabel("Alcaldía · opcional").inputValue()) === "" && (await pagina.getByText("Filtros aplicados", { exact: true }).count()) === 0, "ADM-02: «Limpiar filtros» vacía los campos y quita el resultado", "ADM-02: Limpiar filtros no limpió");
+  await desde.fill("2026-10-01");
+  await hasta.fill("2026-10-18");
+  await boton(form, "Generar reporte").click();
+  await pagina.reload({ waitUntil: "load" });
+  ver((await pagina.getByText("Filtros aplicados", { exact: true }).count()) === 0 && (await desde.inputValue()) === "", "ADM-02: el reporte no se almacena: al recargar desaparece", "ADM-02: el reporte persiste tras recargar");
+  await irA(pagina, "/admin/reportes?estado=vacio");
+  ver((await pagina.getByText("No hay datos en el periodo y filtros seleccionados; modifica los filtros e inténtalo de nuevo.").isVisible()) && (await boton(pagina, "Exportar a PDF").isDisabled()) && (await boton(pagina, "Exportar a Excel").isDisabled()) && (await pagina.locator("article").count()) === 0, "ADM-02 sin datos: mensaje y exportar a PDF y a Excel deshabilitados, sin indicadores", "ADM-02 sin datos: falta el mensaje o las exportaciones siguen activas");
+  await contexto.close();
+  ({ contexto, pagina } = await nuevaPagina(navegador, 390));
+  await irA(pagina, "/admin/reportes?desde=2026-10-01&hasta=2026-10-18");
+  const col = await pagina.locator("figure").evaluateAll((fs) => new Set(fs.map((f) => Math.round(f.getBoundingClientRect().left))).size);
+  const filas390 = await pagina.locator("article").evaluateAll((as) => new Set(as.map((a) => Math.round(a.getBoundingClientRect().top))).size);
+  ver(col === 1 && filas390 === 2, "ADM-02 (390): los desgloses en una columna y los indicadores en 2 × 2", `ADM-02 (390): columnas ${col}, filas de indicadores ${filas390}`);
+  await contexto.close();
+  const html = await (await fetch(`${base}/admin/reportes?desde=2026-10-01&hasta=2026-10-18`)).text();
+  ver(SECRETOS_TUTOR_5C.every((v) => !html.includes(v)), "ADM-02: ningún dato de la persona tutora (nombre, correo, teléfono, token) en la página", "ADM-02: hay datos de la persona tutora");
+}
+
+async function estadosDelCaso(navegador: Browser) {
+  let { contexto, pagina } = await nuevaPagina(navegador, 1280);
+  await irA(pagina, "/admin/estados-caso");
+  const filas = await pagina.locator("tbody tr").evaluateAll((trs) => trs.map((tr) => [tr.children[0].textContent!.trim(), tr.children[1].textContent!.trim()]));
+  ver(JSON.stringify(filas) === JSON.stringify(ESTADOS_CASO_CATALOGO.map((e) => [String(e.orden), e.nombre])) && filas.map((f) => f[1]).join() === "Extraviado,En búsqueda,Avistamiento reportado,En seguimiento,Localizado,Cerrado", "ADM-10 (1280): tabla con los 6 estados fijos en el orden 1 a 6", `ADM-10: filas ${JSON.stringify(filas)}`);
+  const heads = await pagina.locator("thead th").allInnerTexts();
+  ver(JSON.stringify(heads.map((h) => h.toLowerCase())) === JSON.stringify(["orden", "estado del caso"]), "ADM-10: columnas «Orden» y «Estado del caso»", `ADM-10: columnas ${heads}`);
+  const controles = await pagina.locator("main").locator("button, input, select, textarea, [role=search], nav[aria-label='Paginación'], a[href]").count();
+  ver(controles === 0, "ADM-10 de solo lectura: sin botones de agregar, editar o desactivar, ni búsqueda ni paginación", `ADM-10: ${controles} controles en el contenido`);
+  const texto = await pagina.locator("main").innerText();
+  ver(texto.includes("Estos 6 estados los define el sistema; solo consulta. No se pueden agregar, editar, desactivar ni eliminar.") && texto.includes("El orden solo determina cómo se presentan los estados en pantallas y reportes; no define las transiciones válidas."), "ADM-10: aviso del sistema y nota de que el orden no define transiciones", "ADM-10: faltan los avisos");
+  ver((await pagina.locator("ol").isHidden()) && (await pagina.locator("table").isVisible()), "ADM-10 (1280): la lista de tarjetas se oculta y se ve la tabla", "ADM-10 (1280): vista equivocada");
+  await contexto.close();
+  ({ contexto, pagina } = await nuevaPagina(navegador, 390));
+  await irA(pagina, "/admin/estados-caso");
+  const tarjetas = await pagina.locator("ol > li").allInnerTexts();
+  ver(JSON.stringify(tarjetas.map((t) => t.replace(/\s+/g, " ").trim())) === JSON.stringify(ESTADOS_CASO_CATALOGO.map((e) => `Orden ${e.orden} ${e.nombre}`)) && (await pagina.locator("table").isHidden()), "ADM-10 (390): 6 tarjetas con el chip «Orden n» junto al nombre (el chip no sustituye al estado)", `ADM-10 (390): ${JSON.stringify(tarjetas)}`);
+  await contexto.close();
+}
+
+async function parametros(navegador: Browser) {
+  const { contexto, pagina } = await nuevaPagina(navegador, 1280);
+  await irA(pagina, "/admin/parametros");
+  const formulario = pagina.getByRole("form", { name: "Parámetros del sistema" });
+  const reaceptacion = formulario.getByText("deberán aceptarlo de nuevo");
+  const campo = (n: string | RegExp) => pagina.getByLabel(n);
+  const version = campo("Versión vigente del aviso de privacidad");
+  const token = campo("Tiempo de expiración del token de recuperación · minutos");
+  const tamano = campo("Tamaño máximo de archivo permitido · MB");
+  ver((await version.inputValue()) === "1.0" && (await token.inputValue()) === "60" && (await tamano.inputValue()) === "4" && /Valor por defecto: 1\.0/.test(await textoDescrito(version)) && /Valor por defecto: 60/.test(await textoDescrito(token)) && /Valor por defecto: 4 · máximo 4\.5/.test(await textoDescrito(tamano)), "ADM-11: tres campos con su valor vigente y el valor por defecto bajo cada uno (1.0 · 60 · 4 con máximo 4.5)", "ADM-11: campos o valores por defecto incorrectos");
+  ver((await reaceptacion.count()) === 0, "ADM-11: sin cambios en la versión no hay aviso de re-aceptación", "ADM-11: aviso de re-aceptación sin cambios");
+  await version.fill("2.0");
+  ver(await formulario.getByText("Al cambiar la versión del aviso de privacidad, todas las personas usuarias deberán aceptarlo de nuevo.").isVisible(), "ADM-11: al cambiar la versión del aviso aparece el aviso de re-aceptación (R22)", "ADM-11: falta el aviso de re-aceptación");
+  await version.fill("1.0");
+  ver((await reaceptacion.count()) === 0, "ADM-11: volver a la versión vigente quita el aviso", "ADM-11: el aviso no desaparece");
+  // Validaciones, con el mensaje bajo cada campo y sin guardar.
+  const casos: [string, string, string, RegExp][] = [
+    ["token 0", "0", "4", /Debe ser un número entero mayor que cero\./],
+    ["token vacío", "", "4", /Debe ser un número entero mayor que cero\./],
+    ["token decimal", "1.5", "4", /Debe ser un número entero mayor que cero\./],
+    ["token negativo", "-5", "4", /Debe ser un número entero mayor que cero\./],
+  ];
+  for (const [nombre, t, mb, re] of casos) {
+    await token.fill(t);
+    await tamano.fill(mb);
+    await boton(pagina, "Guardar configuración").click();
+    ver(re.test(await textoDescrito(token)) && (await token.getAttribute("aria-invalid")) === "true" && (await pagina.evaluate(() => document.activeElement?.id)) === "parametro-token" && (await pagina.getByRole("status").filter({ hasText: "Configuración guardada" }).count()) === 0, `ADM-11: ${nombre} → error bajo el campo, foco en él y no se guarda`, `ADM-11: ${nombre} sin error`);
+  }
+  await token.fill("60");
+  for (const [valor, re] of [["0", /Debe ser un número mayor que cero\./], ["", /Debe ser un número mayor que cero\./], ["4.6", /No puede superar el límite técnico de 4\.5 MB\./], ["6", /No puede superar el límite técnico de 4\.5 MB\./]] as [string, RegExp][]) {
+    await tamano.fill(valor);
+    await boton(pagina, "Guardar configuración").click();
+    ver(re.test(await textoDescrito(tamano)) && (await tamano.getAttribute("aria-invalid")) === "true", `ADM-11: tamaño «${valor}» → ${re.source.replace(/\\/g, "")}`, `ADM-11: tamaño «${valor}» sin el error esperado`);
+  }
+  await version.fill("   ");
+  await tamano.fill("4");
+  await boton(pagina, "Guardar configuración").click();
+  ver(/Escribe la versión vigente/.test(await textoDescrito(version)), "ADM-11: la versión vacía o de solo espacios no se acepta", "ADM-11: aceptó la versión vacía");
+  for (const mala of ["abc", "1.", ".5", "2,1", "1.0 beta"]) {
+    await version.fill(mala);
+    await tamano.fill("4");
+    await boton(pagina, "Guardar configuración").click();
+    ver(/números separados por punto, como 1\.0 o 2\.1/.test(await textoDescrito(version)) && (await version.getAttribute("aria-invalid")) === "true", `ADM-11: la versión «${mala}» no tiene formato de versión (números separados por punto) y muestra el error bajo el campo`, `ADM-11: aceptó la versión «${mala}»`);
+  }
+  await version.fill("2.1");
+  await boton(pagina, "Guardar configuración").click();
+  ver(!/números separados/.test(await textoDescrito(version)) && (await version.getAttribute("aria-invalid")) === null, "ADM-11: la versión «2.1» es válida", "ADM-11: rechazó «2.1»");
+  await version.fill("2.0");
+  await token.fill("45");
+  await tamano.fill("4.5");
+  await boton(pagina, "Guardar configuración").click();
+  ver((await pagina.getByRole("status").filter({ hasText: "Configuración guardada" }).filter({ hasText: "El cambio se registra en la bitácora con el valor anterior y el nuevo." }).count()) === 1 && (await reaceptacion.count()) === 0 && (await token.getAttribute("aria-invalid")) === null, "ADM-11: guardar con 2.0 · 45 · 4.5 (el máximo permitido) muestra el mensaje de éxito: el cambio se registra en la bitácora con el valor anterior y el nuevo", "ADM-11: guardado sin el mensaje de éxito");
+  await token.fill("46");
+  ver((await pagina.getByRole("status").filter({ hasText: "Configuración guardada" }).count()) === 0, "ADM-11: el mensaje de éxito se quita al editar un campo", "ADM-11: el mensaje de éxito no se quita");
+  // EXTENSIÓN OPCIONAL (MOD-12): restablecer con confirmación.
+  const restablecer = boton(pagina, "Restablecer valores por defecto");
+  await token.fill("30");
+  await viasDeCierre(pagina, restablecer, "Restablecer valores por defecto", "MOD-12 (extensión opcional)", async () => (await token.inputValue()) === "30" && (await version.inputValue()) === "2.0", "Cancelar");
+  await restablecer.click();
+  await focoAtrapado(pagina, "MOD-12");
+  const dlg = pagina.getByRole("dialog", { name: "Restablecer valores por defecto" });
+  ver(/aviso 1\.0, token 60 minutos, archivo 4 MB/.test(await dlg.innerText()) && /deberán aceptarlo de nuevo/.test(await dlg.innerText()) && /bitácora/.test(await dlg.innerText()), "MOD-12: la advertencia nombra los tres valores por defecto, la re-aceptación y la bitácora", "MOD-12: advertencia incompleta");
+  await boton(dlg, "Confirmar").click();
+  ver(!(await dialogoAbierto(pagina)) && (await version.inputValue()) === "1.0" && (await token.inputValue()) === "60" && (await tamano.inputValue()) === "4" && (await pagina.getByRole("status").filter({ hasText: "Valores restablecidos" }).count()) === 1, "MOD-12: «Confirmar» devuelve los tres parámetros a 1.0 · 60 · 4 y avisa", "MOD-12: Confirmar no restableció");
+  const fuente = readFileSync("src/components/features/parametros/ModalRestablecer.tsx", "utf8") + readFileSync("src/components/features/parametros/FormularioParametros.tsx", "utf8");
+  ver((fuente.match(/EXTENSIÓN OPCIONAL a validar con Raúl/g) ?? []).length >= 3 && !readFileSync("src/lib/parametros.ts", "utf8").includes("EXTENSIÓN"), "MOD-12 aislado: marcado con «EXTENSIÓN OPCIONAL a validar con Raúl» en su archivo y en el botón, fuera de la lógica de validación", "MOD-12: sin marcar o mezclado con la validación");
+  await irA(pagina, "/admin/parametros?variante=guardado");
+  ver((await pagina.getByRole("status").filter({ hasText: "Configuración guardada" }).filter({ hasText: "se registra en la bitácora con el valor anterior y el nuevo" }).isVisible()) && (await version.inputValue()) === "1.1" && (await token.inputValue()) === "45" && (await tamano.inputValue()) === "4.5" && (await reaceptacion.count()) === 0, "ADM-11 ?variante=guardado: muestra el estado de éxito tras guardar (1.1 · 45 · 4.5) sin aviso de re-aceptación", "ADM-11: ?variante=guardado sin el mensaje de éxito");
+  await irA(pagina, "/admin/parametros?variante=aviso");
+  ver(await reaceptacion.isVisible(), "ADM-11 ?variante=aviso: muestra el aviso de re-aceptación", "ADM-11: ?variante=aviso sin aviso");
+  await irA(pagina, "/admin/parametros?variante=errores");
+  ver(/mayor que cero/.test(await textoDescrito(token)) && /límite técnico de 4\.5 MB/.test(await textoDescrito(tamano)), "ADM-11 ?variante=errores: muestra los dos errores de validación", "ADM-11: ?variante=errores sin errores");
+  await irA(pagina, "/admin/parametros?modal=restablecer");
+  ver(await dialogoAbierto(pagina), "ADM-11 ?modal=restablecer: abre MOD-12", "ADM-11: ?modal=restablecer no abrió");
+  await contexto.close();
+  const html = await (await fetch(`${base}/admin/parametros`)).text();
+  ver(SECRETOS_TUTOR_5C.every((v) => !html.includes(v)), "ADM-11: ningún dato de la persona tutora en la página", "ADM-11: hay datos de la persona tutora");
+}
+
+async function bitacora(navegador: Browser) {
+  const tiposPresentes = new Set(BITACORA.map((a) => a.tipo));
+  ver(TIPOS_ACCION.length === 11 && tiposPresentes.size === 11 && BITACORA.every((a, i, l) => a.entidad === ENTIDAD_DE_TIPO[a.tipo] && (i === 0 || l[i - 1].fechaHora > a.fechaHora && l[i - 1].id > a.id)), `bitácora: los ${TIPOS_ACCION.length} tipos de acción tienen registros (${BITACORA.length}), la entidad se deriva del tipo y el orden es del más reciente al más antiguo`, "bitácora: tipos faltantes, entidad mal derivada o desordenada");
+  ver(BITACORA.every((a) => (a.motivo !== undefined) === TIPOS_CON_MOTIVO.includes(a.tipo) && (a.detalle !== undefined) === TIPOS_CON_DETALLE.includes(a.tipo) && (a.detalle === undefined || a.tipo === "alta de catálogo" || a.tipo === "cambiar rol" || a.detalle.includes("→"))) && BITACORA.filter((a) => TIPOS_CON_MOTIVO.includes(a.tipo)).every((a) => a.motivo!.length > 0 && a.motivo!.length <= 300), "bitácora: el motivo solo en «deshabilitar caso» y «ocultar avistamiento» (obligatorio) y el detalle anterior → nuevo solo en rol, parámetros y catálogos", "bitácora: motivo o detalle fuera de lugar");
+  const folios = BITACORA.filter((a) => a.entidad === "caso").map((a) => a.idEntidad);
+  ver(folios.every((f) => /^RUPE-[A-HJ-NP-Z2-9]{8}$/.test(f)) && folios.every((f) => CASOS_MODERACION.some((c) => c.folio === f)) && BITACORA.filter((a) => a.entidad === "avistamiento").every((a) => AVISTAMIENTOS_MODERACION.some((v) => String(v.id) === a.idEntidad)) && BITACORA.filter((a) => a.entidad === "usuario").every((a) => USUARIOS_INICIALES.some((u) => String(u.id) === a.idEntidad)) && BITACORA.every((a) => USUARIOS_INICIALES.some((u) => u.rol === "Administrador" && u.nombreCompleto === a.administrador)), "bitácora coherente con 5a y 5b: folios, avistamientos y usuarios existen; los administradores son los de ADM-03", "bitácora: referencias a folios, avistamientos, usuarios o administradores que no existen");
+
+  let { contexto, pagina } = await nuevaPagina(navegador, 1280);
+  await irA(pagina, "/admin/bitacora");
+  const form = pagina.getByRole("form", { name: "Filtrar la bitácora" });
+  const tipo = form.getByLabel("Tipo de acción");
+  const desde = form.getByLabel("Desde");
+  const hasta = form.getByLabel("Hasta");
+  ver((await pagina.getByText("La bitácora es de solo consulta: los registros no pueden editarse ni eliminarse.").isVisible()) && JSON.stringify(await tipo.locator("option").allInnerTexts()) === JSON.stringify(["Todos", ...TIPOS_ACCION]), "ADM-12: aviso de solo consulta y filtro con los 11 tipos de acción", "ADM-12: sin aviso o sin los 11 tipos");
+  const heads = await pagina.locator("thead th").allInnerTexts();
+  ver(JSON.stringify(heads.map((h) => h.toLowerCase())) === JSON.stringify(["id", "fecha y hora", "tipo de acción", "entidad", "id de la entidad", "motivo", "detalle", "administrador"]), "ADM-12 (1280): tabla de 8 columnas (ID, fecha y hora, tipo, entidad, ID de la entidad, motivo, detalle, administrador)", `ADM-12: columnas ${heads}`);
+  const accionesMain = await pagina.locator("main").getByRole("button").allInnerTexts();
+  ver(accionesMain.every((t) => /^(Limpiar filtros|Aplicar filtros|Anterior|Siguiente)$/.test(t)) && (await pagina.locator("main tbody").getByRole("button").count()) === 0 && (await pagina.locator("main tbody a").count()) === 0, "ADM-12 inmutable: sin botones ni enlaces para editar o eliminar registros", `ADM-12: botones ${accionesMain}`);
+  const ids1 = await pagina.locator("tbody tr").evaluateAll((trs) => trs.map((tr) => tr.children[0].textContent!.trim()));
+  const total = Math.ceil(BITACORA.length / 8);
+  ver(JSON.stringify(ids1) === JSON.stringify(BITACORA.slice(0, 8).map((a) => String(a.id))) && (await pagina.getByText(`Página 1 de ${total}`).isVisible()) && (await boton(pagina, "Anterior").isDisabled()) && (await boton(pagina, "Siguiente").isEnabled()), `ADM-12: 8 acciones por página, «Página 1 de ${total}» y «Anterior» deshabilitado`, `ADM-12: página 1 → ${ids1}`);
+  const ultima = BITACORA.slice(8 * (total - 1));
+  await irA(pagina, `/admin/bitacora?pagina=${total}`);
+  ver(JSON.stringify(await pagina.locator("tbody tr").evaluateAll((trs) => trs.map((tr) => tr.children[0].textContent!.trim()))) === JSON.stringify(ultima.map((a) => String(a.id))) && (await boton(pagina, "Siguiente").isDisabled()) && (await boton(pagina, "Anterior").isEnabled()), `ADM-12: ?pagina=${total} abre la última página (${ultima.length} acciones) con «Siguiente» deshabilitado`, "ADM-12: ?pagina=N no abre esa página");
+  await boton(pagina, "Anterior").click();
+  ver((await pagina.getByText(`Página ${total - 1} de ${total}`).isVisible()) && (await pagina.locator("tbody tr").count()) === 8, "ADM-12: «Anterior» retrocede una página", "ADM-12: «Anterior» no funcionó");
+  await irA(pagina, "/admin/bitacora");
+  // Cada tipo de acción filtra sus registros; entidad, motivo y detalle salen del dato.
+  const malos: string[] = [];
+  for (const t of TIPOS_ACCION) {
+    await tipo.selectOption(t);
+    await boton(form, "Aplicar filtros").click();
+    const esperadas = filtrarBitacora({ tipo: t, desde: "", hasta: "" });
+    const hay = await pagina.locator("tbody tr").evaluateAll((trs) => trs.map((tr) => [...tr.children].map((c) => c.textContent!.trim())));
+    const primeras = esperadas.slice(0, 8);
+    const ok = hay.length === primeras.length && hay.every((f, i) => f[0] === String(primeras[i].id) && f[2] === t && f[3] === ENTIDAD_DE_TIPO[t] && f[4] === primeras[i].idEntidad && f[5] === (primeras[i].motivo ?? "—") && f[6] === (primeras[i].detalle ?? "—") && f[7] === primeras[i].administrador && f[1] === formatearFechaHora(primeras[i].fechaHora));
+    if (!ok) malos.push(`${t}: ${hay.length}/${primeras.length}`);
+  }
+  ver(malos.length === 0, "ADM-12: los 11 tipos de acción filtran bien y cada fila muestra ID, fecha, tipo, entidad, ID de la entidad, motivo (solo caso y avistamiento), detalle (rol, parámetro y catálogos) y administrador", `ADM-12: ${malos.join(" | ")}`);
+  await boton(form, "Limpiar filtros").click();
+  ver((await tipo.inputValue()) === "" && (await pagina.getByText("Página 1 de").isVisible()) && (await pagina.locator("tbody tr").count()) === 8, "ADM-12: «Limpiar filtros» vuelve a todas las acciones", "ADM-12: Limpiar filtros no funcionó");
+  await desde.fill("2026-10-10");
+  await hasta.fill("2026-10-04");
+  await boton(form, "Aplicar filtros").click();
+  ver(/no puede ser anterior a «Desde»/.test(await textoDescrito(hasta)) && (await hasta.getAttribute("aria-invalid")) === "true", "ADM-12: «Hasta» anterior a «Desde» da error bajo «Hasta»", "ADM-12: rango invertido sin error");
+  await hasta.fill("2026-10-13");
+  await boton(form, "Aplicar filtros").click();
+  const enRango = filtrarBitacora({ tipo: "", desde: "2026-10-10", hasta: "2026-10-13" });
+  ver((await pagina.locator("tbody tr").count()) === Math.min(8, enRango.length) && (await pagina.getByText(`de ${enRango.length} acciones`).isVisible()) && enRango.length > 0 && enRango.length < BITACORA.length && enRango.every((a) => fechaLocalISO(a.fechaHora) >= "2026-10-10" && fechaLocalISO(a.fechaHora) <= "2026-10-13"), `ADM-12: el filtro por fechas (10 a 13 oct) deja ${enRango.length} acciones`, "ADM-12: el filtro por fechas no coincide");
+  await irA(pagina, "/admin/bitacora?estado=vacio");
+  ver((await pagina.getByRole("heading", { name: "Sin resultados" }).isVisible()) && (await pagina.getByText("No hay acciones registradas con los filtros seleccionados.").isVisible()) && (await pagina.locator("table").count()) === 0 && (await tipo.inputValue()) === "modificar parámetro", "ADM-12 sin resultados: mensaje «Sin resultados» y sin tabla; los filtros siguen visibles", "ADM-12: estado vacío incorrecto");
+  await irA(pagina, "/admin/bitacora");
+  const m = await pagina.evaluate(() => {
+    const tabla = document.querySelector("table")!;
+    const caja = tabla.parentElement!.getBoundingClientRect();
+    const t = tabla.getBoundingClientRect();
+    const malos: string[] = [];
+    for (const f of document.querySelectorAll("tbody span.whitespace-nowrap")) if (f.getClientRects().length !== 1) malos.push(f.textContent!);
+    return { dentro: t.left >= caja.left - 1 && t.right <= caja.right + 1 && tabla.scrollWidth <= tabla.clientWidth + 1, ancho: Math.round(t.width), rotos: malos, folios: document.querySelectorAll("tbody span.whitespace-nowrap").length };
+  });
+  ver(m.dentro && m.rotos.length === 0, `ADM-12 (1280): la tabla de 8 columnas cabe en su contenedor (${m.ancho} px) y los ${m.folios} identificadores de la página no se cortan`, `ADM-12 (1280): tabla ${m.dentro ? "" : "desborda; "}rotos ${m.rotos}`);
+  // Ninguna palabra de las columnas «Tipo de acción» y «Entidad» queda partida (solo los identificadores largos de «ID de la entidad» pueden partirse).
+  const palabras = (p: Page) =>
+    p.evaluate(() => {
+      const partidas: string[] = [];
+      const vistas = new Set<string>();
+      let total = 0;
+      for (const fila of document.querySelectorAll("tbody tr")) {
+        for (const celda of [fila.children[2], fila.children[3]]) {
+          const nodo = celda.firstChild;
+          if (!nodo || nodo.nodeType !== 3) continue;
+          const texto = nodo.textContent ?? "";
+          for (const m of texto.matchAll(/\S+/g)) {
+            const rango = document.createRange();
+            rango.setStart(nodo, m.index!);
+            rango.setEnd(nodo, m.index! + m[0].length);
+            total++;
+            vistas.add(m[0]);
+            if (rango.getClientRects().length > 1) partidas.push(m[0]);
+          }
+        }
+      }
+      return { partidas, total, entidades: [...document.querySelectorAll("tbody tr")].map((f) => f.children[3].textContent!.trim()), vistas: [...vistas] };
+    });
+  const entidades = new Set<string>();
+  let partidas: string[] = [];
+  let totalPalabras = 0;
+  for (let n = 1; n <= total; n++) {
+    await irA(pagina, `/admin/bitacora?pagina=${n}`);
+    const r = await palabras(pagina);
+    partidas = partidas.concat(r.partidas);
+    totalPalabras += r.total;
+    r.entidades.forEach((e) => entidades.add(e));
+  }
+  ver(partidas.length === 0 && ["usuario", "caso", "avistamiento", "parámetro", "catálogo"].every((e) => entidades.has(e)), `ADM-12 (1280): «Entidad» (${[...entidades].join(", ")}) y «Tipo de acción» se ven enteras en una línea por palabra (${totalPalabras} palabras revisadas en ${total} páginas)`, `ADM-12 (1280): palabras partidas → ${partidas.join(", ")} · entidades ${[...entidades]}`);
+  await irA(pagina, "/admin/bitacora");
+  await pagina.addStyleTag({ content: "tbody td:nth-child(4) { display: block; width: 3rem; white-space: normal !important; overflow-wrap: anywhere; }" });
+  const roto = await palabras(pagina);
+  ver(roto.partidas.length > 0, `autoprueba de palabras partidas: con la columna «Entidad» estrecha y sin nowrap se marca ${[...new Set(roto.partidas)].join(", ")}`, "autoprueba de palabras partidas: no detectó ninguna palabra partida");
+  await contexto.close();
+  ({ contexto, pagina } = await nuevaPagina(navegador, 390));
+  await irA(pagina, "/admin/bitacora");
+  const tarjetas = await pagina.locator("ul > li[data-accion]").allInnerTexts();
+  const primera = BITACORA[0];
+  ver(tarjetas.length === 8 && (await pagina.locator("table").isHidden()) && tarjetas[0].includes(`Acción ${primera.id}`) && tarjetas[0].includes(primera.tipo) && tarjetas[0].includes(`Entidad afectada: ${primera.entidad}`) && tarjetas[0].includes(primera.idEntidad) && tarjetas[0].includes(primera.administrador) && (primera.detalle ? tarjetas[0].includes(`Detalle`) : true), "ADM-12 (390): 8 tarjetas con ID, tipo, fecha, administrador, entidad y su ID; la tabla se oculta", `ADM-12 (390): ${tarjetas.length} tarjetas`);
+  const ms = await pagina.evaluate(() => [...document.querySelectorAll("li[data-accion] span.whitespace-nowrap")].filter((f) => f.getClientRects().length !== 1).map((f) => f.textContent));
+  ver(ms.length === 0, "ADM-12 (390): los identificadores de entidad no se cortan en dos líneas", `ADM-12 (390): cortados ${ms}`);
+  const conMotivo = BITACORA.find((a) => a.motivo)!;
+  await irA(pagina, `/admin/bitacora?pagina=${Math.floor(BITACORA.indexOf(conMotivo) / 8) + 1}`);
+  ver((await pagina.locator(`li[data-accion='${conMotivo.id}']`).innerText()).includes(`Motivo ${conMotivo.motivo}`), "ADM-12 (390): la tarjeta de «deshabilitar caso» u «ocultar avistamiento» muestra el motivo", "ADM-12 (390): la tarjeta no muestra el motivo");
+  await contexto.close();
+  const html = await (await fetch(`${base}/admin/bitacora`)).text();
+  ver(SECRETOS_TUTOR_5C.every((v) => !html.includes(v)) && !html.includes("@example.org"), "ADM-12: ningún dato de la persona tutora (nombre, correo, teléfono, token) en la página", "ADM-12: hay datos de la persona tutora");
+}
+
+
+/** Las exportaciones de «sin datos» están deshabilitadas de verdad (atributo, no clicables) y se ven distintas de las activas, en claro y en oscuro. */
+async function exportacionDeshabilitada(navegador: Browser) {
+  for (const tema of ["light", "dark"] as const) {
+    const { contexto, pagina } = await nuevaPagina(navegador, 1280, tema);
+    const nombreTema = tema === "light" ? "claro" : "oscuro";
+    const leer = () =>
+      pagina.evaluate(() => {
+        const sonda = document.createElement("span");
+        document.body.append(sonda);
+        sonda.style.color = "var(--disabled-text)";
+        const deshabilitado = getComputedStyle(sonda).color;
+        sonda.style.color = "var(--primary)";
+        const primario = getComputedStyle(sonda).color;
+        sonda.style.color = "var(--border-strong)";
+        const bordeFuerte = getComputedStyle(sonda).color;
+        sonda.remove();
+        return {
+          deshabilitado,
+          primario,
+          bordeFuerte,
+          botones: [...document.querySelectorAll("button")].filter((b) => /^Exportar a (PDF|Excel)$/.test(b.textContent?.trim() ?? "")).map((b) => ({ nombre: b.textContent!.trim(), disabled: b.disabled, ariaDisabled: b.getAttribute("aria-disabled"), color: getComputedStyle(b).color, borde: getComputedStyle(b).borderTopColor, cursor: getComputedStyle(b).cursor })),
+        };
+      });
+    await irA(pagina, "/admin/reportes?estado=vacio");
+    const d = await leer();
+    ver(d.botones.length === 2 && d.botones.every((b) => b.disabled && b.color === d.deshabilitado && b.borde === d.bordeFuerte && b.cursor === "not-allowed"), `ADM-02 sin datos (${nombreTema}): «Exportar a PDF» y «Exportar a Excel» tienen el atributo disabled y usan el estilo de deshabilitado (texto --disabled-text, borde --border-strong, cursor no permitido)`, `ADM-02 sin datos (${nombreTema}): ${JSON.stringify(d.botones)}`);
+    let clicables = 0;
+    for (const b of ["Exportar a PDF", "Exportar a Excel"]) {
+      await boton(pagina, b).click({ timeout: 1000 }).then(() => clicables++, () => undefined);
+      await pagina.keyboard.press("Tab");
+    }
+    ver(clicables === 0 && (await pagina.getByRole("status").filter({ hasText: "Exportación simulada" }).count()) === 0, `ADM-02 sin datos (${nombreTema}): no se pueden pulsar (el clic no procede y no aparece ninguna exportación)`, `ADM-02 sin datos (${nombreTema}): ${clicables} botón(es) clicables`);
+    await irA(pagina, "/admin/reportes?desde=2026-10-01&hasta=2026-10-18");
+    const a = await leer();
+    ver(a.botones.length === 2 && a.botones.every((b) => !b.disabled && b.color === a.primario && b.color !== a.deshabilitado && b.cursor !== "not-allowed"), `ADM-02 con datos (${nombreTema}): las exportaciones activas se ven distintas (texto en color primario, sin cursor de no permitido)`, `ADM-02 con datos (${nombreTema}): ${JSON.stringify(a.botones)}`);
+    await contexto.close();
+  }
+}
+
+/** Esqueletos de carga de pantallas sin fotografías: sin el recuadro de la foto. */
+async function esqueletosSinFoto(navegador: Browser) {
+  const { contexto, pagina } = await nuevaPagina(navegador, 390);
+  for (const r of ["/admin/reportes?estado=cargando", "/admin/parametros?estado=cargando", "/admin/bitacora?estado=cargando", "/admin/usuarios?estado=cargando"]) {
+    await irA(pagina, r);
+    const n = await pagina.locator("[role=status][aria-busy=true]").count();
+    const fotos = await pagina.locator("[role=status][aria-busy=true] > span.size-20").count();
+    const conFoto = r.includes("usuarios");
+    ver(n > 0 && (conFoto ? true : fotos === 0), `${r}: ${n} esqueleto(s) de carga${conFoto ? " (ADM-03 conserva el suyo)" : " sin recuadro de fotografía"}`, `${r}: ${fotos} recuadro(s) de fotografía en el esqueleto`);
+  }
+  await contexto.close();
+}
+
+/** Celdas de tabla visibles cuyo contenido es más ancho que la celda (un texto largo que invade la columna vecina). */
+const medirCeldas = (pagina: Page) =>
+  pagina.evaluate(() => {
+    const malos: string[] = [];
+    let total = 0;
+    for (const c of document.querySelectorAll<HTMLElement>("table th, table td")) {
+      if (c.getClientRects().length === 0 || getComputedStyle(c).display === "none") continue;
+      total++;
+      if (c.scrollWidth > c.clientWidth + 1) malos.push(`«${(c.textContent ?? "").trim().slice(0, 30)}» ${c.scrollWidth}>${c.clientWidth}`);
+    }
+    return { malos, total };
+  });
+
+/** Ninguna celda de las tablas del Administrador desborda su ancho (a 1280 px). */
+async function celdasSinDesborde(pagina: Page, etiqueta: string) {
+  const r = await medirCeldas(pagina);
+  if (r.total > 0) ver(r.malos.length === 0, `${etiqueta}: ${r.total} celdas de tabla sin desbordar su ancho`, `${etiqueta}: celdas desbordadas → ${r.malos.slice(0, 6).join(" | ")}`);
+}
+
+/** Autoprueba: con los identificadores largos sin ajuste de línea (el defecto de antes), la misma medición sí marca celdas. */
+async function autopruebaCeldas(navegador: Browser) {
+  const { contexto, pagina } = await nuevaPagina(navegador, 1280);
+  await irA(pagina, "/admin/bitacora");
+  const limpio = await medirCeldas(pagina);
+  await pagina.addStyleTag({ content: "td span { white-space: nowrap !important; overflow-wrap: normal !important; }" });
+  const roto = await medirCeldas(pagina);
+  ver(limpio.malos.length === 0 && roto.malos.length > 0, `autoprueba de celdas: con el ajuste de línea quitado la bitácora marca ${roto.malos.length} celda(s) desbordadas (${roto.malos.slice(0, 2).join("; ")}); con la corrección, ninguna de ${limpio.total}`, `autoprueba de celdas: limpio ${limpio.malos.length}, roto ${roto.malos.length}`);
+  await contexto.close();
+}
+
+/** Cada folio, ID, usuario, catálogo y parámetro de la bitácora existe en los mocks y su estado final coincide con la secuencia de acciones. */
+function problemasDeBitacora(bit: typeof BITACORA): string[] {
+  const ascendente = [...bit].sort((x, y) => x.fechaHora.localeCompare(y.fechaHora));
+  const problemas: string[] = [];
+  const fin = (l: typeof BITACORA, f: (a: (typeof BITACORA)[number]) => boolean) => l.filter(f).at(-1);
+  // Casos: la deshabilitación y la restauración están en el historial (misma fecha y motivo) y el estado final cuadra.
+  const folios = [...new Set(bit.filter((a) => a.entidad === "caso").map((a) => a.idEntidad))];
+  for (const f of folios) {
+    const c = CASOS_MODERACION.find((x) => x.folio === f);
+    if (!c) {
+      problemas.push(`caso ${f} no existe`);
+      continue;
+    }
+    const mias = ascendente.filter((a) => a.idEntidad === f);
+    for (const a of mias) {
+      const m = c.historial.find((h) => h.fechaHora === a.fechaHora && h.tipo === (a.tipo === "deshabilitar caso" ? "deshabilitación" : "restauración"));
+      if (!m || (a.tipo === "deshabilitar caso" && m.motivo !== a.motivo)) problemas.push(`caso ${f}: el historial no tiene «${a.tipo}» del ${a.fechaHora}`);
+      if (a.fechaHora <= c.fechaRegistro) problemas.push(`caso ${f}: «${a.tipo}» anterior a su registro`);
+    }
+    const ultima = mias.at(-1)!;
+    if (esDeshabilitado(c.historial) !== (ultima.tipo === "deshabilitar caso")) problemas.push(`caso ${f}: estado final incoherente con «${ultima.tipo}»`);
+  }
+  // Y al revés: toda deshabilitación o restauración del historial de un caso está en la bitácora.
+  for (const c of CASOS_MODERACION) for (const h of c.historial.filter((x) => x.tipo === "deshabilitación" || x.tipo === "restauración")) if (!bit.some((a) => a.idEntidad === c.folio && a.fechaHora === h.fechaHora)) problemas.push(`caso ${c.folio}: «${h.tipo}» del ${h.fechaHora} no está en la bitácora`);
+  // Avistamientos: ocultos con su motivo y fecha; visibles tras restaurar.
+  for (const id of [...new Set(bit.filter((a) => a.entidad === "avistamiento").map((a) => a.idEntidad))]) {
+    const v = AVISTAMIENTOS_MODERACION.find((x) => String(x.id) === id);
+    if (!v) {
+      problemas.push(`avistamiento ${id} no existe`);
+      continue;
+    }
+    const mias = ascendente.filter((a) => a.idEntidad === id && a.entidad === "avistamiento");
+    if (mias.some((a) => a.fechaHora <= v.fechaHora)) problemas.push(`avistamiento ${id}: acción anterior al avistamiento`);
+    if (mias.some((a, i) => (i % 2 === 0) !== (a.tipo === "ocultar avistamiento"))) problemas.push(`avistamiento ${id}: ocultar y restaurar no se alternan`);
+    const ultima = mias.at(-1)!;
+    const oculto = ultima.tipo === "ocultar avistamiento";
+    if (v.visible === oculto || (oculto && (v.motivoModeracion !== ultima.motivo || v.fechaModeracion !== ultima.fechaHora)) || (!oculto && (v.motivoModeracion || v.fechaModeracion))) problemas.push(`avistamiento ${id}: estado final incoherente con «${ultima.tipo}»`);
+  }
+  for (const v of AVISTAMIENTOS_MODERACION.filter((x) => !x.visible)) if (!bit.some((a) => a.tipo === "ocultar avistamiento" && a.idEntidad === String(v.id))) problemas.push(`avistamiento ${v.id} oculto sin registro en la bitácora`);
+  // Usuarios: estatus y rol finales, y fecha de última modificación.
+  for (const id of [...new Set(bit.filter((a) => a.entidad === "usuario").map((a) => a.idEntidad))]) {
+    const u = USUARIOS_INICIALES.find((x) => String(x.id) === id);
+    if (!u) {
+      problemas.push(`usuario ${id} no existe`);
+      continue;
+    }
+    const mias = ascendente.filter((a) => a.entidad === "usuario" && a.idEntidad === id);
+    const estatus = fin(mias as typeof BITACORA, (a) => a.tipo === "habilitar usuario" || a.tipo === "deshabilitar usuario");
+    if (estatus && (estatus.tipo === "habilitar usuario") !== u.activo) problemas.push(`usuario ${id}: estatus final incoherente`);
+    if (mias.some((a, i, l) => (a.tipo === "habilitar usuario" || a.tipo === "deshabilitar usuario") && i > 0 && l.slice(0, i).filter((b) => b.tipo === "habilitar usuario" || b.tipo === "deshabilitar usuario").at(-1)?.tipo === a.tipo)) problemas.push(`usuario ${id}: habilitar y deshabilitar no se alternan`);
+    const rol = fin(mias as typeof BITACORA, (a) => a.tipo === "cambiar rol");
+    if (rol && rol.detalle!.split(" → ")[1] !== u.rol) problemas.push(`usuario ${id}: rol final incoherente`);
+    if (mias.at(-1)!.fechaHora.slice(0, 16) > u.fechaUltimaModificacion.slice(0, 16)) problemas.push(`usuario ${id}: acción posterior a su última modificación`);
+  }
+  // Administradores que actúan: son administradores en ese momento (Carmen, desde que se le dio el rol y hasta que se deshabilitó).
+  for (const a of bit) {
+    const u = USUARIOS_INICIALES.find((x) => x.nombreCompleto === a.administrador);
+    if (!u || u.rol !== "Administrador") {
+      problemas.push(`administrador ${a.administrador} inexistente`);
+      continue;
+    }
+    const acciones = ascendente.filter((b) => b.entidad === "usuario" && b.idEntidad === String(u.id));
+    const desde = acciones.find((b) => b.tipo === "cambiar rol");
+    const hasta = acciones.find((b) => b.tipo === "deshabilitar usuario");
+    if ((desde && a.fechaHora < desde.fechaHora) || (!u.activo && hasta && a.fechaHora > hasta.fechaHora)) problemas.push(`acción ${a.id}: ${a.administrador} no era administrador activo en esa fecha`);
+  }
+  // Catálogos: existe el valor, y su estatus y nombre finales cuadran.
+  const nombreDe: Record<string, keyof typeof CATALOGOS> = { Alcaldías: "alcaldias", Razas: "razas", Motivos: "motivos", "Estados del animal": "estados-animal" };
+  for (const clave of [...new Set(bit.filter((a) => a.entidad === "catálogo").map((a) => a.idEntidad))]) {
+    const [nombre, id] = clave.split(" · ");
+    const el = CATALOGOS[nombreDe[nombre]]?.elementos.find((x) => String(x.id) === id);
+    if (!el) {
+      problemas.push(`catálogo ${clave} no existe`);
+      continue;
+    }
+    const mias = ascendente.filter((a) => a.entidad === "catálogo" && a.idEntidad === clave);
+    const estatus = fin(mias as typeof BITACORA, (a) => a.tipo === "desactivación de catálogo" || (a.tipo === "edición de catálogo" && /Inactiv\w+ → Activ/.test(a.detalle ?? "")));
+    if ((estatus && el.activo) || (!estatus && !el.activo)) problemas.push(`catálogo ${clave}: estatus final incoherente`);
+    for (const a of mias) {
+      if (a.tipo === "alta de catálogo" && (a.detalle !== el.nombre || a.detalle!.includes("→"))) problemas.push(`catálogo ${clave}: el alta debe mostrar solo el nombre «${el.nombre}»`);
+      if (a.tipo === "desactivación de catálogo" && !/^Activ\w+ → Inactiv\w+$/.test(a.detalle ?? "")) problemas.push(`catálogo ${clave}: una desactivación pasa de Activo a Inactivo`);
+      if (a.tipo === "edición de catálogo" && !/^(Nombre|Clave): .+ → .+$|^Inactiv\w+ → Activ\w+$/.test(a.detalle ?? "")) problemas.push(`catálogo ${clave}: una edición cambia nombre o clave, o reactiva`);
+      if (a.tipo === "edición de catálogo" && a.detalle!.startsWith("Nombre:") && a.detalle!.split(" → ")[1] !== el.nombre) problemas.push(`catálogo ${clave}: nombre final distinto de «${el.nombre}»`);
+    }
+  }
+  // Parámetros: el valor final de cada uno es el vigente.
+  const finalDe: Record<string, string> = { ...VALORES_POR_DEFECTO };
+  for (const p of Object.keys(finalDe)) {
+    const u = ascendente.filter((a) => a.tipo === "modificar parámetro" && a.idEntidad === p).at(-1);
+    if (u && u.detalle!.split(" → ")[1] !== finalDe[p]) problemas.push(`parámetro ${p}: valor final ${u.detalle} ≠ ${finalDe[p]}`);
+  }
+  if (bit.some((a) => a.entidad === "parámetro" && !(a.idEntidad in finalDe))) problemas.push("parámetro inexistente");
+  return problemas;
+}
+
+function bitacoraCoherente() {
+  const problemas = problemasDeBitacora(BITACORA);
+  ver(problemas.length === 0, `bitácora cruzada con los mocks (${BITACORA.length} acciones): folios, avistamientos, usuarios, catálogos y parámetros existen, sus estados finales cuadran con la secuencia y los historiales de los casos contienen cada deshabilitación y restauración`, `bitácora incoherente: ${problemas.join(" | ")}`);
+}
+
+/** Autoprueba de la comprobación cruzada: se provocan defectos en una copia de la bitácora (los datos reales no se tocan) y se exige que se marquen. */
+function autopruebaBitacora() {
+  const copia = () => BITACORA.map((a) => ({ ...a }));
+  const idx = (f: (a: (typeof BITACORA)[number]) => boolean) => BITACORA.findIndex(f);
+  const defectos: [string, typeof BITACORA, RegExp][] = [];
+  const a = copia();
+  a[idx((x) => x.tipo === "deshabilitar caso" && x.idEntidad === "RUPE-D5W2QK8X")] = { ...a[idx((x) => x.tipo === "deshabilitar caso" && x.idEntidad === "RUPE-D5W2QK8X")], idEntidad: "RUPE-ZZ99ZZ99" };
+  defectos.push(["un folio de la bitácora que no existe en los mocks (RUPE-ZZ99ZZ99)", a, /caso RUPE-ZZ99ZZ99 no existe/]);
+  const b = copia().filter((x) => !(x.tipo === "restaurar caso" && x.idEntidad === "RUPE-C2J9RK6Z"));
+  defectos.push(["una deshabilitación de caso sin su restauración (el caso quedaría deshabilitado en la bitácora y no en su historial)", b, /RUPE-C2J9RK6Z: estado final incoherente con «deshabilitar caso»/]);
+  const c = copia();
+  const k = idx((x) => x.tipo === "ocultar avistamiento" && x.idEntidad === "303");
+  c[k] = { ...c[k], administrador: "Carmen Ortiz Ejemplo" }; // Carmen estaba deshabilitada desde el 21 de agosto
+  defectos.push(["una acción de un administrador inactivo en esa fecha (Carmen Ortiz el 13 de octubre)", c, /Carmen Ortiz Ejemplo no era administrador activo en esa fecha/]);
+  const d = copia();
+  const m = idx((x) => x.tipo === "ocultar avistamiento" && x.idEntidad === "201");
+  d[m] = { ...d[m], fechaHora: "2026-10-02T17:15:00Z" }; // antes de que existiera el avistamiento
+  defectos.push(["un avistamiento ocultado antes de existir", d, /avistamiento 201: acción anterior al avistamiento/]);
+  for (const [nombre, datos, esperado] of defectos) {
+    const p = problemasDeBitacora(datos);
+    ver(p.some((x) => esperado.test(x)), `autoprueba de la bitácora cruzada: marca ${nombre} → «${p.find((x) => esperado.test(x))}»`, `autoprueba de la bitácora cruzada: NO marcó ${nombre} (${p.join(" | ") || "sin problemas"})`);
+  }
+  const limpio = problemasDeBitacora(BITACORA);
+  ver(limpio.length === 0, "autoprueba de la bitácora cruzada: con los datos reales, sin defectos, vuelve a pasar (0 problemas)", `autoprueba de la bitácora cruzada: con los datos reales marca ${limpio.join(" | ")}`);
+}
+
 // ---------- enlaces y geometría ----------
 async function enlacesYGeometria(navegador: Browser) {
-  const rutas = ["/admin", `/admin?desde=2026-09-01&hasta=2026-09-30`, "/admin/usuarios", "/admin/usuarios?modal=rol", "/admin/usuarios?modal=deshabilitar", "/admin/usuarios?modal=habilitar", "/admin/usuarios?estado=cargando", "/admin/usuarios?estado=vacio", "/admin/reportes", "/admin/bitacora", "/admin/registros", "/admin/registros?modal=deshabilitar", "/admin/registros?estado=cargando", "/admin/registros?estado=vacio", `/admin/registros/${FOLIO_MODERACION_ACTIVO}`, `/admin/registros/${FOLIO_MODERACION_ACTIVO}?modal=deshabilitar`, `/admin/registros/${FOLIO_MODERACION_DESHABILITADO}`, `/admin/registros/${FOLIO_MODERACION_CANCELADO}`, "/admin/avistamientos", "/admin/avistamientos?modal=ocultar", "/admin/avistamientos?modal=detalle", "/admin/avistamientos?modal=detalle-fallecido", "/admin/avistamientos?modal=detalle-fallecido&foto=visible", "/admin/avistamientos?estado=cargando", "/admin/avistamientos?estado=vacio", ...["alcaldias", "razas", "motivos", "estados-animal"].flatMap((c) => [`/admin/${c}`, `/admin/${c}?modal=nuevo`, `/admin/${c}?modal=editar`, `/admin/${c}?modal=desactivar`]), "/admin/alcaldias?estado=cargando"];
+  const rutas = ["/admin", `/admin?desde=2026-09-01&hasta=2026-09-30`, "/admin/usuarios", "/admin/usuarios?modal=rol", "/admin/usuarios?modal=deshabilitar", "/admin/usuarios?modal=habilitar", "/admin/usuarios?estado=cargando", "/admin/usuarios?estado=vacio", "/admin/reportes", "/admin/reportes?desde=2026-10-01&hasta=2026-10-18", "/admin/reportes?estado=vacio", "/admin/reportes?estado=cargando", "/admin/reportes?generar=1", "/admin/estados-caso", "/admin/parametros", "/admin/parametros?variante=aviso", "/admin/parametros?variante=errores", "/admin/parametros?modal=restablecer", "/admin/parametros?estado=cargando", "/admin/bitacora", "/admin/bitacora?pagina=2", "/admin/bitacora?estado=vacio", "/admin/bitacora?estado=cargando", "/admin/registros", "/admin/registros?modal=deshabilitar", "/admin/registros?estado=cargando", "/admin/registros?estado=vacio", `/admin/registros/${FOLIO_MODERACION_ACTIVO}`, `/admin/registros/${FOLIO_MODERACION_ACTIVO}?modal=deshabilitar`, `/admin/registros/${FOLIO_MODERACION_DESHABILITADO}`, `/admin/registros/${FOLIO_MODERACION_CANCELADO}`, "/admin/avistamientos", "/admin/avistamientos?modal=ocultar", "/admin/avistamientos?modal=detalle", "/admin/avistamientos?modal=detalle-fallecido", "/admin/avistamientos?modal=detalle-fallecido&foto=visible", "/admin/avistamientos?estado=cargando", "/admin/avistamientos?estado=vacio", ...["alcaldias", "razas", "motivos", "estados-animal"].flatMap((c) => [`/admin/${c}`, `/admin/${c}?modal=nuevo`, `/admin/${c}?modal=editar`, `/admin/${c}?modal=desactivar`]), "/admin/alcaldias?estado=cargando"];
   const vistos = new Set<string>();
   const { contexto, pagina } = await nuevaPagina(navegador, 1280);
   for (const r of rutas) {
@@ -1117,6 +1638,7 @@ async function enlacesYGeometria(navegador: Browser) {
       await irA(p.pagina, r);
       await desborde(p.pagina, `${r} ${ancho}px`);
       await areasTactiles(p.pagina, `${r} ${ancho}px`);
+      if (ancho === 1280) await celdasSinDesborde(p.pagina, `${r} 1280px`);
       await p.contexto.close();
     }
   }
@@ -1150,6 +1672,15 @@ async function main() {
     reglasDeCatalogos();
     await catalogos(navegador);
     await chipValorProtegido(navegador);
+    await reportes(navegador);
+    await estadosDelCaso(navegador);
+    await parametros(navegador);
+    await bitacora(navegador);
+    bitacoraCoherente();
+    autopruebaBitacora();
+    await autopruebaCeldas(navegador);
+    await exportacionDeshabilitada(navegador);
+    await esqueletosSinFoto(navegador);
     await sinDatosDeUsuarios();
     await enlacesYGeometria(navegador);
   } finally {

@@ -16,6 +16,8 @@ const NOMBRES = [
   "login", "person_add", "help", "mail", "logout",
   // Bloque 4 (persona tutora)
   "visibility_off", "content_copy", "link", "download", "refresh", "add", "description", "calendar_month",
+  // Bloque 5c (reportes y parámetros)
+  "picture_as_pdf", "table_chart", "trending_up", "bar_chart", "restart_alt",
 ];
 
 const base = join(process.cwd(), "node_modules/@material-symbols/svg-400/rounded");
