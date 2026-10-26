@@ -2,6 +2,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PantallaMensaje } from "@/components/features/PantallaMensaje";
+import { PantallaPendiente } from "@/components/features/PantallaPendiente";
+import { esCasoPropio } from "@/server/servicios/extravio";
+import { obtenerSesion } from "@/server/sesion/sesion";
 import { FichaBusquedaTutor, type ModalFicha } from "@/components/features/FichaBusquedaTutor";
 import type { TamanoHoja } from "@/components/features/FichaBusqueda";
 import { clasesBoton } from "@/components/ui/clasesBoton";
@@ -17,6 +20,8 @@ export default async function PaginaFichaBusqueda({ params, searchParams }: Page
   const { folio } = await params;
   const { modal, hoja } = await searchParams;
   const origen = resolverCaso(folio);
+  // Un caso REAL recién registrado por esta persona aún no tiene su ficha conectada (bloques P3 y P4): pantalla pendiente, nunca 404.
+  if (!origen && (await esCasoPropio(await obtenerSesion(), folio))) return <PantallaPendiente pantalla="Ficha de búsqueda" href="/tutor" etiquetaVolver="Ir a mis registros" />;
   if (!origen) notFound();
   // La ficha solo se genera con el caso activo (HU 019 y 023).
   if (!esCasoActivo(origen.estado)) {

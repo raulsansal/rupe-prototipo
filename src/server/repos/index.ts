@@ -35,8 +35,15 @@ export interface RepoCasos {
   todos(): Promise<T.CasoExtravio[]>;
   perro(id: number): Promise<T.Perro | undefined>;
   fotografia(id: number): Promise<T.Fotografia | undefined>;
-  /** R6: alta del caso con su perro, fotografía, QR inicial y los movimientos «registro» y «ficha generada», todo junto. */
-  crearConPerro(datos: { fotografia: Omit<T.Fotografia, "idFotografia">; perro: Omit<T.Perro, "idPerro" | "idFotografia">; caso: Omit<T.CasoExtravio, "idCasoExtravio" | "idPerro" | "idEstadoCaso">; qr: Omit<T.CodigoQr, "idCodigoQr" | "idCasoExtravio">; movimientos: Omit<T.MovimientoDeHistorial, "idCasoExtravio" | "consecutivo">[] }): Promise<T.CasoExtravio>;
+  /**
+   * R6: alta del caso con su perro, fotografía (y sus bytes), QR inicial y los movimientos «registro» y «ficha generada», en UNA transacción: o queda todo o no queda nada.
+   * Lanza `ConflictoDeUnicidad` si el folio o el token del QR ya existen (el servicio reintenta con otro).
+   */
+  crearConPerro(datos: { fotografia: Omit<T.Fotografia, "idFotografia">; contenidoFotografia?: { tipo: string; bytes: Uint8Array }; perro: Omit<T.Perro, "idPerro" | "idFotografia">; caso: Omit<T.CasoExtravio, "idCasoExtravio" | "idPerro" | "idEstadoCaso">; qr: Omit<T.CodigoQr, "idCodigoQr" | "idCasoExtravio">; movimientos: Omit<T.MovimientoDeHistorial, "idCasoExtravio" | "consecutivo">[] }): Promise<T.CasoExtravio>;
+  /** Bytes y tipo de una fotografía subida (undefined si es una sembrada que apunta a /mocks). */
+  contenidoDeFotografia(idFotografia: number): Promise<{ tipo: string; bytes: Uint8Array } | undefined>;
+  /** Id de la persona usuaria dueña de la fotografía (la del perro o la de un avistamiento de su caso). */
+  duenoDeFotografia(idFotografia: number): Promise<number | undefined>;
   actualizarEstado(idCaso: number, idEstadoCaso: number, fecha: string): Promise<void>;
 }
 export interface RepoHistorial {

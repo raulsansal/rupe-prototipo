@@ -298,8 +298,8 @@ async function registro(navegador: Browser) {
   const almacen = await pagina.evaluate(() => ({ local: Object.keys(localStorage).filter((k) => k !== "rupe-tema"), sesion: Object.keys(sessionStorage), cookies: document.cookie }));
   ver(almacen.local.length === 0 && almacen.sesion.length === 0 && almacen.cookies === "", "lo capturado no se guarda en localStorage, sessionStorage ni cookies", `almacenamiento: ${JSON.stringify(almacen)}`);
   await cont.click();
-  await pagina.waitForURL(`**/tutor/casos/${FOLIO_NUEVO}/creado`);
-  ver(true, "«Guardar registro» con todo completo lleva a TUT-04 (Registro creado)", "");
+  await pagina.waitForURL(/\/tutor\/casos\/RUPE-[A-HJ-NP-Z2-9]{8}\/creado$/); // el caso se guarda de verdad: el folio es nuevo
+  ver(!new RegExp(FOLIO_NUEVO).test(pagina.url()) && (await pagina.getByRole("heading", { level: 1, name: "Registro creado" }).isVisible()), "«Guardar registro» con todo completo guarda el caso y lleva a TUT-04 (Registro creado) con un folio nuevo", "TUT-04: no se creó un folio nuevo");
   await contexto.close();
 
   // Variantes.

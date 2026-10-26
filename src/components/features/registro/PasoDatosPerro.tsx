@@ -125,7 +125,8 @@ export function PasoDatosPerro({ datos, errores, actualizar, fotoInicial }: Prop
         requerido
         variante="ancha"
         vistaPreviaInicial={fotoInicial}
-        onCambio={(fotoUrl) => actualizar({ fotoUrl }, ["foto"])}
+        reducir
+        onCambio={(fotoUrl, foto) => actualizar({ fotoUrl, foto }, ["foto"])}
         errorExterno={errores.foto}
       />
     </div>

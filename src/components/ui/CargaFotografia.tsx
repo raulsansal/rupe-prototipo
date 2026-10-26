@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useEffect, useId, useRef, useState, type ChangeEvent } from "react";
 import { cx } from "@/lib/clases";
+import { reducirImagen } from "@/components/features/registro/ReduccionDeImagen";
 import { PARAMETROS } from "@/mocks/parametros";
 import { Boton } from "./Boton";
 import { Icono } from "./Icono";
@@ -11,6 +12,8 @@ import { Icono } from "./Icono";
 const MAX_MB = PARAMETROS.tamano_maximo_archivo_mb;
 const MAX_BYTES = MAX_MB * 1024 * 1024;
 const TIPOS = ["image/jpeg", "image/png"];
+/** Con reducción en el navegador se aceptan originales grandes (la foto de un teléfono); más que esto ni se intenta decodificar. */
+const MAX_ORIGINAL_BYTES = 30 * 1024 * 1024;
 
 type ErrorFoto = { titulo: string; detalle: string };
 
@@ -22,7 +25,9 @@ type Props = {
   vistaPreviaInicial?: string;
   errorInicial?: ErrorFoto;
   /** Se llama al elegir o quitar la foto, con la dirección de su vista previa (o nada si se quitó o no es válida). */
-  onCambio?: (vista: string | undefined) => void;
+  onCambio?: (vista: string | undefined, archivo?: Blob) => void;
+  /** Reduce la imagen en el navegador (lado máximo, JPEG, sin metadatos) antes de entregarla: `onCambio` recibe también el archivo reducido que se enviará. */
+  reducir?: boolean;
   /** Error de validación del formulario (p. ej. «La fotografía es obligatoria»); se asocia al control con aria-describedby. */
   errorExterno?: string;
   /**
@@ -37,7 +42,7 @@ type Props = {
 };
 
 /** Carga de una fotografía (JPG o PNG, con el tamaño máximo del parámetro del sistema). El recorte de la variante cuadrada es solo de presentación. */
-export function CargaFotografia({ etiqueta, name, requerido, vistaPreviaInicial, errorInicial, onCambio, errorExterno, variante = "cuadrada", ayuda = "Solo una fotografía por caso. JPG o PNG, máx. {max} MB. Reemplazable.", className }: Props) {
+export function CargaFotografia({ etiqueta, name, requerido, vistaPreviaInicial, errorInicial, onCambio, reducir = false, errorExterno, variante = "cuadrada", ayuda = "Solo una fotografía por caso. JPG o PNG, máx. {max} MB. Reemplazable.", className }: Props) {
   const id = useId();
   const galeria = useRef<HTMLInputElement>(null);
   const camara = useRef<HTMLInputElement>(null);
@@ -50,13 +55,31 @@ export function CargaFotografia({ etiqueta, name, requerido, vistaPreviaInicial,
     };
   }, [vista]);
 
-  function alElegir(e: ChangeEvent<HTMLInputElement>) {
+  async function alElegir(e: ChangeEvent<HTMLInputElement>) {
     const archivo = e.target.files?.[0];
     if (!archivo) return;
     if (!TIPOS.includes(archivo.type)) {
       setVista(undefined);
       onCambio?.(undefined);
       return setError({ titulo: "Solo se admite JPG o PNG", detalle: "Elige otra foto" });
+    }
+    if (reducir) {
+      // La reducción baja el peso y descarta los metadatos; el límite se aplica al resultado, no al original.
+      if (archivo.size > MAX_ORIGINAL_BYTES) {
+        setVista(undefined);
+        onCambio?.(undefined);
+        return setError({ titulo: `La foto pesa más de ${MAX_ORIGINAL_BYTES / 1024 / 1024} MB`, detalle: "Elige otra o redúcela" });
+      }
+      const r = await reducirImagen(archivo, MAX_BYTES);
+      if ("error" in r) {
+        setVista(undefined);
+        onCambio?.(undefined);
+        return setError(r.error);
+      }
+      setError(undefined);
+      const urlReducida = URL.createObjectURL(r.blob);
+      setVista(urlReducida);
+      return onCambio?.(urlReducida, r.blob);
     }
     if (archivo.size > MAX_BYTES) {
       setVista(undefined);

@@ -16,6 +16,8 @@ export type DatosRegistro = {
   color: string;
   caracteristicas: string;
   fotoUrl?: string;
+  /** La fotografía YA reducida por el navegador (es lo que se envía); fotoUrl es solo su vista previa. */
+  foto?: Blob;
   fechaExtravio: string;
   momento: MomentoDelDia | "";
   alcaldia: Alcaldia | "";

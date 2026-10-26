@@ -7,6 +7,7 @@ import { USUARIOS_INICIALES } from "../src/mocks/usuarios";
 import { credencial, NOMBRE_COOKIE, olvidarSesiones, valorDeSesion, type RolPrueba } from "./sesion-pruebas";
 
 const PUERTO = 3109;
+const PUERTO_SIN_PERMISO = 3111; // segundo servidor, SIN RUPE_PERMITIR_REINICIO (las herramientas /api/dev deben dar 404)
 const baseExterna = process.argv.find((a) => a.startsWith("--base="))?.split("=")[1];
 const base = baseExterna ?? `http://localhost:${PUERTO}`;
 let fallos = 0;
@@ -20,6 +21,26 @@ async function peticion(metodo: string, ruta: string, { rol, valorCookie, cuerpo
   const valor = valorCookie ?? (rol ? await valorDeSesion(base, rol) : undefined);
   if (valor) h.set("Cookie", `${NOMBRE_COOKIE}=${valor}`);
   const r = await fetch(`${base}${ruta}`, { method: metodo, headers: h, body: cuerpo === undefined ? undefined : JSON.stringify(cuerpo), redirect: "manual" });
+  const texto = await r.text();
+  let json: Record<string, unknown> | undefined;
+  try {
+    json = JSON.parse(texto);
+  } catch {
+    json = undefined;
+  }
+  return { estado: r.status, cabeceras: r.headers, texto, json };
+}
+
+const JPEG = Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, ...new Array(400).fill(9), 0xff, 0xd9]);
+const datosDeCaso = (extra: Record<string, unknown> = {}) => ({ nombre: "Pelusa", sexo: "Hembra", idRaza: 1, edad: { valor: 0, unidad: "meses" }, tamano: "pequeño", color: "Blanco", fechaExtravio: new Date(Date.now() - 6 * 3600 * 1000).toISOString().slice(0, 10), momento: "tarde", alcaldia: "Coyoacán", colonia: "Del Carmen", calle: "Calle Reservada 99", idMotivo: 1, ...extra });
+/** POST /api/casos como lo envía el navegador: multipart con «datos» y «fotografia». */
+async function postCaso({ rol, datos = datosDeCaso(), bytes = JPEG, tipo = "image/jpeg", origen = new URL(base).origin, sinFoto = false }: { rol?: RolPrueba; datos?: unknown; bytes?: Uint8Array; tipo?: string; origen?: string; sinFoto?: boolean } = {}): Promise<Resp> {
+  const f = new FormData();
+  f.set("datos", JSON.stringify(datos));
+  if (!sinFoto) f.set("fotografia", new Blob([bytes as BlobPart], { type: tipo }), "fotografia.jpg");
+  const h = new Headers({ Origin: origen });
+  if (rol) h.set("Cookie", `${NOMBRE_COOKIE}=${await valorDeSesion(base, rol)}`);
+  const r = await fetch(`${base}/api/casos`, { method: "POST", headers: h, body: f, redirect: "manual" });
   const texto = await r.text();
   let json: Record<string, unknown> | undefined;
   try {
@@ -47,11 +68,11 @@ function ver(ok: boolean, titulo: string, r?: Resp, extra = "") {
   }
 }
 
-async function esperarServidor(servidor: ChildProcess) {
+async function esperarServidor(servidor: ChildProcess, destino: string = base) {
   for (let i = 0; i < 120; i++) {
     if (servidor.exitCode !== null) throw new Error("El servidor terminó antes de estar listo");
     try {
-      if ((await fetch(base)).status < 500) return;
+      if ((await fetch(destino)).status < 500) return;
     } catch {
       // aún no responde
     }
@@ -147,6 +168,47 @@ async function pruebas() {
   const inexistente = await peticion("GET", "/api/ruta-que-no-existe");
   ver(inexistente.estado === 404 && (inexistente.cabeceras.get("cache-control") ?? "").includes("no-store"), "una ruta /api que no existe también responde 404 con no-store (en la lista de directivas de Next)", inexistente);
 
+  console.log("\n— Registrar extravío (P2): POST /api/casos y fotografía —");
+  const c0 = await postCaso();
+  const cAdmin = await postCaso({ rol: "admin" });
+  const cOrigen = await postCaso({ rol: "tutor1", origen: "http://evil.example" });
+  ver(c0.estado === 401 && cAdmin.estado === 403 && cOrigen.estado === 403 && (cOrigen.json?.error as { codigo: string }).codigo === "ORIGEN_NO_PERMITIDO", "POST /api/casos: 401 sin sesión, 403 con el Administrador y 403 desde otro origen", cAdmin, `sin sesión → HTTP ${c0.estado}; otro origen → HTTP ${cOrigen.estado}`);
+  const cOk = await postCaso({ rol: "tutor1", datos: datosDeCaso({ idUsuario: 5, folio: "RUPE-AAAAAAAA", estado: "Cerrado", idCaso: 1, rol: "Administrador", fechaRegistro: "2000-01-01T00:00:00Z" }) });
+  const folioNuevo = String(cOk.json?.folio ?? "");
+  ver(cOk.estado === 201 && /^RUPE-[A-HJ-NP-Z2-9]{8}$/.test(folioNuevo) && folioNuevo !== "RUPE-AAAAAAAA" && cOk.json?.estado === "En búsqueda" && cOk.json?.destino === `/tutor/casos/${folioNuevo}/creado` && cOk.cabeceras.get("cache-control") === "no-store", "POST /api/casos válido (con idUsuario, folio, estado e idCaso de más): 201, folio nuevo con el patrón, «En búsqueda» y no-store", cOk);
+  const conf = await peticion("GET", `/tutor/casos/${folioNuevo}/creado`, { rol: "tutor1" });
+  const confOtra = await peticion("GET", `/tutor/casos/${folioNuevo}/creado`, { rol: "tutor2" });
+  ver(conf.estado === 200 && conf.texto.includes(folioNuevo) && conf.texto.includes("menos de 1 mes") && confOtra.estado === 404, "el dueño real es quien tiene la sesión (tutor1, no el idUsuario enviado): su confirmación da 200 con «menos de 1 mes» y la de la otra persona 404", conf, "html: folio, «menos de 1 mes», «Te avisamos tu folio»");
+  const idFoto = /\/api\/fotografias\/(\d+)/.exec(conf.texto)?.[1] ?? "0";
+  const [fDueno, fOtra, fAdmin, fAnon, fNoExiste] = [await peticion("GET", `/api/fotografias/${idFoto}`, { rol: "tutor1" }), await peticion("GET", `/api/fotografias/${idFoto}`, { rol: "tutor2" }), await peticion("GET", `/api/fotografias/${idFoto}`, { rol: "admin" }), await peticion("GET", `/api/fotografias/${idFoto}`), await peticion("GET", "/api/fotografias/987654", { rol: "tutor1" })];
+  const sembrada = await peticion("GET", "/api/fotografias/1", { rol: "tutor1" });
+  ver(fDueno.estado === 200 && fDueno.cabeceras.get("content-type") === "image/jpeg" && fAdmin.estado === 200 && fAnon.estado === 401 && fOtra.estado === 404 && fOtra.texto === fNoExiste.texto && fOtra.texto === sembrada.texto, "GET /api/fotografias/<id>: dueña 200 image/jpeg, Administrador 200 (consulta), anónimo 401, y otra persona, id inexistente y foto sembrada 404 con el MISMO cuerpo", fOtra);
+  const grande = await postCaso({ rol: "tutor1", bytes: new Uint8Array(5 * 1024 * 1024).fill(1) });
+  ver(grande.estado === 413 && (grande.json?.error as { codigo: string }).codigo === "CUERPO_DEMASIADO_GRANDE" && grande.cabeceras.get("cache-control") === "no-store", "una petición de más de 4.5 MB: 413 CUERPO_DEMASIADO_GRANDE", grande);
+  const invalido = await postCaso({ rol: "tutor1", datos: datosDeCaso({ nombre: "", alcaldia: "Fuera de la Ciudad de México", fechaExtravio: "2999-01-01" }), bytes: Uint8Array.from(Buffer.from("GIF89a-no-es-jpeg")) });
+  const campos = Object.keys((invalido.json?.error as { campos: object }).campos).sort().join();
+  const json = await fetch(`${base}/api/casos`, { method: "POST", headers: { "Content-Type": "application/json", Origin: new URL(base).origin, Cookie: `${NOMBRE_COOKIE}=${await valorDeSesion(base, "tutor1")}` }, body: "{}" });
+  ver(invalido.estado === 422 && campos === "alcaldia,fecha,foto,nombre" && json.status === 400, "POST /api/casos inválido: 422 con errores por campo (nombre, alcaldía, fecha futura y foto que no es JPG/PNG por sus bytes); sin multipart: 400", invalido, `un cuerpo JSON en vez de multipart → HTTP ${json.status}`);
+  const ficha = await peticion("GET", `/api/fichas/${folioNuevo}`);
+  ver(ficha.estado === 200 && !/Calle Reservada|tarde|Rosa|Hern|api\/fotografias/i.test(ficha.texto), "la ficha pública del caso nuevo: 200 y sin calle, momento, datos de la persona ni la ruta de la foto", ficha);
+
+  console.log("\n— P1: casos que faltaban —");
+  const diego = USUARIOS_INICIALES.find((u) => u.id === 7)!; // cuenta del seed sin contraseña: se bloquea sin tocar las reales
+  const intentos: number[] = [];
+  for (let i = 0; i < 5; i++) intentos.push((await peticion("POST", "/api/acceso/iniciar", { cuerpo: { correo: diego.correo, contrasena: "Incorrecta123" } })).estado);
+  const sexto = await peticion("POST", "/api/acceso/iniciar", { cuerpo: { correo: diego.correo, contrasena: "Incorrecta123" } });
+  ver(intentos.join() === "401,401,401,401,403" && (sexto.json?.error as { codigo: string }).codigo === "CUENTA_BLOQUEADA", "R17: cuatro intentos fallidos dan 401 y el QUINTO ya da 403 CUENTA_BLOQUEADA (y el sexto también)", sexto, `intentos: ${intentos.join()}`);
+  const sinPermisoDev = await peticion("POST", "/api/dev/parametro", { rol: "admin", cuerpo: { valor: "2.0" } }); // este servidor sí permite la herramienta
+  const c2 = credencial("tutor2");
+  const malaConAviso = await peticion("POST", "/api/acceso/iniciar", { cuerpo: { correo: c2.correo, contrasena: "Incorrecta123" } });
+  const sin = await iniciar("tutor2");
+  const con = await iniciar("tutor2", { aceptarAviso: true });
+  ver(sinPermisoDev.estado === 200 && malaConAviso.estado === 401 && sin.estado === 409 && (sin.json?.error as { codigo: string; versionAviso: string }).codigo === "AVISO_DESACTUALIZADO" && (sin.json?.error as { versionAviso: string }).versionAviso === "2.0" && sin.cabeceras.get("set-cookie") === null && con.estado === 200, "R22: con el aviso en 2.0, contraseña mala → 401 uniforme; contraseña correcta → 409 AVISO_DESACTUALIZADO sin cookie; aceptándolo → 200", sin, `mala → ${malaConAviso.estado}; aceptando → ${con.estado}`);
+  const setenta2 = "a1".repeat(36);
+  const largo = await peticion("POST", "/api/acceso/registrar", { cuerpo: { nombre: "Persona Larga", correo: `larga.${Date.now()}@example.org`, contrasena: `${setenta2}b`, telefono: "5512345678", aceptaAviso: true, versionAviso: "2.0" } });
+  const justo = await peticion("POST", "/api/acceso/registrar", { cuerpo: { nombre: "Persona Justa", correo: `justa.${Date.now()}@example.org`, contrasena: setenta2, telefono: "5512345678", aceptaAviso: true, versionAviso: "2.0" } });
+  ver(largo.estado === 422 && /72 bytes/.test((largo.json?.error as { campos: { contrasena: string } }).campos.contrasena) && justo.estado === 201, "contraseña de 73 bytes: 422 «no puede pasar de 72 bytes» bajo el campo; de exactamente 72 bytes: 201", largo, `72 bytes exactos → HTTP ${justo.estado}`);
+
   console.log("\n— Reinicio con Administrador (último paso) —");
   const viejaAdmin = await valorDeSesion(base, "admin");
   const rA = await peticion("POST", "/api/dev/reiniciar", { rol: "admin" });
@@ -159,22 +221,54 @@ async function pruebas() {
   olvidarSesiones();
 }
 
+/** Segundo servidor SIN RUPE_PERMITIR_REINICIO=1: las herramientas de desarrollo no existen (404 idéntico), ni siquiera para el Administrador. */
+async function herramientasSinPermiso(base2: string) {
+  console.log("\n— Sin RUPE_PERMITIR_REINICIO (segundo servidor) —");
+  const origen = new URL(base2).origin;
+  const login = await fetch(`${base2}/api/acceso/iniciar`, { method: "POST", headers: { "Content-Type": "application/json", Origin: origen }, body: JSON.stringify({ correo: credencial("admin").correo, contrasena: credencial("admin").contrasena }) });
+  const cookie = login.headers.getSetCookie().find((c) => c.startsWith(`${NOMBRE_COOKIE}=`))?.split(";")[0] ?? "";
+  const pedir = async (ruta: string, cuerpo: unknown, conSesion: boolean): Promise<Resp> => {
+    const h = new Headers({ "Content-Type": "application/json", Origin: origen });
+    if (conSesion) h.set("Cookie", cookie);
+    const r = await fetch(`${base2}${ruta}`, { method: "POST", headers: h, body: JSON.stringify(cuerpo) });
+    const texto = await r.text();
+    return { estado: r.status, cabeceras: r.headers, texto, json: JSON.parse(texto) };
+  };
+  const [a, b, c, d] = [await pedir("/api/dev/reiniciar", {}, false), await pedir("/api/dev/parametro", { valor: "2.0" }, false), await pedir("/api/dev/reiniciar", {}, true), await pedir("/api/dev/parametro", { valor: "2.0" }, true)];
+  ver(login.status === 200 && [a, b, c, d].every((r) => r.estado === 404 && r.texto === a.texto && r.cabeceras.get("cache-control") === "no-store"), "POST /api/dev/reiniciar y POST /api/dev/parametro: 404 con el MISMO cuerpo y no-store, sin sesión y también con sesión de Administrador", b, `(reiniciar sin sesión ${a.estado}, parametro sin sesión ${b.estado}, reiniciar con Administrador ${c.estado}, parametro con Administrador ${d.estado})`);
+}
+
 async function main() {
   let servidor: ChildProcess | undefined;
+  let servidor2: ChildProcess | undefined;
+  const base2 = `http://localhost:${PUERTO_SIN_PERMISO}`;
   if (!baseExterna) {
     if (!process.argv.includes("--sin-build") && spawnSync("npx", ["next", "build"], { stdio: "inherit" }).status !== 0) throw new Error("Falló next build");
     servidor = spawn("npx", ["next", "start", "-p", String(PUERTO)], { stdio: "ignore", detached: true, env: { ...process.env, RUPE_PERMITIR_REINICIO: "1" } });
+    servidor2 = spawn("npx", ["next", "start", "-p", String(PUERTO_SIN_PERMISO)], { stdio: "ignore", detached: true, env: { ...process.env, RUPE_PERMITIR_REINICIO: "0" } });
   }
+  // Los dos servidores se apagan SIEMPRE (también si algo falla o se interrumpe): sin procesos colgados.
   const apagar = () => {
-    try {
-      if (servidor?.pid) process.kill(-servidor.pid);
-    } catch {
-      // ya terminó
+    for (const s of [servidor, servidor2]) {
+      try {
+        if (s?.pid) process.kill(-s.pid);
+      } catch {
+        // ya terminó
+      }
     }
   };
+  process.on("SIGINT", () => {
+    apagar();
+    process.exit(130);
+  });
+  process.on("exit", apagar);
   try {
     if (servidor) await esperarServidor(servidor);
     await pruebas();
+    if (servidor2) {
+      await esperarServidor(servidor2, base2);
+      await herramientasSinPermiso(base2);
+    }
   } finally {
     apagar();
   }

@@ -15,7 +15,8 @@ type Props = {
 export function FotoPerro({ src, alt, lado = 80, atenuada = false, className }: Props) {
   return (
     <span className={cx("relative block shrink-0 overflow-hidden rounded-campo bg-disabled-bg", className)} style={{ width: lado, height: lado }}>
-      <Image src={src} alt={alt} fill sizes={`${lado}px`} loading="eager" className={cx("object-cover", atenuada && "opacity-70 grayscale")} />
+      {/* Las fotos subidas se sirven por /api/fotografias (con la sesión de su dueña): el optimizador de imágenes no tiene esa cookie, así que se piden tal cual. */}
+      <Image src={src} alt={alt} fill sizes={`${lado}px`} loading="eager" unoptimized={src.startsWith("/api/")} className={cx("object-cover", atenuada && "opacity-70 grayscale")} />
     </span>
   );
 }

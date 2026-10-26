@@ -10,11 +10,14 @@ export const CAMPOS_CONFIRMACION_AVISTAMIENTO = ["folio", "fechaHoraEnvio"] as c
 
 export type NombresDeCatalogo = { raza: string; alcaldia: FichaPublica["alcaldia"]; estado: FichaPublica["estado"] };
 
+/** Las fotos subidas por la persona tutora se sirven por una ruta con guarda de dueño: no son públicas hasta que P3/P4 las publiquen con su propia ruta. */
+const esFotoPrivada = (ref: string) => ref.startsWith("/api/fotografias/");
+
 /** Ficha pública: solo columnas P. Con la raza «Otra» se muestra la raza especificada (también P). */
 export function aFichaPublica(caso: CasoExtravio, perro: Perro, foto: Fotografia, nombres: NombresDeCatalogo): FichaPublica {
   const ficha: FichaPublica = {
     nombre: perro.nombre, sexo: perro.sexo, raza: perro.razaEspecificada ?? nombres.raza, edadValor: perro.edadValor, edadUnidad: perro.edadUnidad, tamano: perro.tamano, color: perro.color,
-    fotografiaUrl: foto.referenciaArchivo, fechaExtravio: caso.fechaExtravio, alcaldia: nombres.alcaldia, coloniaZona: caso.coloniaZona, folio: caso.folio as Folio, estado: nombres.estado,
+    fotografiaUrl: esFotoPrivada(foto.referenciaArchivo) ? "" : foto.referenciaArchivo, fechaExtravio: caso.fechaExtravio, alcaldia: nombres.alcaldia, coloniaZona: caso.coloniaZona, folio: caso.folio as Folio, estado: nombres.estado,
   };
   if (perro.caracteristicasDistintivas) ficha.caracteristicasDistintivas = perro.caracteristicasDistintivas;
   return ficha;

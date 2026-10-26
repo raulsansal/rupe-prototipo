@@ -11,13 +11,15 @@ export type Almacen = {
   notificaciones: T.Notificacion[]; bitacora: T.AccionBitacoraReg[];
   alcaldias: T.Alcaldia[]; razas: T.Raza[]; categoriasMotivo: T.CategoriaMotivo[]; motivos: T.Motivo[];
   categoriasEstadoAnimal: T.CategoriaEstadoAnimal[]; estadosAnimal: T.EstadoAnimal[]; estadosCaso: T.EstadoCasoCat[]; parametros: T.ParametroSistema[];
+  /** Bytes de las fotografías subidas (en memoria: sin BLOB ni archivos). Las sembradas apuntan a /mocks y no tienen bytes aquí. */
+  contenidosFoto: Record<number, { tipo: string; bytes: Uint8Array }>;
   /** Último id entregado por tabla (equivale al AUTO_INCREMENT). */
   ids: Record<string, number>;
 };
 
 export const almacenVacio = (): Almacen => ({
   usuarios: [], aceptaciones: [], intentosAnonimos: {}, sesiones: [], fotografias: [], perros: [], casos: [], historial: [], qr: [], avistamientos: [], avistamientoEstados: [], notificaciones: [], bitacora: [],
-  alcaldias: [], razas: [], categoriasMotivo: [], motivos: [], categoriasEstadoAnimal: [], estadosAnimal: [], estadosCaso: [], parametros: [], ids: {},
+  alcaldias: [], razas: [], categoriasMotivo: [], motivos: [], categoriasEstadoAnimal: [], estadosAnimal: [], estadosCaso: [], parametros: [], contenidosFoto: {}, ids: {},
 });
 
 /** Siguiente id de una tabla. */

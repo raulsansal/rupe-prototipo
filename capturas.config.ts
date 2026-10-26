@@ -1,4 +1,5 @@
 import type { Page } from "playwright";
+import { botonContinuar, capturarRegistroCompleto, ENTRADA_FOTO, registrarPorLaInterfaz } from "./scripts/imagenes-pruebas";
 import { credencial, fijarVersionAviso } from "./scripts/sesion-pruebas";
 import { USUARIOS_INICIALES } from "./src/mocks/usuarios";
 import { FOLIO_CON_AVISTAMIENTOS, FOLIO_UN_AVISTAMIENTO } from "./src/mocks/avistamientos";
@@ -191,9 +192,21 @@ RUTAS.push(
   { ruta: "/acceso", archivo: "acceso-bloqueada", rol: null, preparar: async (p) => { for (let i = 0; i < 5; i++) { await llenarAcceso(p, CORREO_SIN_CUENTA_CON_CREDENCIAL, "Incorrecta123"); await p.waitForTimeout(400); if (await p.getByRole("dialog").isVisible()) break; } await p.getByRole("dialog", { name: "Acceso bloqueado temporalmente" }).waitFor(); } },
   { ruta: "/admin", archivo: "acceso-denegado", rol: "tutor1" },
   { ruta: "/tutor", archivo: "tutor-identidad-luis", rol: "tutor2" },
-  // La última: cambia la versión vigente del aviso a 2.0 y entra con una cuenta real, que debe reaceptarlo (409 real del servidor, TRA-03).
+);
+// Prototipo P2 · Registrar extravío. Estados REALES: el flujo se completa por la interfaz (la imagen se dibuja en el navegador, se reduce y se guarda en el servidor).
+// Cada captura se rehace en un servidor propio y los datos se reinician al terminar.
+RUTAS.push(
+  { ruta: "/tutor/registrar", archivo: "tutor-registro-creado-real", rol: "tutor1", preparar: async (p) => { await registrarPorLaInterfaz(p); await p.getByRole("button", { name: /Vista previa del correo/ }).click(); } },
+  { ruta: "/tutor/registrar", archivo: "tutor-registrar-foto-ilegible", rol: "tutor1", preparar: async (p) => { await p.locator(ENTRADA_FOTO).setInputFiles({ name: "corrupta.png", mimeType: "image/png", buffer: Buffer.from("esto no es un PNG, solo lo parece por su extensión") }); await p.getByText("No pudimos leer esta imagen").waitFor(); } },
+  { ruta: "/tutor/registrar", archivo: "tutor-registrar-sesion-expirada", rol: "tutor1", anchos: [390], ventana: true, preparar: async (p) => { await capturarRegistroCompleto(p); const c = credencial("tutor1"); /* una sesión PROPIA de esta captura (la compartida de las demás no se cierra) */ await p.evaluate(async ([correo, contrasena]) => { await fetch("/api/acceso/iniciar", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ correo, contrasena }) }); await fetch("/api/acceso/cerrar", { method: "POST", redirect: "manual" }); }, [c.correo, c.contrasena]); await botonContinuar(p).click(); await p.getByRole("dialog", { name: "Tu sesión expiró" }).waitFor(); } },
+  { ruta: "/tutor/registrar", archivo: "tutor-registro-pendiente-real", rol: "tutor1", preparar: async (p, { base }) => { const folio = await registrarPorLaInterfaz(p); await p.goto(`${base}/tutor/casos/${folio}`, { waitUntil: "load" }); await p.getByRole("heading", { level: 1, name: "Detalle del caso" }).waitFor(); } },
+);
+// SIEMPRE la última: fija la versión del aviso en 2.0, y lo que se capture después ya no sería comparable (los datos se reinician al terminar la corrida).
+RUTAS.push(
+  // Cambia la versión vigente del aviso a 2.0 y entra con una cuenta real, que debe reaceptarlo (409 real del servidor, TRA-03).
   { ruta: "/acceso", archivo: "acceso-reaceptacion-aviso", rol: null, preparar: async (p, { base }) => { await fijarVersionAviso(base, "2.0"); const c = credencial("tutor1"); await llenarAcceso(p, c.correo, c.contrasena); await p.getByRole("dialog", { name: /Aviso de privacidad actualizado v2\.0/ }).waitFor(); } },
 );
+
 export const ANCHOS = [390, 1280];
 export const TEMAS = ["claro", "oscuro"] as const; // se aplican como data-theme light | dark
 export const ALTO_VENTANA = 900;

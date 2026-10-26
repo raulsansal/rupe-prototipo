@@ -1,6 +1,6 @@
 // Errores de la aplicación con la forma final de las respuestas HTTP (uniformes para todas las rutas):
-// 400 formato · 401 sin sesión · 403 rol insuficiente · 404 no encontrado · 409 estado o duplicado · 422 regla de negocio.
-export type EstadoHttp = 400 | 401 | 403 | 404 | 409 | 422;
+// 400 formato · 401 sin sesión · 403 rol insuficiente · 404 no encontrado · 409 estado o duplicado · 413 cuerpo demasiado grande · 422 regla de negocio.
+export type EstadoHttp = 400 | 401 | 403 | 404 | 409 | 413 | 422;
 
 export class ErrorApp extends Error {
   constructor(
@@ -24,6 +24,8 @@ export const sinSesion = () => new ErrorApp(401, "SIN_SESION", "Inicia sesión p
 export const sinPermiso = () => new ErrorApp(403, "SIN_PERMISO", "Tu rol no puede realizar esta acción.");
 export const noEncontrado = (mensaje = "No se encuentra.", codigo = "NO_ENCONTRADO") => new ErrorApp(404, codigo, mensaje);
 export const conflictoDeEstado = (codigo: string, mensaje: string, regla?: string) => new ErrorApp(409, codigo, mensaje, regla);
+/** 413: la petición excede el tamaño permitido (se rechaza sin leerla entera). */
+export const cuerpoDemasiadoGrande = (mensaje = "La petición es demasiado grande: reduce la fotografía e inténtalo de nuevo.") => new ErrorApp(413, "CUERPO_DEMASIADO_GRANDE", mensaje);
 /** 422: el formulario trae errores; `campos` dice cuáles, campo por campo. */
 export const validacion = (campos: Record<string, string>, mensaje = "Revisa los campos marcados.") => new ErrorApp(422, "VALIDACION", mensaje, undefined, campos);
 export const reglaDeNegocio = (regla: string, mensaje: string, codigo = "REGLA_DE_NEGOCIO") => new ErrorApp(422, codigo, mensaje, regla);

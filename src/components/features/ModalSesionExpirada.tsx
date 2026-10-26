@@ -8,7 +8,7 @@ type Props = {
   abierto: boolean;
   /** Escape o clic fuera: el aviso se cierra y la pantalla de fondo sigue a la vista. */
   onCerrar: () => void;
-  /** Acción del botón; el Prototipo la conectará a la sesión real (la maqueta lleva a /acceso). */
+  /** Acción del botón: lleva a iniciar sesión. */
   onIniciarSesion: () => void;
 };
 

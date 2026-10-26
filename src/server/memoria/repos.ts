@@ -2,7 +2,9 @@ import "server-only";
 // Implementación en memoria de las interfaces de repos/. Cada método devuelve copias (structuredClone): quien llama nunca muta el almacén.
 import type * as T from "../tipos";
 import type { Repositorios } from "../repos";
+import { ConflictoDeUnicidad } from "../repos/errores";
 import { obtenerAlmacen, siguienteId, type Almacen } from "./almacen";
+import { transaccion } from "./transaccion";
 
 const copia = <X,>(x: X): X => structuredClone(x);
 
@@ -59,15 +61,38 @@ export function crearRepositorios(almacen: () => Almacen = obtenerAlmacen): Repo
       async fotografia(id) { return copia(a().fotografias.find((f) => f.idFotografia === id)); },
       async crearConPerro(d) {
         const al = a();
-        const foto: T.Fotografia = { ...d.fotografia, idFotografia: siguienteId(al, "fotografia") };
-        const perro: T.Perro = { ...d.perro, idPerro: siguienteId(al, "perro"), idFotografia: foto.idFotografia };
-        const idEstado = d.movimientos[d.movimientos.length - 1]?.idEstadoCaso ?? 1;
-        const caso: T.CasoExtravio = { ...d.caso, folio: d.caso.folio.toUpperCase(), idCasoExtravio: siguienteId(al, "caso"), idPerro: perro.idPerro, idEstadoCaso: idEstado };
-        if (al.casos.some((c) => c.folio === caso.folio)) throw new Error("Folio duplicado");
-        al.fotografias.push(foto); al.perros.push(perro); al.casos.push(caso);
-        al.qr.push({ ...d.qr, idCodigoQr: siguienteId(al, "qr"), idCasoExtravio: caso.idCasoExtravio });
-        d.movimientos.forEach((m, i) => al.historial.push({ ...m, idCasoExtravio: caso.idCasoExtravio, consecutivo: i + 1 }));
-        return copia(caso);
+        return copia(
+          transaccion(al, () => {
+            const folio = d.caso.folio.toUpperCase();
+            if (al.casos.some((c) => c.folio === folio)) throw new ConflictoDeUnicidad("folio"); // UNIQUE
+            if (al.qr.some((q) => q.tokenPublico === d.qr.tokenPublico)) throw new ConflictoDeUnicidad("token"); // UNIQUE
+            const foto: T.Fotografia = { ...d.fotografia, idFotografia: siguienteId(al, "fotografia") };
+            if (d.contenidoFotografia) {
+              foto.referenciaArchivo = `/api/fotografias/${foto.idFotografia}`; // la ruta con guarda de dueño; sin BLOB ni archivo
+              al.contenidosFoto[foto.idFotografia] = { tipo: d.contenidoFotografia.tipo, bytes: Uint8Array.from(d.contenidoFotografia.bytes) };
+            }
+            const perro: T.Perro = { ...d.perro, idPerro: siguienteId(al, "perro"), idFotografia: foto.idFotografia };
+            const caso: T.CasoExtravio = { ...d.caso, folio, idCasoExtravio: siguienteId(al, "caso"), idPerro: perro.idPerro, idEstadoCaso: d.movimientos[d.movimientos.length - 1]?.idEstadoCaso ?? 1 };
+            al.fotografias.push(foto);
+            al.perros.push(perro);
+            al.casos.push(caso);
+            al.qr.push({ ...d.qr, idCodigoQr: siguienteId(al, "qr"), idCasoExtravio: caso.idCasoExtravio });
+            d.movimientos.forEach((m, i) => al.historial.push({ ...m, idCasoExtravio: caso.idCasoExtravio, consecutivo: i + 1 }));
+            return caso;
+          }),
+        );
+      },
+      async contenidoDeFotografia(id) {
+        const c = a().contenidosFoto[id];
+        return c ? { tipo: c.tipo, bytes: Uint8Array.from(c.bytes) } : undefined;
+      },
+      async duenoDeFotografia(id) {
+        const al = a();
+        const delPerro = al.perros.find((p) => p.idFotografia === id);
+        if (delPerro) return delPerro.idUsuario;
+        const av = al.avistamientos.find((x) => x.idFotografia === id);
+        const caso = av && al.casos.find((c) => c.idCasoExtravio === av.idCasoExtravio);
+        return caso && al.perros.find((p) => p.idPerro === caso.idPerro)?.idUsuario;
       },
       async actualizarEstado(idCaso, idEstadoCaso, fecha) {
         const c = a().casos.find((x) => x.idCasoExtravio === idCaso);
