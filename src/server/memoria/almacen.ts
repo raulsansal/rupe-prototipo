@@ -3,6 +3,7 @@ import "server-only";
 // recargas en caliente de desarrollo. LIMITACIÓN: se pierde al reiniciar el servidor y, en producción con varias instancias, cada una
 // tiene su propia copia. Se sustituirá por MySQL detrás de las mismas interfaces de repos/.
 import type * as T from "../tipos";
+import { CARPETA_FOTOS_SEMBRADAS } from "../seed/fotosSembradas";
 import { sembrar } from "../seed/seed";
 
 export type Almacen = {
@@ -31,11 +32,11 @@ type ConAlmacen = typeof globalThis & { [LLAVE]?: Almacen };
 /** El almacén vigente (se siembra la primera vez). */
 export function obtenerAlmacen(): Almacen {
   const g = globalThis as ConAlmacen;
-  return (g[LLAVE] ??= sembrar(almacenVacio()));
+  return (g[LLAVE] ??= sembrar(almacenVacio(), process.env, { carpetaFotos: CARPETA_FOTOS_SEMBRADAS }));
 }
 
 /** Descarta todo lo hecho y vuelve a los datos ficticios iniciales. */
 export function reiniciarAlmacen(): Almacen {
   const g = globalThis as ConAlmacen;
-  return (g[LLAVE] = sembrar(almacenVacio()));
+  return (g[LLAVE] = sembrar(almacenVacio(), process.env, { carpetaFotos: CARPETA_FOTOS_SEMBRADAS }));
 }

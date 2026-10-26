@@ -16,10 +16,11 @@
     "verificar-plantillas": "tsx scripts/verificar-plantillas.ts",
     "verificar-visitante": "tsx scripts/verificar-visitante.ts",
     "verificar-ficha": "tsx scripts/verificar-ficha.ts",
+    "preparar-fotos": "tsx scripts/preparar-fotos.ts",
     "verificar-tutor": "tsx scripts/verificar-tutor.ts",
     "verificar-admin": "tsx scripts/verificar-admin.ts",
     "auditar-tactil": "tsx scripts/auditar-tactil.ts",
-    "probar": "tsx --require ./scripts/server-only-vacio.cjs --test --test-reporter=spec \"src/server/**/*.test.ts\" \"src/lib/**/*.test.ts\"",
+    "probar": "tsx --require ./scripts/server-only-vacio.cjs --test --test-reporter=spec \"src/server/**/*.test.ts\" \"src/lib/**/*.test.ts\" \"scripts/lib/**/*.test.ts\" \"src/config/**/*.test.ts\"",
     "verificar-secretos": "tsx scripts/verificar-secretos.ts",
     "verificar-acceso": "tsx scripts/verificar-acceso.ts",
     "verificar-registro": "tsx scripts/verificar-registro.ts"
@@ -39,6 +40,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.4.2",
     "playwright": "^1.64.1",
+    "sharp": "0.35.5",
     "tailwindcss": "^4",
     "tsx": "^4.23.15",
     "typescript": "^5"

@@ -4,7 +4,7 @@
 // Opciones: --sin-build reutiliza el build · --base=URL usa un servidor que ya corre (debe tener RUPE_PERMITIR_REINICIO=1).
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { USUARIOS_INICIALES } from "../src/mocks/usuarios";
-import { credencial, NOMBRE_COOKIE, olvidarSesiones, valorDeSesion, type RolPrueba } from "./sesion-pruebas";
+import { credencial, fetchComo, NOMBRE_COOKIE, olvidarSesiones, valorDeSesion, type RolPrueba } from "./sesion-pruebas";
 
 const PUERTO = 3109;
 const PUERTO_SIN_PERMISO = 3111; // segundo servidor, SIN RUPE_PERMITIR_REINICIO (las herramientas /api/dev deben dar 404)
@@ -203,8 +203,24 @@ async function pruebas() {
   ver(anonimas.every((r, i) => r.estado === 307 && r.cabeceras.get("location") === `/acceso?siguiente=${encodeURIComponent(`/tutor/casos/${NALA}${PANTALLAS[i][1]}`)}`), "sin sesión: las 7 pantallas redirigen (307) a /acceso?siguiente= con su propia ruta", anonimas[0]);
   const idFoto = /\/api\/fotografias\/(\d+)/.exec(conf.texto)?.[1] ?? "0";
   const [fDueno, fOtra, fAdmin, fAnon, fNoExiste] = [await peticion("GET", `/api/fotografias/${idFoto}`, { rol: "tutor1" }), await peticion("GET", `/api/fotografias/${idFoto}`, { rol: "tutor2" }), await peticion("GET", `/api/fotografias/${idFoto}`, { rol: "admin" }), await peticion("GET", `/api/fotografias/${idFoto}`), await peticion("GET", "/api/fotografias/987654", { rol: "tutor1" })];
-  const sembrada = await peticion("GET", "/api/fotografias/1", { rol: "tutor1" });
+  // Una foto SEMBRADA sin bytes: las de avistamientos (ids 13 en adelante; los ids 1 a 12 son las fotos de los casos, que con P2c tienen su archivo real).
+  const sembrada = await peticion("GET", "/api/fotografias/13", { rol: "tutor1" });
   ver(fDueno.estado === 200 && fDueno.cabeceras.get("content-type") === "image/jpeg" && fAdmin.estado === 200 && fAnon.estado === 401 && fOtra.estado === 404 && fOtra.texto === fNoExiste.texto && fOtra.texto === sembrada.texto, "GET /api/fotografias/<id>: dueña 200 image/jpeg, Administrador 200 (consulta), anónimo 401, y otra persona, id inexistente y foto sembrada 404 con el MISMO cuerpo", fOtra);
+  // P2c · foto REAL de un caso sembrado (Max, de Rosa; generada con `npm run preparar-fotos`). Si no existe es una FALLA (no se omite): el seed conserva el marcador y la ruta da 404.
+  const detalleMax = await peticion("GET", `/tutor/casos/${DE_ROSA[0]}`, { rol: "tutor1" });
+  const idFotoMax = /\/api\/fotografias\/(\d+)/.exec(detalleMax.texto)?.[1];
+  const SIN_FOTO = "el caso sembrado no tiene su foto real: genera src/server/seed/fotos/ con `npm run preparar-fotos` y reinicia el servidor";
+  if (idFotoMax) {
+    const rutaFoto = `/api/fotografias/${idFotoMax}`;
+    const [d, o, a, n, x] = [await fetchComo(base, "tutor1", rutaFoto), await peticion("GET", rutaFoto, { rol: "tutor2" }), await fetchComo(base, "admin", rutaFoto), await fetch(`${base}${rutaFoto}`), await peticion("GET", "/api/fotografias/987654", { rol: "tutor2" })];
+    const bytes = new Uint8Array(await d.arrayBuffer());
+    ver(d.status === 200 && d.headers.get("content-type") === "image/jpeg" && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes.length > 1000 && !Buffer.from(bytes).includes("Exif"), `foto real de un caso sembrado: la dueña la recibe (200, image/jpeg, ${(bytes.length / 1024).toFixed(0)} KB, sin EXIF)`, undefined, `dueña: HTTP ${d.status} ${d.headers.get("content-type")}`);
+    ver(o.estado === 404 && o.texto === x.texto, "foto real de un caso sembrado: otra persona tutora recibe 404, idéntico al de una foto inexistente", o);
+    ver(a.status === 200 && a.headers.get("content-type") === "image/jpeg", "foto real de un caso sembrado: el Administrador la consulta (200)", undefined, `HTTP ${a.status}`);
+    ver(n.status === 401, "foto real de un caso sembrado: sin sesión, 401", undefined, `HTTP ${n.status}`);
+  } else {
+    for (const t of ["la dueña la recibe (200)", "otra persona tutora recibe 404", "el Administrador la consulta (200)", "sin sesión, 401"]) ver(false, `foto real de un caso sembrado, ${t}: ${SIN_FOTO}`);
+  }
   const grande = await postCaso({ rol: "tutor1", bytes: new Uint8Array(5 * 1024 * 1024).fill(1) });
   ver(grande.estado === 413 && (grande.json?.error as { codigo: string }).codigo === "CUERPO_DEMASIADO_GRANDE" && grande.cabeceras.get("cache-control") === "no-store", "una petición de más de 4.5 MB: 413 CUERPO_DEMASIADO_GRANDE", grande);
   const invalido = await postCaso({ rol: "tutor1", datos: datosDeCaso({ nombre: "", alcaldia: "Fuera de la Ciudad de México", fechaExtravio: "2999-01-01" }), bytes: Uint8Array.from(Buffer.from("GIF89a-no-es-jpeg")) });

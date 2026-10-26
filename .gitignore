@@ -44,3 +44,6 @@ next-env.d.ts
 
 # capturas generadas (se reproducen con npm run capturas)
 /capturas/*.png
+
+# imágenes originales de los casos y la portada (las finales las confirma la persona usuaria en un commit de assets aparte)
+/fotos-originales/

@@ -11,6 +11,9 @@ import { AVISTAMIENTOS } from "../src/mocks/avistamientos";
 import { PARAMETROS } from "../src/mocks/parametros";
 import { CASOS_ORIGEN, FOLIO_EN_CURSO, FOLIO_INEXISTENTE, valoresReservados } from "../src/mocks/casos";
 import { CLAVE_TEMA } from "../src/lib/tema";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { PORTADA_ALT, PORTADA_ARCHIVOS } from "../src/config/portada";
 
 const PUERTO = 3105;
 const baseExterna = process.argv.find((a) => a.startsWith("--base="))?.split("=")[1];
@@ -594,6 +597,58 @@ async function transversales(navegador: Browser) {
   await contexto.close();
 }
 
+// Portada de inicio (P2c): una imagen por tema, sin descargar la del otro tema hasta que se cambia; sin saltos de diseño ni errores de consola. Sin los archivos de public/portada/
+// (no van en git) debe verse la ilustración SVG de respaldo, sin errores.
+async function portada(navegador: Browser) {
+  const hay = Object.values(PORTADA_ARCHIVOS).every((r) => existsSync(join(process.cwd(), "public", r)));
+  const ESC: [string, "light" | "dark" | null, "light" | "dark"][] = [["tema claro guardado (SO oscuro)", "light", "dark"], ["tema oscuro guardado (SO claro)", "dark", "light"], ["sin tema guardado, SO claro", null, "light"], ["sin tema guardado, SO oscuro", null, "dark"]];
+  const malos: string[] = [];
+  const cambios: string[] = [];
+  const consola: string[] = [];
+  let proporciones = "";
+  let accesibilidad = "";
+  for (const [ancho, esperado, nombreAncho] of [[390, 16 / 9, "16:9"], [1280, 21 / 8, "21:8"]] as const) {
+    for (const [nombre, guardado, so] of ESC) {
+      const contexto = await navegador.newContext({ viewport: { width: ancho, height: 900 }, colorScheme: so });
+      if (guardado) await contexto.addInitScript(([k, v]) => localStorage.setItem(k, v), [CLAVE_TEMA, guardado]);
+      const pagina = await contexto.newPage();
+      const pedidas: string[] = [];
+      pagina.on("request", (r) => { const m = /portada-(claro|oscuro)/.exec(decodeURIComponent(r.url())); if (m) pedidas.push(m[1]); });
+      pagina.on("console", (m) => { if (m.type() === "error" || m.type() === "warning") consola.push(`${nombre} ${ancho}px: ${m.text().slice(0, 90)}`); });
+      pagina.on("pageerror", (e) => consola.push(`pageerror ${e.message.slice(0, 90)}`));
+      await pagina.addInitScript("window.__cls=0;new PerformanceObserver(function(l){l.getEntries().forEach(function(e){if(!e.hadRecentInput)window.__cls+=e.value})}).observe({type:'layout-shift',buffered:true});");
+      await pagina.goto(`${base}/`, { waitUntil: "load" });
+      await pagina.waitForTimeout(900);
+      const activo = (guardado ?? so) === "dark" ? "oscuro" : "claro";
+      const otro = activo === "claro" ? "oscuro" : "claro";
+      const d = JSON.parse(await pagina.evaluate(`(function(){var imgs=[].slice.call(document.querySelectorAll('img[data-portada]'));var vis=imgs.filter(function(i){return getComputedStyle(i).display!=='none'});var c=vis[0]&&vis[0].parentElement.getBoundingClientRect();return JSON.stringify({total:imgs.length,visibles:vis.map(function(i){return i.dataset.portada+'/'+i.getAttribute('loading')+'/'+i.getAttribute('fetchpriority')+'/'+i.complete}),proporcion:c?c.width/c.height:0,cls:window.__cls,svg:!!document.querySelector('main svg[aria-hidden=true].rounded-tarjeta, svg[aria-hidden=true].rounded-tarjeta')})})()`)) as { total: number; visibles: string[]; proporcion: number; cls: number; svg: boolean };
+      if (hay) {
+        if (d.total !== 2 || d.visibles.join() !== `${activo}/eager/high/true`) malos.push(`${nombre} ${ancho}px: visibles ${d.visibles.join() || "ninguna"}`);
+        if (pedidas.length !== 1 || pedidas[0] !== activo) malos.push(`${nombre} ${ancho}px: peticiones ${pedidas.join() || "ninguna"} (debía ser solo «${activo}»)`);
+        if (ancho === 390 || nombre === ESC[0][0]) {
+          proporciones += `${ancho}px ${nombreAncho}=${d.proporcion.toFixed(3)} CLS=${d.cls.toFixed(3)}; `;
+          if (Math.abs(d.proporcion - esperado) > 0.02 || d.cls > 0) malos.push(`${nombre} ${ancho}px: proporción ${d.proporcion.toFixed(3)} (esperada ${esperado.toFixed(3)}) o CLS ${d.cls}`);
+        }
+        const leidas = await pagina.getByRole("img", { name: PORTADA_ALT }).count();
+        if (leidas !== 1) accesibilidad += `${nombre} ${ancho}px: ${leidas} imágenes con el texto alternativo; `;
+        const antes = pedidas.length;
+        await pagina.getByRole("button", { name: "Modo oscuro" }).click();
+        await pagina.waitForTimeout(900);
+        const nuevas = pedidas.slice(antes);
+        const ahora = await pagina.evaluate("[].slice.call(document.querySelectorAll('img[data-portada]')).filter(function(i){return getComputedStyle(i).display!=='none'}).map(function(i){return i.dataset.portada}).join()");
+        if (nuevas.length !== 1 || nuevas[0] !== otro || ahora !== otro) cambios.push(`${nombre} ${ancho}px: tras el cambio de tema pidió «${nuevas.join()}» y muestra «${ahora}» (esperado: una sola, «${otro}»)`);
+      } else if (!d.svg || d.total !== 0 || pedidas.length !== 0) malos.push(`${nombre} ${ancho}px: sin archivos debía verse solo la ilustración SVG`);
+      await contexto.close();
+    }
+  }
+  const modo = hay ? "con portada real" : "sin archivos: ilustración SVG de respaldo";
+  ver(malos.length === 0, `portada (${modo}): en los 4 escenarios (tema guardado y del sistema) a 390 y 1280 px se pide y se ve SOLO la del tema activo (eager, fetchpriority high); la otra no se descarga`, malos.join(" | "));
+  ver(cambios.length === 0, `portada (${modo}): al cambiar el tema a mano se pide una sola imagen nueva, la del otro tema, y es la que se ve`, cambios.join(" | "));
+  ver(!hay || proporciones.includes("16:9") && proporciones.includes("21:8"), `portada (${modo}): proporción 16:9 en móvil y 21:8 en escritorio, sin salto de diseño (CLS 0)`, `sin medidas de proporción: ${proporciones}`);
+  ver(accesibilidad === "", `portada (${modo}): el texto alternativo se anuncia UNA sola vez (la imagen del otro tema está oculta)`, accesibilidad);
+  ver(consola.length === 0, `portada (${modo}): sin errores ni advertencias de consola en la carga y el cambio de tema`, consola.slice(0, 3).join(" | "));
+}
+
 async function main() {
   let servidor: ChildProcess | undefined;
   if (!baseExterna) {
@@ -614,6 +669,7 @@ async function main() {
     if (servidor) await esperarServidor(servidor);
     navegador = await abrirNavegador();
     await principal(navegador);
+    await portada(navegador);
     await ficha(navegador);
     await flujo(navegador);
     await estadoAnimal(navegador);

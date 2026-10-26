@@ -205,6 +205,16 @@ RUTAS.push(
   { ruta: "/tutor/registrar", archivo: "tutor-caso-nuevo-ficha", rol: "tutor1", preparar: async (p, { base }) => { const folio = await registrarPorLaInterfaz(p); await p.goto(`${base}/tutor/casos/${folio}/ficha`, { waitUntil: "load" }); await p.getByRole("heading", { level: 1 }).first().waitFor(); } },
   { ruta: "/tutor/registrar", archivo: "tutor-mis-registros-nuevo", rol: "tutor1", preparar: async (p, { base }) => { await registrarPorLaInterfaz(p); await p.goto(`${base}/tutor`, { waitUntil: "load" }); await p.getByRole("heading", { level: 1 }).first().waitFor(); } },
 );
+// P2c · portada real por tema y fotos reales de los casos sembrados. El parámetro ?vista= / ?fotos= no cambia nada (solo da un prefijo propio para capturar con --rutas, sin tocar las demás capturas).
+// Requieren las imágenes generadas con `npm run preparar-fotos` (y `-- --portada`); sin ellas la portada es la ilustración SVG y los casos conservan su marcador.
+RUTAS.push(
+  { ruta: "/?vista=portada", archivo: "inicio-portada", anchos: [390, 1280], rol: null },
+  { ruta: "/tutor?fotos=rosa", archivo: "tutor-mis-registros-fotos", rol: "tutor1" },
+  { ruta: "/tutor?fotos=luis", archivo: "tutor-mis-registros-fotos-luis", rol: "tutor2" },
+  { ruta: "/tutor/casos/RUPE-K7M4XQ9T?fotos=max", archivo: "tutor-detalle-max-foto", rol: "tutor1" },
+  { ruta: "/tutor/casos/RUPE-G8R4TV3K?fotos=duque", archivo: "tutor-detalle-duque-foto", rol: "tutor2" },
+  { ruta: "/tutor/casos/RUPE-J2C6PZ9H?fotos=mia", archivo: "tutor-detalle-mia-foto", rol: "tutor2" },
+);
 // Editar y notificaciones del caso (siguen como PantallaPendiente, igual que en main): un caso sembrado de Rosa (Max) y el caso recién registrado.
 RUTAS.push(
   { ruta: "/tutor/casos/RUPE-K7M4XQ9T/editar", archivo: "tutor-editar-max", rol: "tutor1" },

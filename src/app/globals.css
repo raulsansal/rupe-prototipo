@@ -56,6 +56,8 @@
   /* Qué versión del logotipo se muestra (ver Logo.tsx); se hereda del tema más cercano */
   --logo-primario-display: block;
   --logo-oscuro-display: none;
+  --portada-claro-display: block;
+  --portada-oscuro-display: none;
 
   /* Borde fino de los chips de estado: solo en oscuro (lámina 4.7) */
   --chip-borde-ancho: 0px;
@@ -123,6 +125,8 @@
 
   --logo-primario-display: none;
   --logo-oscuro-display: block;
+  --portada-claro-display: none;
+  --portada-oscuro-display: block;
 
   --chip-borde-ancho: 1px;
 
@@ -344,6 +348,15 @@ cite {
 
 .logo-oscuro {
   display: var(--logo-oscuro-display);
+}
+
+/* Portada de inicio por tema (ImagenPrincipal): se muestra una sola imagen; la otra queda con display:none (no se lee ni se descarga mientras no cambie el tema) */
+.portada-claro {
+  display: var(--portada-claro-display);
+}
+
+.portada-oscuro {
+  display: var(--portada-oscuro-display);
 }
 
 /* Solo galería (/dev/componentes): fuerza el anillo de foco en demostraciones estáticas */

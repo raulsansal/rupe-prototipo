@@ -63,7 +63,7 @@ async function irA(pagina: Page, ruta: string) {
   // No se espera "networkidle": Next precarga (prefetch) enlaces a rutas que aún no existen y esas peticiones no terminan.
   await pagina.goto(`${base}${ruta}`, { waitUntil: "load" });
   await pagina.evaluate(() => document.fonts.ready);
-  await pagina.waitForFunction(() => [...document.images].every((i) => i.complete));
+  await pagina.waitForFunction(() => [...document.images].every((i) => i.complete || !i.checkVisibility())); // la portada del otro tema (display:none, lazy) no se descarga a propósito
 }
 
 async function estructura(pagina: Page, etiqueta: string) {

@@ -7,6 +7,7 @@ import "server-only";
 // maquetado de moderación pero no en esas cifras), sin cambiar hoy ninguna cifra.
 import { hashSync } from "bcryptjs";
 import { COSTO_BCRYPT } from "../sesion/contrasenas";
+import { leerFotoSembrada } from "./fotosSembradas";
 import { CASOS_ORIGEN } from "../../mocks/casos";
 import { CATEGORIAS_ESTADO_ANIMAL, CATEGORIAS_MOTIVO } from "../../mocks/catalogos";
 import { CATALOGOS } from "../../mocks/catalogosAdmin";
@@ -50,7 +51,10 @@ const ETIQUETA_CATALOGO: Record<string, string> = { Alcaldías: "alcaldia", Raza
 /** Token de los mocks (el mismo de src/mocks/casos.ts): así el QR de cada caso sigue coincidiendo con los enlaces del maquetado. */
 const tokenDeMaqueta = (folio: string) => `MAQUETA${folio.slice(5)}`.padEnd(32, "0");
 
-export function sembrar(a: Almacen, entorno: Entorno = process.env): Almacen {
+/** `carpetaFotos`: carpeta con `<FOLIO>.jpg` de los casos sembrados (P2c). Sin ella (pruebas, CI) todas las fotos son el marcador. */
+export type OpcionesSiembra = { carpetaFotos?: string };
+
+export function sembrar(a: Almacen, entorno: Entorno = process.env, { carpetaFotos }: OpcionesSiembra = {}): Almacen {
   // ---- Catálogos ----
   CATALOGOS.alcaldias.elementos.forEach((e) => a.alcaldias.push({ idAlcaldia: e.id, nombre: e.nombre, claveGeoestadistica: e.clave ?? null, estatus: e.activo ? 1 : 0 }));
   CATALOGOS.razas.elementos.forEach((e) => a.razas.push({ idRaza: e.id, nombre: e.nombre, estatus: e.activo ? 1 : 0 }));
@@ -90,6 +94,14 @@ export function sembrar(a: Almacen, entorno: Entorno = process.env): Almacen {
     const origen = origenPorFolio.get(c.folio);
     const idDueno = origen ? ID_TUTOR_1 : ID_TUTOR_2;
     const foto: T.Fotografia = { idFotografia: siguienteId(a, "fotografia"), referenciaArchivo: c.fotografiaUrl, formato: "JPG", tamanoBytes: 120_000, fechaCarga: c.fechaRegistro };
+    const real = carpetaFotos ? leerFotoSembrada(carpetaFotos, c.folio) : undefined;
+    if (real) {
+      // Foto real del caso: se sirve por la ruta con guarda (dueña o Administrador), como las que sube la persona tutora.
+      foto.referenciaArchivo = `/api/fotografias/${foto.idFotografia}`;
+      foto.formato = real.formato;
+      foto.tamanoBytes = real.bytes.length;
+      a.contenidosFoto[foto.idFotografia] = { tipo: real.tipo, bytes: real.bytes };
+    }
     a.fotografias.push(foto);
     const perro: T.Perro = {
       idPerro: siguienteId(a, "perro"), nombre: c.nombre, sexo: c.sexo, edadValor: c.edadValor, edadUnidad: c.edadUnidad, tamano: c.tamano, color: c.color,

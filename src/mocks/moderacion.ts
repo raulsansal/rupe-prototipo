@@ -29,13 +29,13 @@ const EXTRAS: CasoTutor[] = [
   }),
   // Dos casos más en curso, para que la lista tenga varias páginas y alcaldías distintas.
   conEstado({
-    nombre: "Duque", sexo: "Macho", raza: "Poodle (Caniche)", edadValor: 9, edadUnidad: "años", tamano: "pequeño", color: "Blanco", fotografiaUrl: FOTO,
+    nombre: "Duque", sexo: "Macho", raza: "Poodle (Caniche)", edadValor: 9, edadUnidad: "años", tamano: "pequeño", color: "Caramelo", fotografiaUrl: FOTO,
     folio: "RUPE-G8R4TV3K", fechaRegistro: "2026-10-16T09:20:00Z", fechaExtravio: "2026-10-16", momentoDelDia: "mañana", coloniaZona: "Tepepan", alcaldia: "Xochimilco", motivo: "Curiosidad o aburrimiento",
     direccionAproximada: "Calle Reservada 14", referenciasDelLugar: "Referencia reservada: cerca del embarcadero", descripcionCircunstancias: "Descripción reservada: salió por un hueco de la barda.",
     historial: construirHistorial("En seguimiento", "2026-10-16T09:20:00Z"),
   }),
   conEstado({
-    nombre: "Mia", sexo: "Hembra", raza: "Mestizo/No identificada", edadValor: 1, edadUnidad: "años", tamano: "mediano", color: "Negro con blanco", fotografiaUrl: FOTO,
+    nombre: "Mia", sexo: "Hembra", raza: "Mestizo/No identificada", edadValor: 1, edadUnidad: "años", tamano: "mediano", color: "Caramelo", fotografiaUrl: FOTO,
     folio: "RUPE-J2C6PZ9H", fechaRegistro: "2026-10-17T18:45:00Z", fechaExtravio: "2026-10-17", momentoDelDia: "noche", coloniaZona: "Pedregal de San Nicolás", alcaldia: "Tlalpan", motivo: "Pánico por ruidos fuertes",
     direccionAproximada: "Calle Reservada 99", referenciasDelLugar: "Referencia reservada: atrás de la escuela", descripcionCircunstancias: "Descripción reservada: huyó por la pirotecnia.",
     historial: construirHistorial("En búsqueda", "2026-10-17T18:45:00Z"),
