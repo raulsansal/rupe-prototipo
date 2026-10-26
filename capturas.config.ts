@@ -1,6 +1,7 @@
 import type { Page } from "playwright";
 import { botonContinuar, capturarRegistroCompleto, ENTRADA_FOTO, registrarPorLaInterfaz } from "./scripts/imagenes-pruebas";
 import { credencial, fijarVersionAviso } from "./scripts/sesion-pruebas";
+import { ESCENARIOS, registrar as registrarCasoDeFicha } from "./scripts/ficha-peores-casos";
 import { USUARIOS_INICIALES } from "./src/mocks/usuarios";
 import { FOLIO_CON_AVISTAMIENTOS, FOLIO_UN_AVISTAMIENTO } from "./src/mocks/avistamientos";
 import { FOLIO_EN_CURSO } from "./src/mocks/casos";
@@ -192,6 +193,7 @@ RUTAS.push(
   { ruta: "/acceso", archivo: "acceso-bloqueada", rol: null, preparar: async (p) => { for (let i = 0; i < 5; i++) { await llenarAcceso(p, CORREO_SIN_CUENTA_CON_CREDENCIAL, "Incorrecta123"); await p.waitForTimeout(400); if (await p.getByRole("dialog").isVisible()) break; } await p.getByRole("dialog", { name: "Acceso bloqueado temporalmente" }).waitFor(); } },
   { ruta: "/admin", archivo: "acceso-denegado", rol: "tutor1" },
   { ruta: "/tutor", archivo: "tutor-identidad-luis", rol: "tutor2" },
+  { ruta: "/tutor", archivo: "tutor-mis-registros-luis", rol: "tutor2" },
 );
 // Prototipo P2 · Registrar extravío. Estados REALES: el flujo se completa por la interfaz (la imagen se dibuja en el navegador, se reduce y se guarda en el servidor).
 // Cada captura se rehace en un servidor propio y los datos se reinician al terminar.
@@ -199,8 +201,29 @@ RUTAS.push(
   { ruta: "/tutor/registrar", archivo: "tutor-registro-creado-real", rol: "tutor1", preparar: async (p) => { await registrarPorLaInterfaz(p); await p.getByRole("button", { name: /Vista previa del correo/ }).click(); } },
   { ruta: "/tutor/registrar", archivo: "tutor-registrar-foto-ilegible", rol: "tutor1", preparar: async (p) => { await p.locator(ENTRADA_FOTO).setInputFiles({ name: "corrupta.png", mimeType: "image/png", buffer: Buffer.from("esto no es un PNG, solo lo parece por su extensión") }); await p.getByText("No pudimos leer esta imagen").waitFor(); } },
   { ruta: "/tutor/registrar", archivo: "tutor-registrar-sesion-expirada", rol: "tutor1", anchos: [390], ventana: true, preparar: async (p) => { await capturarRegistroCompleto(p); const c = credencial("tutor1"); /* una sesión PROPIA de esta captura (la compartida de las demás no se cierra) */ await p.evaluate(async ([correo, contrasena]) => { await fetch("/api/acceso/iniciar", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ correo, contrasena }) }); await fetch("/api/acceso/cerrar", { method: "POST", redirect: "manual" }); }, [c.correo, c.contrasena]); await botonContinuar(p).click(); await p.getByRole("dialog", { name: "Tu sesión expiró" }).waitFor(); } },
-  { ruta: "/tutor/registrar", archivo: "tutor-registro-pendiente-real", rol: "tutor1", preparar: async (p, { base }) => { const folio = await registrarPorLaInterfaz(p); await p.goto(`${base}/tutor/casos/${folio}`, { waitUntil: "load" }); await p.getByRole("heading", { level: 1, name: "Detalle del caso" }).waitFor(); } },
+  { ruta: "/tutor/registrar", archivo: "tutor-caso-nuevo-detalle", rol: "tutor1", preparar: async (p, { base }) => { const folio = await registrarPorLaInterfaz(p); await p.goto(`${base}/tutor/casos/${folio}`, { waitUntil: "load" }); await p.getByRole("heading", { level: 1, name: folio }).waitFor(); } },
+  { ruta: "/tutor/registrar", archivo: "tutor-caso-nuevo-ficha", rol: "tutor1", preparar: async (p, { base }) => { const folio = await registrarPorLaInterfaz(p); await p.goto(`${base}/tutor/casos/${folio}/ficha`, { waitUntil: "load" }); await p.getByRole("heading", { level: 1 }).first().waitFor(); } },
+  { ruta: "/tutor/registrar", archivo: "tutor-mis-registros-nuevo", rol: "tutor1", preparar: async (p, { base }) => { await registrarPorLaInterfaz(p); await p.goto(`${base}/tutor`, { waitUntil: "load" }); await p.getByRole("heading", { level: 1 }).first().waitFor(); } },
 );
+// Editar y notificaciones del caso (siguen como PantallaPendiente, igual que en main): un caso sembrado de Rosa (Max) y el caso recién registrado.
+RUTAS.push(
+  { ruta: "/tutor/casos/RUPE-K7M4XQ9T/editar", archivo: "tutor-editar-max", rol: "tutor1" },
+  { ruta: "/tutor/casos/RUPE-K7M4XQ9T/notificaciones", archivo: "tutor-notificaciones-max", rol: "tutor1" },
+  { ruta: "/tutor/registrar", archivo: "tutor-editar-caso-nuevo", rol: "tutor1", preparar: async (p, { base }) => { const folio = await registrarPorLaInterfaz(p); await p.goto(`${base}/tutor/casos/${folio}/editar`, { waitUntil: "load" }); await p.getByRole("heading", { level: 1 }).first().waitFor(); } },
+  { ruta: "/tutor/registrar", archivo: "tutor-notificaciones-caso-nuevo", rol: "tutor1", preparar: async (p, { base }) => { const folio = await registrarPorLaInterfaz(p); await p.goto(`${base}/tutor/casos/${folio}/notificaciones`, { waitUntil: "load" }); await p.getByRole("heading", { level: 1 }).first().waitFor(); } },
+);
+// Hoja impresa de la ficha, antes y después de los topes de línea (P2b). «antes» quita en la página los topes y el ajuste de relleno; el caso se registra de verdad por la API.
+const SIN_TOPES = `(() => { var art = document.querySelector(".ficha-impresion article"); Array.prototype.forEach.call(art.querySelectorAll("[class*='line-clamp-']"), function (el) { el.className = el.className.split(" ").filter(function (c) { return c.indexOf("line-clamp-") !== 0 && c !== "[overflow-wrap:anywhere]" && c !== "overflow-hidden"; }).join(" "); }); Array.prototype.forEach.call(art.querySelectorAll("div.border-tinta"), function (el) { if (/Se extravi/.test(el.textContent || "")) el.style.paddingBlock = "1.4cqw"; }); })()`;
+const hojaDeFicha = (escenario: number, hoja: "carta" | "media-carta", sinTopes: boolean): Captura => ({
+  ruta: "/tutor/registrar", archivo: `tutor-ficha-hoja-${hoja}-${ESCENARIOS[escenario].tipo === "normal" ? "normal" : "peor-caso"}-${sinTopes ? "antes" : "despues"}`, rol: "tutor1", anchos: [1280], ventana: true,
+  preparar: async (p, { base }) => {
+    const folio = await registrarCasoDeFicha(base, ESCENARIOS[escenario]);
+    await p.goto(`${base}/tutor/casos/${folio}/ficha?modal=visor&hoja=${hoja}`, { waitUntil: "load" });
+    await p.getByRole("dialog", { name: "Tu ficha de búsqueda en PDF" }).waitFor();
+    if (sinTopes) await p.evaluate(SIN_TOPES);
+  },
+});
+RUTAS.push(...[true, false].flatMap((antes) => ["carta", "media-carta"].flatMap((h) => [0, 2].map((e) => hojaDeFicha(e, h as "carta" | "media-carta", antes)))));
 // SIEMPRE la última: fija la versión del aviso en 2.0, y lo que se capture después ya no sería comparable (los datos se reinician al terminar la corrida).
 RUTAS.push(
   // Cambia la versión vigente del aviso a 2.0 y entra con una cuenta real, que debe reaceptarlo (409 real del servidor, TRA-03).

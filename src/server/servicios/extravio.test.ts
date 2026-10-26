@@ -7,7 +7,7 @@ import { CAMPOS_FICHA_PUBLICA } from "../serializadores/publico";
 import { AHORA, nuevoContexto } from "../pruebas/auxiliares";
 import { jpeg, PNG_1X1 } from "../pruebas/imagenes";
 import type { SesionActual } from "../sesion/guardas";
-import { casoRecienCreado, esCasoPropio, fotografiaDelCaso, registrarExtravio } from "./extravio";
+import { casoRecienCreado, fotografiaDelCaso, registrarExtravio } from "./extravio";
 import { consultarFichaPorFolio } from "./fichas";
 
 const ROSA: SesionActual = { idUsuario: 2, rol: "Tutor", nombre: "Rosa Hernández Ficticia" };
@@ -182,10 +182,6 @@ test("R32 · la confirmación es solo de su dueña: otra tutora o un folio que n
   assert.deepEqual([ajeno?.estado, inexistente?.estado], [404, 404]);
   assert.equal(JSON.stringify(cuerpoDeError(ajeno!)), JSON.stringify(cuerpoDeError(inexistente!)));
   assert.equal((await falla(casoRecienCreado(undefined, r.folio, ctx)))?.estado, 401);
-  assert.equal(await esCasoPropio(ROSA, r.folio, ctx), true);
-  assert.equal(await esCasoPropio(LUIS, r.folio, ctx), false);
-  assert.equal(await esCasoPropio(undefined, r.folio, ctx), false);
-  assert.equal(await esCasoPropio(ADMIN, r.folio, ctx), false);
 });
 
 test("Fotografía · solo la ve su dueña (y el Administrador, en consulta); otra tutora, id inexistente y foto sembrada dan el MISMO 404 byte por byte, con las mismas cabeceras", async () => {

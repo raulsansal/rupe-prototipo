@@ -121,6 +121,9 @@ async function pruebas() {
   ver(t.estado === 200 && t.texto.includes("Cuenta de Rosa Hernández Ficticia"), "/tutor con sesión de Tutor: 200 y el encabezado muestra el NOMBRE REAL de la sesión", t, "html: «Cuenta de Rosa Hernández Ficticia»");
   const t2 = await peticion("GET", "/tutor", { rol: "tutor2" });
   ver(t2.estado === 200 && t2.texto.includes("Cuenta de Luis Navarro Ficticio") && !t2.texto.includes("Cuenta de Rosa"), "/tutor con la sesión de OTRA persona tutora: muestra su nombre (Luis Navarro Ficticio)", t2, "html: «Cuenta de Luis Navarro Ficticio»");
+  // Contadores de «Mis registros» con los datos iniciales (se derivan del último movimiento de cada caso): Rosa 5/2/8 (Rocky cerrado) y Luis 2/0/4 (Kira deshabilitada y Simba cancelada, ambos «Cerrado»).
+  const contadores = (r: Resp) => ["Activos", "Localizados", "Todos"].map((n) => new RegExp(`role="tab"[^>]*>${n}<span[^>]*>(\\d+)<`).exec(r.texto)?.[1] ?? "?").join("/");
+  ver(contadores(t) === "5/2/8" && contadores(t2) === "2/0/4", "«Mis registros» con los datos iniciales: Activos/Localizados/Todos de Rosa 5/2/8 y de Luis 2/0/4 (los cerrados no son activos ni localizados)", t2, `Rosa ${contadores(t)} · Luis ${contadores(t2)}`);
   const a = await peticion("GET", "/admin", { rol: "admin" });
   ver(a.estado === 200 && a.texto.includes("Ricardo Vega Ficticio"), "/admin con sesión de Administrador: 200 y muestra el nombre real (Ricardo Vega Ficticio)", a, "html: «Ricardo Vega Ficticio»");
   const aT = await peticion("GET", "/admin", { rol: "tutor1" });
@@ -179,6 +182,25 @@ async function pruebas() {
   const conf = await peticion("GET", `/tutor/casos/${folioNuevo}/creado`, { rol: "tutor1" });
   const confOtra = await peticion("GET", `/tutor/casos/${folioNuevo}/creado`, { rol: "tutor2" });
   ver(conf.estado === 200 && conf.texto.includes(folioNuevo) && conf.texto.includes("menos de 1 mes") && confOtra.estado === 404, "el dueño real es quien tiene la sesión (tutor1, no el idUsuario enviado): su confirmación da 200 con «menos de 1 mes» y la de la otra persona 404", conf, "html: folio, «menos de 1 mes», «Te avisamos tu folio»");
+  // P2b · «Mis registros» y las 7 pantallas de caso, por HTTP real y con sesiones firmadas (sin imprimir cookies).
+  const DE_ROSA = ["RUPE-K7M4XQ9T", "RUPE-P3H8WD5N", "RUPE-B6R2TZ7C", "RUPE-Y9F4LK2E", "RUPE-3HN8WD2B", "RUPE-H4TQ7V2M", "RUPE-N8D5GX3W", "RUPE-C2J9RK6Z"];
+  const DE_LUIS = ["RUPE-D5W2QK8X", "RUPE-F7L3MN6Y", "RUPE-G8R4TV3K", "RUPE-J2C6PZ9H"];
+  const [listaD, listaO] = [await peticion("GET", "/tutor", { rol: "tutor1" }), await peticion("GET", "/tutor", { rol: "tutor2" })];
+  ver(listaD.estado === 200 && listaD.texto.includes(folioNuevo) && listaD.texto.indexOf(folioNuevo) < listaD.texto.indexOf(DE_ROSA[0]) && DE_LUIS.every((f) => !listaD.texto.includes(f)), "/tutor de la dueña (Rosa): contiene el caso recién registrado, antes de los sembrados, y ningún caso de Luis", listaD);
+  ver(listaO.estado === 200 && DE_LUIS.every((f) => listaO.texto.includes(f)) && !listaO.texto.includes(folioNuevo) && DE_ROSA.every((f) => !listaO.texto.includes(f)), "/tutor de Luis: sus 4 casos y ninguno de Rosa (ni el recién registrado)", listaO);
+  const PANTALLAS: [string, string][] = [["detalle", ""], ["ficha", "/ficha"], ["mapa", "/mapa"], ["editar", "/editar"], ["avistamientos", "/avistamientos"], ["avistamiento/101", "/avistamientos/101"], ["notificaciones", "/notificaciones"]];
+  const NALA = "RUPE-Y9F4LK2E";
+  const de = (rol: RolPrueba | undefined, folio: string) => Promise.all(PANTALLAS.map(([, x]) => peticion("GET", `/tutor/casos/${folio}${x}`, { rol })));
+  const [propias, ajenasLuis, ajenasRosa, inexRosa, inexLuis, comoAdmin, anonimas] = [await de("tutor1", NALA), await de("tutor2", NALA), await de("tutor1", DE_LUIS[0]), await de("tutor1", "RUPE-ZZZZZZZZ"), await de("tutor2", "RUPE-ZZZZZZZZ"), await de("admin", NALA), await de(undefined, NALA)];
+  const malFormado = await de("tutor2", "no-es-un-folio");
+  console.log("    matriz (pantalla × persona → HTTP):");
+  console.log(`    ${"pantalla".padEnd(18)}${["dueña", "Luis→Rosa", "Rosa→Luis", "inex.(Luis)", "mal form.", "Admin", "sin sesión"].map((c) => c.padEnd(12)).join("")}`);
+  PANTALLAS.forEach(([n], i) => console.log(`    ${n.padEnd(18)}${[propias[i].estado, ajenasLuis[i].estado, ajenasRosa[i].estado, inexLuis[i].estado, malFormado[i].estado, comoAdmin[i].estado, anonimas[i].estado].map((c) => String(c).padEnd(12)).join("")}`));
+  const igual = (x: Resp, y: Resp, folioX: string, folioY: string) => x.texto.replaceAll(folioX, folioY) === y.texto && x.cabeceras.get("content-type") === y.cabeceras.get("content-type") && x.cabeceras.get("cache-control") === y.cabeceras.get("cache-control");
+  ver(propias.every((r) => r.estado === 200), "la dueña abre las 7 pantallas de su caso (200; editar y notificaciones siguen como pantalla pendiente)", propias[0]);
+  ver(ajenasLuis.every((r, i) => r.estado === 404 && igual(r, inexLuis[i], NALA, "RUPE-ZZZZZZZZ")) && ajenasRosa.every((r, i) => r.estado === 404 && igual(r, inexRosa[i], DE_LUIS[0], "RUPE-ZZZZZZZZ")) && malFormado.every((r) => r.estado === 404), "las 7 pantallas: Luis con un folio de Rosa y Rosa con uno de Luis dan 404 con el mismo cuerpo y cabeceras que un folio inexistente en esa pantalla (se normaliza solo el folio que Next repite); el mal formado también 404", ajenasLuis[0], `estados: ${ajenasLuis.map((r) => r.estado).join()} / ${ajenasRosa.map((r) => r.estado).join()}`);
+  ver(comoAdmin.every((r) => r.estado === 403), "el Administrador en las 7 pantallas de la persona tutora: 403", comoAdmin[0]);
+  ver(anonimas.every((r, i) => r.estado === 307 && r.cabeceras.get("location") === `/acceso?siguiente=${encodeURIComponent(`/tutor/casos/${NALA}${PANTALLAS[i][1]}`)}`), "sin sesión: las 7 pantallas redirigen (307) a /acceso?siguiente= con su propia ruta", anonimas[0]);
   const idFoto = /\/api\/fotografias\/(\d+)/.exec(conf.texto)?.[1] ?? "0";
   const [fDueno, fOtra, fAdmin, fAnon, fNoExiste] = [await peticion("GET", `/api/fotografias/${idFoto}`, { rol: "tutor1" }), await peticion("GET", `/api/fotografias/${idFoto}`, { rol: "tutor2" }), await peticion("GET", `/api/fotografias/${idFoto}`, { rol: "admin" }), await peticion("GET", `/api/fotografias/${idFoto}`), await peticion("GET", "/api/fotografias/987654", { rol: "tutor1" })];
   const sembrada = await peticion("GET", "/api/fotografias/1", { rol: "tutor1" });

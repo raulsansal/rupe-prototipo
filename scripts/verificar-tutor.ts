@@ -8,10 +8,11 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { chromium, type Browser, type BrowserContext, type Locator, type Page } from "playwright";
 import { PARAMETROS } from "../src/mocks/parametros";
-import { AVISTAMIENTOS, avistamientosDelCaso, FOLIO_CON_AVISTAMIENTOS, FOLIO_UN_AVISTAMIENTO, FOTO_SENSIBLE } from "../src/mocks/avistamientos";
-import { CASOS_ORIGEN, FOLIO_EN_CURSO, FOLIO_NUEVO, casosDeLaPersonaTutora, valoresReservados } from "../src/mocks/casos";
+import { avistamientosDelCaso, casosDeLaPersonaTutora } from "./mocks-de-prueba";
+import { AVISTAMIENTOS, FOLIO_CON_AVISTAMIENTOS, FOLIO_UN_AVISTAMIENTO, FOTO_SENSIBLE } from "../src/mocks/avistamientos";
+import { CASOS_ORIGEN, FOLIO_EN_CURSO, FOLIO_NUEVO, valoresReservados } from "../src/mocks/casos";
 import { CLAVE_TEMA } from "../src/lib/tema";
-import { agregarSesion, credencial, fetchComo, rolDeRuta, type RolPrueba } from "./sesion-pruebas";
+import { agregarSesion, credencial, fetchComo, reiniciarDatos, rolDeRuta, type RolPrueba } from "./sesion-pruebas";
 
 const PUERTO = 3106;
 const baseExterna = process.argv.find((a) => a.startsWith("--base="))?.split("=")[1];
@@ -252,6 +253,7 @@ async function registro(navegador: Browser) {
   ver((await barra(pagina)) === "Paso 1 de 2: Datos del perro" && /Especifica la raza/.test(await textoDescrito(p1.getByLabel(/^Especifique la raza/))) && (await p1.locator("input[type=file]:not([capture])").getAttribute("aria-invalid")) === "true", "TUT-02: con «Otra» sin especificar y sin fotografía no avanza", "TUT-02: avanzó sin raza específica o sin foto");
   await p1.getByLabel(/^Especifique la raza/).fill("Perro de agua");
   await p1.locator("input[type=file]:not([capture])").setInputFiles({ name: "perro.png", mimeType: "image/png", buffer: PNG });
+  await p1.locator("img[alt='Vista previa de la fotografía']").waitFor(); // la vista previa se dibuja tras reducir la imagen: sin esta espera la medida a veces llegaba antes
   const prev = await p1.evaluate((paso) => {
     const img = paso.querySelector<HTMLImageElement>("img[alt='Vista previa de la fotografía']")!;
     const marco = img.parentElement!.getBoundingClientRect();
@@ -506,7 +508,7 @@ async function fugas(navegador: Browser) {
   const max = CASOS_ORIGEN[0];
   const detalleHtml = sinIdentidad(await (await fetchComo(base, "tutor1", `/tutor/casos/${max.folio}`)).text(), max.tutor.nombreCompleto);
   ver(detalleHtml.includes(max.direccionAproximada!) && detalleHtml.includes(max.referenciasDelLugar!) && detalleHtml.includes(max.motivo) && detalleHtml.includes(max.descripcionCircunstancias!), "control: TUT-05 sí muestra a su dueña los reservados del caso (la búsqueda de fugas los detecta)", "control: TUT-05 no muestra los reservados");
-  ver(![max.tutor.nombreCompleto, max.tutor.correo, max.tutor.telefono, max.tokenPublico, ...reservadosAvistamientos].some((v) => detalleHtml.includes(v)), "TUT-05 no contiene su nombre, correo ni teléfono, el token del QR ni los datos reservados de avistamientos", "TUT-05 filtra datos de la persona tutora, el token o reservados de avistamientos");
+  ver(![max.tutor.nombreCompleto, credencial("tutor1").correo, max.tutor.telefono, max.tokenPublico, ...reservadosAvistamientos].some((v) => detalleHtml.includes(v)), "TUT-05 no contiene su nombre, correo ni teléfono, el token del QR ni los datos reservados de avistamientos", "TUT-05 filtra datos de la persona tutora, el token o reservados de avistamientos");
   const fichaHtml = await (await fetchComo(base, "tutor1", `/tutor/casos/${max.folio}/ficha`)).text();
   ver(fichaHtml.includes(max.folio) && fichaHtml.includes(max.coloniaZona), "control: la vista previa sí contiene los campos públicos (folio, colonia)", "control: la vista previa no trae los campos públicos");
 
@@ -521,7 +523,7 @@ async function fugas(navegador: Browser) {
       const incluye = ["¡ayúdame a regresar a casa!", max.nombre.toLowerCase(), max.folio.toLowerCase(), "se extravió el 18 de octubre de 2026", `col. ${max.coloniaZona}, alcaldía ${max.alcaldia}`.toLowerCase(), "¿lo viste?", max.color.toLowerCase()];
       const falta = incluye.filter((t) => !texto.includes(t));
       const reservadosEnHoja = valoresReservados(max).filter((v) => texto.includes(v.toLowerCase()));
-      ver(falta.length === 0 && reservadosEnHoja.length === 0 && (await hojaEl.getByRole("img", { name: /Fotografía de Max, sin recorte/ }).isVisible()) && (await hojaEl.getByRole("img", { name: /Código QR ilustrativo/ }).isVisible()), `ficha ${hoja} ${ancho}px: título, fotografía sin recorte, nombre, datos públicos, fecha, lugar, folio y QR; sin reservados`, `ficha ${hoja} ${ancho}px: falta [${falta.join(", ")}] o trae reservados [${reservadosEnHoja.join(", ")}]`);
+      ver(falta.length === 0 && reservadosEnHoja.length === 0 && (await hojaEl.getByRole("img", { name: /Fotografía de Max, .*sin recorte/ }).isVisible()) && (await hojaEl.getByRole("img", { name: /Código QR ilustrativo/ }).isVisible()), `ficha ${hoja} ${ancho}px: título, fotografía sin recorte, nombre, datos públicos, fecha, lugar, folio y QR; sin reservados`, `ficha ${hoja} ${ancho}px: falta [${falta.join(", ")}] o trae reservados [${reservadosEnHoja.join(", ")}]`);
       const medida = await hojaEl.evaluate((a) => ({ sh: a.scrollHeight, ch: a.clientHeight, sw: a.scrollWidth, cw: a.clientWidth, w: a.getBoundingClientRect().width, h: a.getBoundingClientRect().height, ar: getComputedStyle(a).backgroundColor, tinta: getComputedStyle(a).color }));
       const razon = hoja === "carta" ? 21.6 / 27.9 : 21.6 / 14;
       ver(medida.sh <= medida.ch + 1 && medida.sw <= medida.cw + 1 && Math.abs(medida.w / medida.h - razon) < 0.01, `ficha ${hoja} ${ancho}px: el contenido cabe en la hoja (${Math.round(medida.w)}×${Math.round(medida.h)} px, proporción ${razon.toFixed(3)}) sin desbordar`, `ficha ${hoja} ${ancho}px: desborda o proporción incorrecta ${JSON.stringify(medida)}`);
@@ -994,6 +996,22 @@ async function geometria(navegador: Browser) {
   }
 }
 
+// Sin errores ni advertencias en la consola del navegador en 404 (caso ajeno, ruta inexistente, folio mal formado), 403, acceso, inicio, Mis registros y un detalle de caso.
+// El aviso propio del documento (404 o 403 de «Failed to load resource») es esperado y se descarta; el de React «script tag» solo existe en next dev: lo cubre la prueba de fuente del layout.
+async function consola(navegador: Browser) {
+  const PANTALLAS: [string, string, RolPrueba | null][] = [["404 de caso ajeno", "/tutor/casos/RUPE-Z5C6VR4P", "tutor1"], ["404 de ruta inexistente", "/no-existe-xyz", null], ["404 de folio mal formado", "/tutor/casos/xx", "tutor1"], ["403 del Administrador en /tutor", "/tutor", "admin"], ["acceso", "/acceso", null], ["inicio", "/", null], ["Mis registros", "/tutor", "tutor1"], ["detalle de un caso", `${CASO}`, "tutor1"]];
+  for (const [nombre, ruta, rol] of PANTALLAS) {
+    const p = await nuevaPagina(navegador, 390, rol);
+    const mensajes: string[] = [];
+    p.pagina.on("console", (m) => { if ((m.type() === "error" || m.type() === "warning") && !/^Failed to load resource: the server responded with a status of 40[34]/.test(m.text())) mensajes.push(`${m.type()}: ${m.text().slice(0, 120)}`); });
+    p.pagina.on("pageerror", (e) => mensajes.push(`pageerror: ${e.message.slice(0, 120)}`));
+    await p.pagina.goto(`${base}${ruta}`, { waitUntil: "load" });
+    await p.pagina.waitForTimeout(600);
+    ver(mensajes.length === 0, `consola sin errores ni advertencias: ${nombre}`, `consola (${nombre}): ${mensajes.join(" | ")}`);
+    await p.contexto.close();
+  }
+}
+
 async function main() {
   let servidor: ChildProcess | undefined;
   if (!baseExterna) {
@@ -1012,10 +1030,12 @@ async function main() {
   let navegador: Browser | undefined;
   try {
     if (servidor) await esperarServidor(servidor);
+    // Datos limpios: «Mis registros» lee el almacén real y los casos creados por una corrida anterior (p. ej. «Canela») cambiarían sus conteos.
+    await reiniciarDatos(base);
     navegador = await abrirNavegador();
     await acceso(navegador);
     await registroCuenta(navegador);
-    await misRegistros(navegador);
+    await misRegistros(navegador); // debe ir ANTES de registro: el caso que crea registro aparecería en la lista
     await registro(navegador);
     await salidaRegistro(navegador);
     await enlacesInternos(navegador);
@@ -1028,6 +1048,7 @@ async function main() {
     await fugas(navegador);
     await modalesFicha(navegador);
     await geometria(navegador);
+    await consola(navegador);
   } finally {
     await navegador?.close();
     apagar();

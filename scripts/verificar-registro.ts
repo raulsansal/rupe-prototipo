@@ -118,7 +118,9 @@ async function pruebas(navegador: Browser) {
   ver(otra.status === 404 && admin.status === 200 && anonima.status === 401 && metodo.status === 405, `otra persona tutora 404, Administrador 200 (solo consulta: PUT → ${metodo.status}), sin sesión 401`, `fotos: otra ${otra.status}, admin ${admin.status}, anónima ${anonima.status}, PUT ${metodo.status}`);
   ver((await fetchComo(base, "tutor2", `/tutor/casos/${folio}/creado`)).status === 404, "la confirmación del caso de otra persona da 404", "otra persona vio la confirmación");
   const detalle = await (await fetchComo(base, "tutor1", `/tutor/casos/${folio}`)).text();
-  ver(/Detalle del caso/.test(detalle) && !/Calle Reservada 99/.test(detalle), "el detalle del caso real todavía no está conectado (P2b): muestra «Pantalla pendiente» en vez de 404", "el detalle del caso real da 404 o muestra datos");
+  ver(/Detalle del caso/.test(detalle) && detalle.includes(folio) && /Calle Reservada 99/.test(detalle), "el detalle del caso real (P2b) abre para su dueña con los datos reales que capturó, sin «Pantalla pendiente»", "el detalle del caso real da 404 o no muestra sus datos");
+  const lista = await (await fetchComo(base, "tutor1", "/tutor")).text();
+  ver(lista.includes(folio) && lista.indexOf(folio) < lista.indexOf("RUPE-K7M4XQ9T"), "«Mis registros» muestra el caso recién registrado primero, antes de los sembrados", "el caso nuevo no aparece primero en «Mis registros»");
   const ficha = await fetchComo(base, null, `/api/fichas/${folio}`);
   const publica = JSON.stringify(await ficha.json());
   ver(ficha.status === 200 && !/Calle Reservada|reservad|tarde|Rosa|Hern|api\/fotografias/i.test(publica), "la ficha pública del caso nuevo no lleva calle, referencias, momento, motivo, descripción, datos de la persona ni la ruta de la foto", `ficha pública: ${publica.slice(0, 200)}`);

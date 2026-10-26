@@ -49,13 +49,6 @@ export const AVISTAMIENTOS: readonly AvistamientoRecibido[] = [
   { id: 503, folio: "RUPE-C2J9RK6Z", fechaHora: "2026-09-28T11:05:00Z", direccionAproximada: "Calle Reservada Roja 18", coloniaZona: "Del Carmen", latitud: 19.3402, longitud: -99.1771, alcaldia: "Coyoacán", estadosAnimal: [ILESO, CLINICA, DOCIL], fotografiaUrl: FOTO },
 ];
 
-/** Avistamientos visibles de un caso, por fecha de recepción descendente (HU 039). */
-export const avistamientosDelCaso = (folio: string): AvistamientoRecibido[] =>
-  AVISTAMIENTOS.filter((a) => a.folio === folio).sort((a, b) => b.fechaHora.localeCompare(a.fechaHora));
-
-/** Orden cronológico (más antiguo primero): es el que numera los marcadores del mapa y traza la ruta (HU 047 y 048). */
-export const avistamientosCronologicos = (folio: string): AvistamientoRecibido[] => [...avistamientosDelCaso(folio)].reverse();
-
 export const esFallecido = (a: Pick<Avistamiento, "estadosAnimal">) => a.estadosAnimal.includes(FALLECIDO);
 
 /** Estados elegidos agrupados por categoría del catálogo, en el orden del catálogo (para mostrarlos como chips). */

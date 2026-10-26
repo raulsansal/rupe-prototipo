@@ -4,7 +4,8 @@ import { BienvenidaTutor } from "@/components/features/BienvenidaTutor";
 import { ListaRegistros } from "@/components/features/ListaRegistros";
 import { clasesBoton } from "@/components/ui/clasesBoton";
 import { EstadoCarga } from "@/components/ui/EstadoCarga";
-import { aFichaTutor, casosDeLaPersonaTutora } from "@/mocks/casos";
+import { listarCasosDelTutor } from "@/server/servicios/misRegistros";
+import { paraPagina } from "@/server/sesion/pagina";
 import { obtenerSesion } from "@/server/sesion/sesion";
 
 export const metadata: Metadata = { title: "Mis registros · RUPE" };
@@ -13,7 +14,8 @@ export const metadata: Metadata = { title: "Mis registros · RUPE" };
 export default async function MisRegistros({ searchParams }: PageProps<"/tutor">) {
   const { estado } = await searchParams;
   const vacio = estado === "vacio";
-  const primerNombre = ((await obtenerSesion())?.nombre ?? "").split(" ")[0];
+  const sesion = await obtenerSesion();
+  const primerNombre = (sesion?.nombre ?? "").split(" ")[0];
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -33,7 +35,7 @@ export default async function MisRegistros({ searchParams }: PageProps<"/tutor">
           ))}
         </div>
       ) : (
-        <ListaRegistros fichas={casosDeLaPersonaTutora().map(aFichaTutor)} />
+        <ListaRegistros fichas={await paraPagina(listarCasosDelTutor(sesion))} />
       )}
     </div>
   );

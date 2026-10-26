@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { altDeFoto } from "@/lib/altDeFoto";
 import { ChipEstado } from "@/components/ui/ChipEstado";
 import { FotoPerro } from "@/components/ui/FotoPerro";
 import { Icono } from "@/components/ui/Icono";
@@ -30,7 +31,7 @@ export function TarjetaPerro({ ficha, href, ...resto }: Props) {
       className="flex min-h-tactil items-center gap-4 rounded-tarjeta border border-border bg-surface p-4 transition-colors hover:border-border-strong active:bg-primary-soft data-[estado=presionado]:bg-primary-soft motion-reduce:transition-none"
       {...resto}
     >
-      <FotoPerro src={ficha.fotografiaUrl} alt={`Fotografía de ${ficha.nombre}`} atenuada={cerrado} />
+      <FotoPerro src={ficha.fotografiaUrl} alt={altDeFoto(ficha)} atenuada={cerrado} />
       <span className="flex min-w-0 flex-1 flex-col items-start gap-1">
         <span className="text-h3 font-semibold">{ficha.nombre}</span>
         <span className="text-small text-text-muted">

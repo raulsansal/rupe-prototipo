@@ -1,4 +1,5 @@
 import Image from "next/image";
+import { altDeFoto } from "@/lib/altDeFoto";
 import { Icono } from "@/components/ui/Icono";
 import { Logo } from "@/components/ui/Logo";
 import { cx } from "@/lib/clases";
@@ -15,6 +16,14 @@ const PAGINAS: Record<TamanoHoja, { size: string; aspecto: string }> = {
   carta: { size: "21.6cm 27.9cm", aspecto: "aspect-[21.6/27.9]" },
   "media-carta": { size: "21.6cm 14cm", aspecto: "aspect-[21.6/14]" },
 };
+
+// Topes de línea de la hoja: un texto largo se corta con elipsis (y una palabra sin espacios se parte) en vez de empujar la fotografía, el lugar, el QR o el folio fuera
+// de la hoja. El texto completo de las características se lee en el detalle del caso. Valen para los máximos de las validaciones (nombre 50, colonia 100, características 300).
+const CORTE = "[overflow-wrap:anywhere] overflow-hidden";
+const TOPE_NOMBRE = `line-clamp-1 ${CORTE}`;
+const TOPE_DATOS = `line-clamp-2 ${CORTE}`;
+const TOPE_CARACTERISTICAS = `line-clamp-3 ${CORTE}`;
+const TOPE_LUGAR = `line-clamp-2 ${CORTE}`;
 
 type Props = {
   /** Solo campos públicos: la ficha de búsqueda nunca lleva datos de la persona tutora ni lo reservado. */
@@ -39,7 +48,7 @@ export function FichaBusqueda({ ficha, tamano = "carta", versionQr = 1, paraImpr
   const semilla = `${folio}-${versionQr}`;
 
   const lugar = (
-    <div className="rounded-[1.4cqw] border-[0.35cqw] border-tinta px-[2.4cqw] py-[1.4cqw] text-[2.29cqw] leading-[1.35]">
+    <div className="rounded-[1.4cqw] border-[0.35cqw] border-tinta px-[2.4cqw] py-[0.8cqw] text-[2.29cqw] leading-[1.35]">
       <p className="flex items-center gap-[1cqw]">
         <Icono nombre="calendar_month" className="size-[2.6cqw]" />
         <span>
@@ -48,7 +57,7 @@ export function FichaBusqueda({ ficha, tamano = "carta", versionQr = 1, paraImpr
       </p>
       <p className="flex items-center gap-[1cqw]">
         <Icono nombre="location_on" className="size-[2.6cqw]" />
-        <span>
+        <span className={TOPE_LUGAR}>
           <strong className="font-bold">Lugar:</strong> col. {ficha.coloniaZona}, alcaldía {ficha.alcaldia}
         </span>
       </p>
@@ -76,15 +85,15 @@ export function FichaBusqueda({ ficha, tamano = "carta", versionQr = 1, paraImpr
             {encabezado("w-[12cqw]!", "text-[1.4cqw]")}
             <h2 className="text-[4.58cqw] font-extrabold uppercase leading-none">¡Ayúdame a regresar a casa!</h2>
             <div data-foto-ficha className="relative min-h-0 flex-1 overflow-hidden rounded-[1cqw] border border-border bg-background">
-              <Image src={ficha.fotografiaUrl} alt={`Fotografía de ${nombre}, sin recorte`} fill sizes="640px" className="object-contain" priority />
+              <Image src={ficha.fotografiaUrl} alt={`${altDeFoto(ficha)}, sin recorte`} unoptimized={ficha.fotografiaUrl.startsWith("/api/")} fill sizes="640px" className="object-contain" priority />
             </div>
             <div>
               <p className="flex flex-wrap items-baseline gap-x-[1.6cqw]">
-                <strong className="text-[3.59cqw] font-bold uppercase leading-tight">{nombre}</strong>
-                <span className="text-[2.29cqw] font-medium">{datos}</span>
+                <strong className={cx("max-w-full text-[3.59cqw] font-bold uppercase leading-tight", TOPE_NOMBRE)}>{nombre}</strong>
+                <span className={cx("min-w-0 text-[2.29cqw] font-medium", TOPE_DATOS)}>{datos}</span>
               </p>
               {ficha.caracteristicasDistintivas && (
-                <p className="mt-[0.3cqw] text-[2.29cqw] font-medium leading-[1.25]">
+                <p className={cx("mt-[0.3cqw] text-[2.29cqw] font-medium leading-[1.25]", TOPE_CARACTERISTICAS)}>
                   <strong className="font-bold">Características distintivas:</strong> {ficha.caracteristicasDistintivas}
                 </p>
               )}
@@ -105,16 +114,16 @@ export function FichaBusqueda({ ficha, tamano = "carta", versionQr = 1, paraImpr
           // Media carta: la fotografía ocupa todo el alto de la hoja a la izquierda; el resto va en la columna derecha.
           <div className="grid h-full grid-cols-[52cqw_minmax(0,1fr)] gap-[2.2cqw]">
             <div data-foto-ficha className="relative overflow-hidden rounded-[1cqw] border border-border bg-background">
-              <Image src={ficha.fotografiaUrl} alt={`Fotografía de ${nombre}, sin recorte`} fill sizes="320px" className="object-contain" priority />
+              <Image src={ficha.fotografiaUrl} alt={`${altDeFoto(ficha)}, sin recorte`} unoptimized={ficha.fotografiaUrl.startsWith("/api/")} fill sizes="320px" className="object-contain" priority />
             </div>
             <div className="flex min-h-0 flex-col gap-[0.9cqw]">
               {encabezado("w-[11cqw]!", "text-[1cqw]")}
               <h2 className="text-[2.9cqw] font-extrabold uppercase leading-[1.05]">¡Ayúdame a regresar a casa!</h2>
               <div>
-                <strong className="text-[2.5cqw] font-bold uppercase leading-tight">{nombre}</strong>
-                <p className="text-[1.5cqw] font-medium leading-[1.25]">{datos}</p>
+                <strong className={cx("max-w-full text-[2.5cqw] font-bold uppercase leading-tight", TOPE_NOMBRE)}>{nombre}</strong>
+                <p className={cx("text-[1.5cqw] font-medium leading-[1.25]", TOPE_DATOS)}>{datos}</p>
                 {ficha.caracteristicasDistintivas && (
-                  <p className="text-[1.5cqw] font-medium leading-[1.25]">
+                  <p className={cx("text-[1.5cqw] font-medium leading-[1.25]", TOPE_CARACTERISTICAS)}>
                     <strong className="font-bold">Características distintivas:</strong> {ficha.caracteristicasDistintivas}
                   </p>
                 )}
@@ -123,7 +132,7 @@ export function FichaBusqueda({ ficha, tamano = "carta", versionQr = 1, paraImpr
                 <p>
                   <strong className="font-bold">Se extravió el</strong> {formatearFechaLarga(ficha.fechaExtravio)}
                 </p>
-                <p>
+                <p className={TOPE_LUGAR}>
                   <strong className="font-bold">Lugar:</strong> col. {ficha.coloniaZona}, alcaldía {ficha.alcaldia}
                 </p>
               </div>

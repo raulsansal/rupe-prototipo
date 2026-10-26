@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
 import { FotoAvistamiento } from "@/components/features/avistamientos/FotoAvistamiento";
 import { MapaIlustrativo } from "@/components/features/MapaIlustrativo";
 import { TarjetaDatos } from "@/components/features/TarjetaDatos";
@@ -9,9 +8,11 @@ import { clasesBoton } from "@/components/ui/clasesBoton";
 import { Etiqueta } from "@/components/ui/Etiqueta";
 import { Icono } from "@/components/ui/Icono";
 import { formatearFechaHora } from "@/lib/formato";
-import { avistamientosDelCaso, esFallecido, estadosPorCategoria } from "@/mocks/avistamientos";
+import { estadosPorCategoria } from "@/mocks/avistamientos";
 import { CATEGORIAS_ESTADO_ANIMAL } from "@/mocks/catalogos";
-import { resolverCaso } from "@/mocks/casos";
+import { avistamientoDelCaso } from "@/server/servicios/misRegistros";
+import { paraPagina } from "@/server/sesion/pagina";
+import { obtenerSesion } from "@/server/sesion/sesion";
 
 export const metadata: Metadata = { title: "Detalle del avistamiento · RUPE" };
 
@@ -22,13 +23,11 @@ export const metadata: Metadata = { title: "Detalle del avistamiento · RUPE" };
 export default async function DetalleAvistamiento({ params, searchParams }: PageProps<"/tutor/casos/[folio]/avistamientos/[id]">) {
   const { folio, id } = await params;
   const { foto } = await searchParams;
-  const origen = resolverCaso(folio);
-  const a = origen && avistamientosDelCaso(origen.folio).find((x) => String(x.id) === id);
-  if (!origen || !a) notFound();
+  const a = await paraPagina(avistamientoDelCaso(await obtenerSesion(), folio, id));
 
-  const fallecido = esFallecido(a);
+  const fallecido = a.fallecido;
   const grupos = estadosPorCategoria(a.estadosAnimal);
-  const lista = `/tutor/casos/${origen.folio}/avistamientos`;
+  const lista = `/tutor/casos/${a.folio}/avistamientos`;
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
@@ -38,7 +37,7 @@ export default async function DetalleAvistamiento({ params, searchParams }: Page
       </Link>
       <h1 className="text-h1">Detalle del avistamiento</h1>
       <p className="w-fit rounded-campo border border-border bg-surface px-3 py-2 text-small">
-        Folio <span className="font-bold tabular-nums">{origen.folio}</span>
+        Folio <span className="font-bold tabular-nums">{a.folio}</span>
       </p>
       <FotoAvistamiento src={a.fotografiaUrl} sensible={fallecido} reveladaInicial={foto === "visible"} />
       <TarjetaDatos

@@ -68,7 +68,7 @@ export async function fotografiaDelCaso(sesion: SesionActual | undefined, idFoto
 }
 
 export type CasoCreado = {
-  folio: string; estado: string; nombreDelPerro: string; sexo: string; tamano: string; edadTexto: string; fotoUrl: string;
+  folio: string; estado: string; nombreDelPerro: string; sexo: string; raza: string; tamano: string; color: string; edadTexto: string; fotoUrl: string;
   /** Aviso en la aplicación (siempre) y vista previa del correo (solo con notificaciones activas, HU 002 regla 6). */
   aviso: string; correo: CorreoVistaPrevia | null;
 };
@@ -84,16 +84,8 @@ export async function casoRecienCreado(sesion: SesionActual | undefined, folio: 
   const [usuario, foto, historial] = [await repos.usuarios.porId(perro.idUsuario), await repos.casos.fotografia(perro.idFotografia), await historialDe(repos, caso.idCasoExtravio)];
   const edad = { valor: perro.edadValor, unidad: perro.edadUnidad as UnidadEdad };
   return {
-    folio: caso.folio, estado: estadoActual(historial) ?? "En búsqueda", nombreDelPerro: perro.nombre, sexo: perro.sexo, tamano: perro.tamano, edadTexto: textoDeEdad(edad.valor, edad.unidad), fotoUrl: foto?.referenciaArchivo ?? "",
+    folio: caso.folio, estado: estadoActual(historial) ?? "En búsqueda", nombreDelPerro: perro.nombre, sexo: perro.sexo, raza: perro.razaEspecificada ?? ((await repos.catalogos.razas()).find((r) => r.idRaza === perro.idRaza)?.nombre ?? ""), tamano: perro.tamano, color: perro.color, edadTexto: textoDeEdad(edad.valor, edad.unidad), fotoUrl: foto?.referenciaArchivo ?? "",
     aviso: `Tu folio es ${caso.folio}. También te lo avisamos aquí, en la aplicación.`,
     correo: usuario?.notificacionesActivas ? vistaPreviaDeCorreo({ nombreDeLaPersona: usuario.nombreCompleto, folio: caso.folio, nombreDelPerro: perro.nombre, edadValor: edad.valor, edadUnidad: edad.unidad }) : null,
   };
-}
-
-/** ¿Es un caso de esta persona tutora? (para las pantallas que aún usan mocks: un caso real suyo no debe dar 404.) */
-export async function esCasoPropio(sesion: SesionActual | undefined, folio: string, ctx: Contexto = contextoPorDefecto()): Promise<boolean> {
-  if (!sesion || sesion.rol !== "Tutor") return false;
-  const caso = await ctx.repos.casos.porFolio(normalizarFolio(folio));
-  const perro = caso && (await ctx.repos.casos.perro(caso.idPerro));
-  return !!perro && perro.idUsuario === sesion.idUsuario;
 }

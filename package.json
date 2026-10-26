@@ -15,10 +15,11 @@
     "verificar-contraste": "tsx scripts/verificar-contraste.ts",
     "verificar-plantillas": "tsx scripts/verificar-plantillas.ts",
     "verificar-visitante": "tsx scripts/verificar-visitante.ts",
+    "verificar-ficha": "tsx scripts/verificar-ficha.ts",
     "verificar-tutor": "tsx scripts/verificar-tutor.ts",
     "verificar-admin": "tsx scripts/verificar-admin.ts",
     "auditar-tactil": "tsx scripts/auditar-tactil.ts",
-    "probar": "tsx --require ./scripts/server-only-vacio.cjs --test --test-reporter=spec \"src/server/**/*.test.ts\"",
+    "probar": "tsx --require ./scripts/server-only-vacio.cjs --test --test-reporter=spec \"src/server/**/*.test.ts\" \"src/lib/**/*.test.ts\"",
     "verificar-secretos": "tsx scripts/verificar-secretos.ts",
     "verificar-acceso": "tsx scripts/verificar-acceso.ts",
     "verificar-registro": "tsx scripts/verificar-registro.ts"

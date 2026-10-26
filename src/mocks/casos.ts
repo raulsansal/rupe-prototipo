@@ -116,9 +116,6 @@ export function valoresReservados(c: CasoOrigen): string[] {
 /** Folio que se asigna en la maqueta al guardar un registro nuevo (siempre el mismo: no se crea nada). */
 export const FOLIO_NUEVO: Folio = FOLIO_EN_CURSO;
 
-/** «Mis registros»: los casos de la persona tutora, por fecha de creación descendente (HU 015). */
-export const casosDeLaPersonaTutora = (): CasoOrigen[] => [...CASOS_ORIGEN].sort((a, b) => b.fechaRegistro.localeCompare(a.fechaRegistro));
-
 const sumarHoras = (iso: string, h: number) => new Date(new Date(iso).getTime() + h * 3600 * 1000).toISOString().replace(".000Z", "Z");
 
 /** Historial del caso según su estado (R12): una cadena válida de movimientos; la maqueta no guarda uno real. */

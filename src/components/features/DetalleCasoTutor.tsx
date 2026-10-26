@@ -1,5 +1,6 @@
 "use client";
 
+import { altDeFoto } from "@/lib/altDeFoto";
 import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
@@ -221,7 +222,7 @@ export function DetalleCasoTutor({ caso }: { caso: CasoTutor }) {
               data-foto-caso
               className={cx("relative order-1 aspect-[4/3] overflow-hidden rounded-tarjeta border border-border bg-disabled-bg lg:order-none lg:aspect-square lg:max-w-[420px]", !activo && "opacity-90")}
             >
-              <Image src={caso.fotografiaUrl} alt={`Fotografía de ${caso.nombre}`} fill sizes="(min-width: 1280px) 420px, (min-width: 1024px) 30vw, 100vw" className="object-cover" priority />
+              <Image src={caso.fotografiaUrl} alt={altDeFoto(caso)} unoptimized={caso.fotografiaUrl.startsWith("/api/")} fill sizes="(min-width: 1280px) 420px, (min-width: 1024px) 30vw, 100vw" className="object-cover" priority />
             </div>
             <div className="order-3 lg:order-none">
               <DatosDelPerro caso={caso} />

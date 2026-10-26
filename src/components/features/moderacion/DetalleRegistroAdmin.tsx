@@ -1,5 +1,6 @@
 "use client";
 
+import { altDeFoto } from "@/lib/altDeFoto";
 import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
@@ -66,7 +67,7 @@ export function DetalleRegistroAdmin({ caso, modalInicial = false }: Props) {
         <div className="contents lg:flex lg:min-w-0 lg:flex-col lg:gap-4">
           <div className="contents lg:grid lg:grid-cols-2 lg:items-start lg:gap-4">
             <div className="relative order-1 aspect-[4/3] overflow-hidden rounded-tarjeta border border-border bg-disabled-bg lg:order-none lg:aspect-square lg:max-w-[420px]">
-              <Image src={caso.fotografiaUrl} alt={`Fotografía de ${caso.nombre}`} fill sizes="(min-width: 1280px) 420px, (min-width: 1024px) 30vw, 100vw" className="object-cover" priority />
+              <Image src={caso.fotografiaUrl} alt={altDeFoto(caso)} unoptimized={caso.fotografiaUrl.startsWith("/api/")} fill sizes="(min-width: 1280px) 420px, (min-width: 1024px) 30vw, 100vw" className="object-cover" priority />
             </div>
             <div className="order-2 lg:order-none">
               <DatosDelPerro caso={caso} />

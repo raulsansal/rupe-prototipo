@@ -22,10 +22,13 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="es-MX" className={`${montserrat.variable} h-full antialiased`} suppressHydrationWarning>
-      <head>
-        <script dangerouslySetInnerHTML={{ __html: SCRIPT_TEMA_INICIAL }} />
-      </head>
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        {/* Tema inicial sin parpadeo: el script va como CADENA HTML al inicio del body (corre al analizarlo, antes de pintar el contenido). Con un elemento <script> de React,
+            si el layout raíz se vuelve a renderizar en el cliente (404, 403, recuperación) React 19 avisa «Encountered a script tag while rendering React component». next/script
+            beforeInteractive tampoco sirve: Next lo ejecuta después del primer pintado y hay parpadeo. */}
+        <div hidden suppressHydrationWarning dangerouslySetInnerHTML={{ __html: `<script>${SCRIPT_TEMA_INICIAL}</script>` }} />
+        {children}
+      </body>
     </html>
   );
 }

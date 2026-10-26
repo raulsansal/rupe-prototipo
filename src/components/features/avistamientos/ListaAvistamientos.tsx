@@ -28,6 +28,8 @@ type Props = {
   folio: string;
   nombrePerro: string;
   fotografiaPerro: string;
+  /** Texto alternativo de la foto del perro, armado con los datos del caso (nombre, sexo, raza, tamaño, color). */
+  altPerro?: string;
   /** Fecha de registro del caso, AAAA-MM-DD. */
   registro: string;
   items: ItemAvistamiento[];
@@ -35,7 +37,7 @@ type Props = {
 };
 
 /** TUT-08: avistamientos del caso (lista), con filtros por fecha y alcaldía (HU 039 y 041). */
-export function ListaAvistamientos({ folio, nombrePerro, fotografiaPerro, registro, items, filtrosAbiertos = false }: Props) {
+export function ListaAvistamientos({ folio, nombrePerro, altPerro, fotografiaPerro, registro, items, filtrosAbiertos = false }: Props) {
   const router = useRouter();
   const [filtro, setFiltro] = useState<Filtro>(SIN_FILTRO);
   const [aviso, setAviso] = useState<string>();
@@ -76,7 +78,7 @@ export function ListaAvistamientos({ folio, nombrePerro, fotografiaPerro, regist
       {items.length === 0 ? (
         <section aria-labelledby="sin-avistamientos" className="flex flex-col items-center gap-3 rounded-tarjeta border border-border bg-surface p-4 text-center">
           <div className="relative aspect-[4/3] w-full overflow-hidden rounded-campo border border-border bg-disabled-bg">
-            <Image src={fotografiaPerro} alt={`Fotografía de ${nombrePerro}`} fill sizes="(min-width: 768px) 640px, 100vw" className="object-cover" priority />
+            <Image src={fotografiaPerro} alt={altPerro ?? `Fotografía de ${nombrePerro}`} unoptimized={fotografiaPerro.startsWith("/api/")} fill sizes="(min-width: 768px) 640px, 100vw" className="object-cover" priority />
           </div>
           <h2 id="sin-avistamientos" className="text-h3 font-semibold">
             {nombrePerro} aún no registra avistamientos.

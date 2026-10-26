@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { altDeFoto } from "@/lib/altDeFoto";
 import { Alerta } from "@/components/ui/Alerta";
 import { ChipEstado } from "@/components/ui/ChipEstado";
 import { clasesBoton } from "@/components/ui/clasesBoton";
@@ -27,7 +28,7 @@ export function RegistroCreado({ caso }: { caso: CasoCreado }) {
         <BotonCopiar texto={folio} etiqueta="Copiar folio" aviso="Folio copiado" />
       </section>
       <section aria-labelledby="perro-registrado" className="flex items-center gap-3 rounded-tarjeta border border-border bg-surface p-4">
-        {caso.fotoUrl && <FotoPerro src={caso.fotoUrl} alt={`Fotografía de ${caso.nombreDelPerro}`} lado={64} />}
+        {caso.fotoUrl && <FotoPerro src={caso.fotoUrl} alt={altDeFoto({ nombre: caso.nombreDelPerro, sexo: caso.sexo, raza: caso.raza, tamano: caso.tamano, color: caso.color })} lado={64} />}
         <div className="min-w-0">
           <h2 id="perro-registrado" className="break-words text-h3 font-semibold">
             {caso.nombreDelPerro}

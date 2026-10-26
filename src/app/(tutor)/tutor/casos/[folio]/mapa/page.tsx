@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
-import { notFound, redirect } from "next/navigation";
+import { redirect } from "next/navigation";
 import { MapaAvistamientos } from "@/components/features/avistamientos/MapaAvistamientos";
 import { fechaLocalISO } from "@/lib/formato";
-import { avistamientosCronologicos } from "@/mocks/avistamientos";
-import { resolverCaso } from "@/mocks/casos";
+import { puntosDelMapa } from "@/server/servicios/misRegistros";
+import { paraPagina } from "@/server/sesion/pagina";
+import { obtenerSesion } from "@/server/sesion/sesion";
 
 export const metadata: Metadata = { title: "Avistamientos en mapa · RUPE" };
 
@@ -11,10 +12,8 @@ export const metadata: Metadata = { title: "Avistamientos en mapa · RUPE" };
 export default async function AvistamientosEnMapa({ params, searchParams }: PageProps<"/tutor/casos/[folio]/mapa">) {
   const { folio } = await params;
   const { ruta, filtro } = await searchParams;
-  const origen = resolverCaso(folio);
-  if (!origen) notFound();
-  const puntos = avistamientosCronologicos(origen.folio).map(({ id, fechaHora, alcaldia, coloniaZona, latitud, longitud }) => ({ id, fechaHora, alcaldia, coloniaZona, latitud, longitud }));
+  const mapa = await paraPagina(puntosDelMapa(await obtenerSesion(), folio));
   // Sin avistamientos no hay nada que ubicar: «Mapa» está deshabilitado en TUT-08, así que se vuelve a la lista.
-  if (puntos.length === 0) redirect(`/tutor/casos/${origen.folio}/avistamientos`);
-  return <MapaAvistamientos folio={origen.folio} registro={fechaLocalISO(origen.fechaRegistro)} puntos={puntos} rutaInicial={ruta === "visible"} filtroAbiertoInicial={filtro === "abierto"} />;
+  if (mapa.puntos.length === 0) redirect(`/tutor/casos/${mapa.folio}/avistamientos`);
+  return <MapaAvistamientos folio={mapa.folio} registro={fechaLocalISO(mapa.registro)} puntos={mapa.puntos} rutaInicial={ruta === "visible"} filtroAbiertoInicial={filtro === "abierto"} />;
 }
