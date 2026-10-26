@@ -28,20 +28,51 @@ const AVISOS: Record<"bloqueo" | "deshabilitada", { titulo: string; texto: strin
   },
 };
 
+type RespuestaAcceso = { destino?: string; error?: { codigo: string; mensaje: string; versionAviso?: string } };
+
 /**
- * ACC-01: formulario de inicio de sesión. Maqueta: no valida credenciales; «Iniciar sesión» lleva a /tutor.
- * `modalInicial` abre uno de los avisos al cargar (variante ?estado=bloqueo|deshabilitada).
+ * ACC-01 (HU 001): formulario de inicio de sesión conectado a POST /api/acceso/iniciar. Credenciales inválidas → error bajo «Contraseña» (mensaje uniforme);
+ * cuenta bloqueada o deshabilitada → su aviso; aviso de privacidad actualizado → TRA-03 (reaceptación, R22). `siguiente` (ruta interna) se envía tal cual:
+ * el servidor decide si es válida. `modalInicial` abre uno de los avisos al cargar: variante SOLO DE MAQUETADO (?estado=bloqueo|deshabilitada|aviso-actualizado)
+ * para capturas; retirarla cuando todo el flujo esté conectado.
  */
-export function FormularioAcceso({ modalInicial }: { modalInicial?: ModalAcceso }) {
+export function FormularioAcceso({ modalInicial, siguiente }: { modalInicial?: ModalAcceso; siguiente?: string }) {
   const router = useRouter();
   const [correo, setCorreo] = useState("");
   const [contrasena, setContrasena] = useState("");
   const [mostrar, setMostrar] = useState(false);
   const [errores, setErrores] = useState<{ correo?: string; contrasena?: string }>({});
   const [modal, setModal] = useState<ModalAcceso | undefined>(modalInicial);
+  const [enviando, setEnviando] = useState(false);
+  const [versionAviso, setVersionAviso] = useState<string>();
   const aviso = modal ?? modalInicial;
   // Un aviso abierto por la URL no tiene un botón al que devolver el foco: al cerrarlo va al primer campo.
   const abiertoPorUrl = useRef(modalInicial !== undefined);
+
+  /** Pide iniciar sesión al servidor y reacciona a cada respuesta. */
+  async function iniciar(aceptarAviso: boolean) {
+    setEnviando(true);
+    try {
+      const r = await fetch("/api/acceso/iniciar", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ correo: correo.trim(), contrasena, aceptarAviso, siguiente }) });
+      const datos = (await r.json().catch(() => ({}))) as RespuestaAcceso;
+      if (r.ok && datos.destino) {
+        router.push(datos.destino);
+        router.refresh();
+        return;
+      }
+      const codigo = datos.error?.codigo;
+      setModal(codigo === "CUENTA_BLOQUEADA" ? "bloqueo" : codigo === "CUENTA_DESHABILITADA" ? "deshabilitada" : codigo === "AVISO_DESACTUALIZADO" ? "aviso-actualizado" : undefined);
+      if (codigo === "AVISO_DESACTUALIZADO") setVersionAviso(datos.error?.versionAviso);
+      else if (codigo !== "CUENTA_BLOQUEADA" && codigo !== "CUENTA_DESHABILITADA") {
+        setErrores({ contrasena: datos.error?.mensaje ?? "No pudimos iniciar sesión. Inténtalo de nuevo." });
+        document.getElementById("acceso-contrasena")?.focus();
+      }
+    } catch {
+      setErrores({ contrasena: "No pudimos iniciar sesión. Revisa tu conexión e inténtalo de nuevo." });
+    } finally {
+      setEnviando(false);
+    }
+  }
 
   function alEnviar(e: FormEvent) {
     e.preventDefault();
@@ -52,7 +83,7 @@ export function FormularioAcceso({ modalInicial }: { modalInicial?: ModalAcceso 
     setErrores(nuevos);
     if (nuevos.correo) return document.getElementById("acceso-correo")?.focus();
     if (nuevos.contrasena) return document.getElementById("acceso-contrasena")?.focus();
-    router.push("/tutor");
+    void iniciar(false);
   }
 
   function cerrarModal() {
@@ -100,7 +131,7 @@ export function FormularioAcceso({ modalInicial }: { modalInicial?: ModalAcceso 
             className="mt-[26px]"
           />
         </div>
-        <Boton type="submit" tamano="grande" anchoCompleto>
+        <Boton type="submit" tamano="grande" anchoCompleto cargando={enviando} textoCargando="Iniciando sesión…">
           Iniciar sesión
         </Boton>
         <Link href="/" className={clasesBoton({ variante: "secundario", tamano: "grande", anchoCompleto: true })}>
@@ -130,10 +161,15 @@ export function FormularioAcceso({ modalInicial }: { modalInicial?: ModalAcceso 
         </Boton>
       </Modal>
       {/* TRA-03: la reaceptación del aviso ocurre al iniciar sesión; se muestra sobre esta misma pantalla. */}
-      <ModalAvisoActualizado abierto={modal === "aviso-actualizado"} onCerrar={cerrarModal} onAceptar={() => router.push("/tutor")} onRechazar={() => {
-          cerrarModal();
-          router.push("/acceso");
-        }} />
+      <ModalAvisoActualizado
+        abierto={modal === "aviso-actualizado"}
+        onCerrar={cerrarModal}
+        version={versionAviso ? `v${versionAviso}` : undefined}
+        enviando={enviando}
+        // Con la variante de maquetado (sin credenciales escritas) solo se cierra; en el flujo real, aceptar registra la aceptación y entra.
+        onAceptar={() => (correo.trim() && contrasena ? void iniciar(true) : cerrarModal())}
+        onRechazar={cerrarModal}
+      />
     </div>
   );
 }

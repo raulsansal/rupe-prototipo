@@ -5,7 +5,7 @@ import { ListaRegistros } from "@/components/features/ListaRegistros";
 import { clasesBoton } from "@/components/ui/clasesBoton";
 import { EstadoCarga } from "@/components/ui/EstadoCarga";
 import { aFichaTutor, casosDeLaPersonaTutora } from "@/mocks/casos";
-import { SESION_TUTOR_EJEMPLO } from "@/mocks/sesion";
+import { obtenerSesion } from "@/server/sesion/sesion";
 
 export const metadata: Metadata = { title: "Mis registros · RUPE" };
 
@@ -13,7 +13,7 @@ export const metadata: Metadata = { title: "Mis registros · RUPE" };
 export default async function MisRegistros({ searchParams }: PageProps<"/tutor">) {
   const { estado } = await searchParams;
   const vacio = estado === "vacio";
-  const primerNombre = SESION_TUTOR_EJEMPLO.nombre.split(" ")[0];
+  const primerNombre = ((await obtenerSesion())?.nombre ?? "").split(" ")[0];
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">

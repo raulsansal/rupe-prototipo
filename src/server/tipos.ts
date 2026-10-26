@@ -13,7 +13,11 @@ export type Usuario = {
   telefono: string; estatus: 0 | 1; fechaRegistro: string; fechaUltimaModificacion: string;
   intentosFallidos: number; bloqueadoHasta: string | null; notificacionesActivas: boolean; rol: Rol;
 };
+/** tbl_aceptacion_aviso: un usuario acumula una aceptación por versión (R5, R22). */
+export type AceptacionAviso = { idAceptacionAviso: number; versionAviso: string; fechaHora: string; idUsuario: number };
 export type Sesion = { idSesion: number; tokenHash: string; fechaInicio: string; fechaExpiracion: string; fechaCierre: string | null; idUsuario: number };
+/** Intentos fallidos de un correo que NO tiene cuenta: el bloqueo (R17) debe verse igual que el de una cuenta real. */
+export type IntentosAnonimos = { intentos: number; bloqueadoHasta: string | null };
 export type Fotografia = { idFotografia: number; referenciaArchivo: string; formato: "JPG" | "PNG"; tamanoBytes: number; fechaCarga: string };
 export type Perro = {
   idPerro: number; nombre: string; sexo: Sexo; edadValor: number; edadUnidad: EdadUnidad; tamano: Tamano; color: string;

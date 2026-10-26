@@ -5,12 +5,11 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Avatar } from "@/components/ui/Avatar";
 import { BotonIcono } from "@/components/ui/BotonIcono";
-import { clasesBoton } from "@/components/ui/clasesBoton";
-import { Icono } from "@/components/ui/Icono";
 import { Etiqueta } from "@/components/ui/Etiqueta";
 import { Logo } from "@/components/ui/Logo";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import type { SesionAdmin } from "@/mocks/sesion";
+import { BotonCerrarSesion } from "./BotonCerrarSesion";
 import { EnlaceSaltar } from "./EnlaceSaltar";
 import { NavegacionAdmin } from "./NavegacionAdmin";
 import { GRUPOS_ADMIN, hrefActivo } from "./navegacion";
@@ -29,10 +28,7 @@ function PieCuenta({ sesion, soloAccion = false }: { sesion: SesionAdmin; soloAc
           </div>
         </div>
       )}
-      <Link href="/" className={clasesBoton({ variante: "secundario", anchoCompleto: true })}>
-        <Icono nombre="logout" tamano={20} />
-        Cerrar sesión
-      </Link>
+      <BotonCerrarSesion />
     </div>
   );
 }

@@ -1,23 +1,20 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useId, useRef, useState } from "react";
 import { Avatar } from "@/components/ui/Avatar";
-import { clasesBoton } from "@/components/ui/clasesBoton";
 import { Etiqueta } from "@/components/ui/Etiqueta";
-import { Icono } from "@/components/ui/Icono";
+import { BotonCerrarSesion } from "./BotonCerrarSesion";
 
 type Props = {
   nombre: string;
   /** Rol que se muestra junto al nombre (p. ej. «Administrador»). */
   rol?: string;
-  hrefCerrarSesion: string;
   /** Solo demostración: abre el panel al cargar. */
   abiertoInicial?: boolean;
 };
 
-/** Botón con el avatar que abre un panel con el nombre de la persona y «Cerrar sesión». Escape lo cierra y devuelve el foco. */
-export function MenuCuenta({ nombre, rol, hrefCerrarSesion, abiertoInicial = false }: Props) {
+/** Botón con el avatar que abre un panel con el nombre de la persona y «Cerrar sesión» (formulario POST). Escape lo cierra y devuelve el foco. */
+export function MenuCuenta({ nombre, rol, abiertoInicial = false }: Props) {
   const [abierto, setAbierto] = useState(abiertoInicial);
   const id = useId();
   const boton = useRef<HTMLButtonElement>(null);
@@ -63,10 +60,7 @@ export function MenuCuenta({ nombre, rol, hrefCerrarSesion, abiertoInicial = fal
               {rol && <Etiqueta>{rol}</Etiqueta>}
             </div>
           </div>
-          <Link href={hrefCerrarSesion} className={clasesBoton({ variante: "secundario", anchoCompleto: true })}>
-            <Icono nombre="logout" tamano={20} />
-            Cerrar sesión
-          </Link>
+          <BotonCerrarSesion />
         </div>
       )}
     </div>

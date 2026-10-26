@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { ALTO_TELEFONO, ALTO_VENTANA, ANCHOS, PUERTO, RUTAS, TEMAS, type Captura } from "../capturas.config";
 import { CLAVE_TEMA } from "../src/lib/tema";
+import { agregarSesion, reiniciarDatos, rolDeRuta } from "./sesion-pruebas";
 
 const raiz = process.cwd();
 const soloRutas = process.argv.find((a) => a.startsWith("--rutas="))?.split("=")[1];
@@ -122,6 +123,7 @@ async function autoprueba(navegador: Browser): Promise<boolean> {
   const ruta = RUTAS.find((r) => r.archivo === "tutor-caso-cerrado")!.ruta;
   const abrir = async () => {
     const contexto = await navegador.newContext({ viewport: { width: 390, height: ALTO_VENTANA } });
+    await agregarSesion(contexto, base, "tutor1"); // la ruta es de la persona tutora
     const pagina = await contexto.newPage();
     await pagina.goto(`${base}${ruta}`, { waitUntil: "load" });
     await esperarRecursos(pagina);
@@ -193,9 +195,15 @@ async function main() {
           const valor = tema === "oscuro" ? "dark" : "light";
           const contexto = await navegador.newContext({ viewport: { width: ancho, height: entrada.ventana ? ALTO_TELEFONO : ALTO_VENTANA } });
           await contexto.addInitScript(([clave, v]) => localStorage.setItem(clave, v), [CLAVE_TEMA, valor]);
+          const rol = entrada.rol !== undefined ? entrada.rol : rolDeRuta(ruta);
+          if (rol) await agregarSesion(contexto, base, rol);
           const pagina = await contexto.newPage();
           await pagina.goto(`${base}${ruta}`, { waitUntil: "load" });
           await esperarRecursos(pagina);
+          if (entrada.preparar) {
+            await entrada.preparar(pagina, { base });
+            await esperarRecursos(pagina);
+          }
           for (const seccion of secciones ?? [undefined]) {
             const archivo = nombreArchivo(entrada, seccion, ancho, tema);
             generadas.add(archivo);
@@ -235,6 +243,8 @@ async function main() {
       }
     }
   } finally {
+    // Deja limpios los datos (contadores de intentos del bloqueo, versión del aviso, sesiones) para que nada se arrastre a otras corridas.
+    console.log(`Datos ficticios reiniciados al terminar (HTTP ${await reiniciarDatos(base)})`);
     await navegador?.close();
     apagar();
   }

@@ -1,11 +1,13 @@
 import type { Metadata } from "next";
 import { FlujoRegistro } from "@/components/features/registro/FlujoRegistro";
 import { ID_RAZA_OTRA } from "@/mocks/catalogos";
+import { exigirSesionDePagina } from "@/server/sesion/pagina";
 
 export const metadata: Metadata = { title: "Registrar extravío · RUPE" };
 
 /** TUT-02 y TUT-03. ?paso=1|2 fija el paso inicial; ?raza=otra abre el paso 1 con la raza «Otra» y la fotografía cargada (capturas). */
 export default async function RegistrarExtravio({ searchParams }: PageProps<"/tutor/registrar">) {
+  await exigirSesionDePagina("Tutor"); // esta ruta no cuelga del layout de (tutor)
   const { paso, raza } = await searchParams;
   const otra = raza === "otra";
   return (

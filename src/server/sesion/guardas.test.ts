@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { ErrorApp } from "../errores";
-import { exigirAccesoAlCaso, exigirRol, type SesionActual } from "./guardas";
+import { exigirAccesoAlCaso, exigirRol, resolverAcceso, type SesionActual } from "./guardas";
 
 const tutora: SesionActual = { idUsuario: 2, rol: "Tutor", nombre: "T" };
 const otraTutora: SesionActual = { idUsuario: 5, rol: "Tutor", nombre: "O" };
@@ -27,4 +27,13 @@ test("R32 · solo la persona tutora dueña consulta, edita y cancela; otra tutor
   assert.equal(estado(() => exigirAccesoAlCaso(admin, 2, "consultar")), 200);
   assert.equal(estado(() => exigirAccesoAlCaso(admin, 2, "editar")), 403);
   assert.equal(estado(() => exigirAccesoAlCaso(admin, 2, "cancelar")), 403);
+});
+
+test("layouts · resolverAcceso: sin sesión → redirigir al inicio de sesión; con otro rol → 403; con el rol → pasa (ni el Administrador entra a Tutor ni al revés)", () => {
+  assert.equal(resolverAcceso(undefined, "Tutor"), "sin-sesion");
+  assert.equal(resolverAcceso(undefined, "Administrador"), "sin-sesion");
+  assert.equal(resolverAcceso(tutora, "Tutor"), "ok");
+  assert.equal(resolverAcceso(admin, "Administrador"), "ok");
+  assert.equal(resolverAcceso(tutora, "Administrador"), "prohibido");
+  assert.equal(resolverAcceso(admin, "Tutor"), "prohibido");
 });

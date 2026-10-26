@@ -9,15 +9,19 @@ type Props = {
   abierto: boolean;
   /** Escape o clic fuera: no es una decisión; la persona sigue sin poder continuar. */
   onCerrar: () => void;
-  /** Acciones; el Prototipo las conectará a la aceptación registrada (la maqueta: Aceptar → /tutor, Rechazar → /acceso). */
+  /** Acciones: «Aceptar» registra la aceptación y entra; «Rechazar» no entra. */
   onAceptar: () => void;
   onRechazar: () => void;
+  /** Etiqueta de la versión vigente (p. ej. «v2.0»); por defecto la del parámetro del maquetado. */
+  version?: string;
+  /** Mientras se registra la aceptación. */
+  enviando?: boolean;
 };
 
 /** TRA-03: aviso de privacidad actualizado; reaceptación al iniciar sesión (HU 003). */
-export function ModalAvisoActualizado({ abierto, onCerrar, onAceptar, onRechazar }: Props) {
+export function ModalAvisoActualizado({ abierto, onCerrar, onAceptar, onRechazar, version = etiquetaVersionAviso(), enviando }: Props) {
   return (
-    <Modal abierto={abierto} onCerrar={onCerrar} titulo={`Aviso de privacidad actualizado ${etiquetaVersionAviso()}`}>
+    <Modal abierto={abierto} onCerrar={onCerrar} titulo={`Aviso de privacidad actualizado ${version}`}>
       <p className="text-small text-text-muted">Actualizamos el aviso de privacidad. Revisa la nueva versión antes de continuar.</p>
       <Alerta tipo="info" titulo="Para continuar">
         Debes aceptar la nueva versión; queda registrada con su fecha.
@@ -26,7 +30,9 @@ export function ModalAvisoActualizado({ abierto, onCerrar, onAceptar, onRechazar
         <Boton variante="secundario" onClick={onRechazar}>
           Rechazar
         </Boton>
-        <Boton onClick={onAceptar}>Aceptar</Boton>
+        <Boton onClick={onAceptar} cargando={enviando}>
+          Aceptar
+        </Boton>
       </div>
     </Modal>
   );

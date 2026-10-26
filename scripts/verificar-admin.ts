@@ -18,6 +18,7 @@ import { CATEGORIAS_MOTIVO } from "../src/mocks/catalogos";
 import { AVISTAMIENTOS } from "../src/mocks/avistamientos";
 import { desactivarElemento, esUltimaActivaDeCategoria, guardarElemento, motivoNoDesactivable, validarCatalogo } from "../src/lib/catalogos";
 import { CLAVE_TEMA } from "../src/lib/tema";
+import { agregarSesion, fetchComo, rolDeRuta, type RolPrueba } from "./sesion-pruebas";
 import { BITACORA, ENTIDAD_DE_TIPO, TIPOS_ACCION, TIPOS_CON_DETALLE, TIPOS_CON_MOTIVO } from "../src/mocks/bitacora";
 import { filtrarBitacora } from "../src/lib/bitacora";
 import { generarReporte } from "../src/lib/reportes";
@@ -62,8 +63,10 @@ async function abrirNavegador(): Promise<Browser> {
   }
 }
 
-async function nuevaPagina(navegador: Browser, ancho = 390, tema: "light" | "dark" = "light"): Promise<{ contexto: BrowserContext; pagina: Page }> {
+/** Con la sesión REAL del Administrador (las rutas /admin las protege el servidor); `null` = sin sesión. */
+async function nuevaPagina(navegador: Browser, ancho = 390, tema: "light" | "dark" = "light", rol: RolPrueba | null = "admin"): Promise<{ contexto: BrowserContext; pagina: Page }> {
   const contexto = await navegador.newContext({ viewport: { width: ancho, height: 900 }, colorScheme: "light" });
+  if (rol) await agregarSesion(contexto, base, rol);
   await contexto.addInitScript(([k, v]) => localStorage.setItem(k, v), [CLAVE_TEMA, tema]);
   return { contexto, pagina: await contexto.newPage() };
 }
@@ -122,7 +125,7 @@ async function armazon(navegador: Browser) {
   const cajon = pagina.getByRole("dialog", { name: "Menú de administración" });
   ver((await cajon.isVisible()) && (await cajon.getByText("Administrador", { exact: true }).isVisible()) && JSON.stringify(await cajon.locator("h2").allTextContents()) === JSON.stringify(GRUPOS), "cajón: se abre con el ícono de menú, con la etiqueta «Administrador» y los 5 grupos (Resumen, Moderación, Usuarios, Catálogos, Sistema)", "cajón: no abrió o su contenido es incorrecto");
   const ultimo = await cajon.evaluate((d) => { const as = [...d.querySelectorAll("a, button")]; return as[as.length - 1]?.textContent?.trim(); });
-  ver(ultimo === "Cerrar sesión" && (await enlace(cajon, "Cerrar sesión").getAttribute("href")) === "/", "cajón: «Cerrar sesión» al final y lleva a la página principal", `cajón: último control «${ultimo}»`);
+  ver(ultimo === "Cerrar sesión" && (await boton(cajon, "Cerrar sesión").locator("xpath=ancestor::form").getAttribute("action")) === "/api/acceso/cerrar", "cajón: «Cerrar sesión» al final (formulario POST a /api/acceso/cerrar, que redirige a la página principal)", `cajón: último control «${ultimo}»`);
   // Foco atrapado: tabular muchas veces nunca saca el foco del cajón.
   // (Chrome puede pasar por su propia barra al dar la vuelta; el foco no debe quedar fuera dos pulsaciones seguidas ni al final.)
   let seguidas = 0;
@@ -157,7 +160,7 @@ async function armazon(navegador: Browser) {
   const lateral = pagina.locator("aside nav[aria-label='Administración']");
   ver((await lateral.isVisible()) && JSON.stringify(await lateral.locator("h2").allTextContents()) === JSON.stringify(GRUPOS) && (await pagina.getByRole("button", { name: "Menú", exact: true }).count()) === 0, "plantilla del Administrador (1280 px): barra lateral con los 5 grupos y sin botón de menú", "plantilla del Administrador (1280 px): barra lateral incorrecta");
   ver((await pagina.locator("header").getByText("Administrador", { exact: true }).isVisible()) && (await pagina.locator("header [role=img][aria-label^='Avatar de']").isVisible()) && (await pagina.locator("header").locator("a[href*='avistamientos'], [aria-label*='otificacion']").count()) === 0, "plantilla del Administrador (1280 px): avatar y etiqueta «Administrador» en el encabezado, sin campana", "plantilla del Administrador (1280 px): encabezado incorrecto");
-  ver((await pagina.locator("aside").getByRole("link", { name: "Tablero" }).getAttribute("aria-current")) === "page" && (await enlace(pagina.locator("aside"), "Cerrar sesión").isVisible()), "barra lateral: «Tablero» activo y «Cerrar sesión» al pie", "barra lateral: activo o Cerrar sesión incorrectos");
+  ver((await pagina.locator("aside").getByRole("link", { name: "Tablero" }).getAttribute("aria-current")) === "page" && (await boton(pagina.locator("aside"), "Cerrar sesión").isVisible()), "barra lateral: «Tablero» activo y «Cerrar sesión» al pie", "barra lateral: activo o Cerrar sesión incorrectos");
   await irA(pagina, "/admin/usuarios");
   ver((await pagina.locator("aside").getByRole("link", { name: "Usuarios" }).getAttribute("aria-current")) === "page", "barra lateral: «Usuarios» activo en ADM-03", "barra lateral: «Usuarios» no está activo");
   // Las 12 opciones del menú llevan a pantallas reales (ya no queda ninguna «Pantalla pendiente») y la opción de la ruta queda resaltada; las desconocidas dan 404.
@@ -644,15 +647,15 @@ async function moderacionRegistros(navegador: Browser) {
   const reservadosDe = (c: (typeof CASOS_MODERACION)[number]) => [c.direccionAproximada, c.referenciasDelLugar, c.descripcionCircunstancias].filter((v): v is string => Boolean(v));
   const fugasTutor: string[] = [];
   for (const ruta of [REGISTROS_RUTA, ...CASOS_MODERACION.map((c) => `${REGISTROS_RUTA}/${c.folio}`), "/admin/avistamientos", "/admin/avistamientos?modal=detalle-fallecido"]) {
-    const h = await (await fetch(`${base}${ruta}`)).text();
+    const h = await (await fetchComo(base, rolDeRuta(ruta), ruta)).text();
     for (const v of secretosTutor) if (h.includes(v)) fugasTutor.push(`${ruta} → ${v.slice(0, 12)}…`);
   }
   ver(fugasTutor.length === 0, `la persona tutora (nombre, correo, teléfono) y el token del QR no aparecen en ninguna de las ${CASOS_MODERACION.length + 3} pantallas de moderación (ni en los datos que viajan al navegador)`, `datos de la persona tutora en: ${fugasTutor.join(" | ")}`);
-  const listaHtml = await (await fetch(`${base}${REGISTROS_RUTA}`)).text();
-  const avHtml = await (await fetch(`${base}/admin/avistamientos`)).text();
+  const listaHtml = await (await fetchComo(base, "admin", REGISTROS_RUTA)).text();
+  const avHtml = await (await fetchComo(base, "admin", "/admin/avistamientos")).text();
   const reservadosEnListas = CASOS_MODERACION.flatMap(reservadosDe).filter((v) => listaHtml.includes(v) || avHtml.includes(v));
   ver(reservadosEnListas.length === 0, "los datos reservados del extravío (calle, referencias, descripción) no viajan en la lista de ADM-04 ni en ADM-05: solo están en el detalle", `reservados en las listas: ${reservadosEnListas.join(" | ")}`);
-  const detalleHtml = await (await fetch(`${base}${REGISTROS_RUTA}/${FOLIO_MODERACION_ACTIVO}`)).text();
+  const detalleHtml = await (await fetchComo(base, "admin", `${REGISTROS_RUTA}/${FOLIO_MODERACION_ACTIVO}`)).text();
   ver(reservadosDe(CASOS_MODERACION.find((c) => c.folio === FOLIO_MODERACION_ACTIVO)!).every((v) => detalleHtml.includes(v.replace(/&/g, "&amp;"))), "el detalle del Administrador sí lleva los datos reservados del caso (HU 016)", "el detalle del Administrador no trae los datos reservados");
   ver((await enlace(pagina, "Regresar a moderación de registros").getAttribute("href")) === "/admin/registros" && (await pagina.getByRole("heading", { level: 1 }).innerText()) === FOLIO_MODERACION_ACTIVO && (await pagina.getByText("En búsqueda", { exact: true }).first().isVisible()) && (await pagina.getByText("Vista de la persona Administrador: solo consulta.").isVisible()), "TUT-05 Administrador: enlace «Regresar a moderación de registros», folio, estado y el mensaje «solo consulta»", "TUT-05 Administrador: encabezado incorrecto");
   const acc = await pagina.locator("main").getByRole("button").allInnerTexts();
@@ -716,7 +719,7 @@ async function moderacionAvistamientos(navegador: Browser) {
   await boton(pagina, "Página 1").click();
 
   // Coherencia con la persona tutora: un avistamiento oculto no está en su historial (HU 037, regla 3).
-  const htmlTutor = await (await fetch(`${base}/tutor/casos/RUPE-Y9F4LK2E/avistamientos`)).text();
+  const htmlTutor = await (await fetchComo(base, "tutor1", "/tutor/casos/RUPE-Y9F4LK2E/avistamientos")).text();
   ver(AVISTAMIENTOS_MODERACION.filter((a) => !a.visible).every((a) => !AVISTAMIENTOS.some((x) => x.id === a.id)) && !htmlTutor.includes("Texto con datos de contacto de un tercero."), "coherencia: los avistamientos ocultos por moderación no aparecen en el historial de la persona tutora", "coherencia: un avistamiento oculto aparece en el historial de la persona tutora");
   // La fotografía de un «Fallecido» nunca se dibuja en la lista.
   const fallecido = tarj(pagina, ID_AVISTAMIENTO_FALLECIDO);
@@ -1189,7 +1192,7 @@ async function reportes(navegador: Browser) {
   const filas390 = await pagina.locator("article").evaluateAll((as) => new Set(as.map((a) => Math.round(a.getBoundingClientRect().top))).size);
   ver(col === 1 && filas390 === 2, "ADM-02 (390): los desgloses en una columna y los indicadores en 2 × 2", `ADM-02 (390): columnas ${col}, filas de indicadores ${filas390}`);
   await contexto.close();
-  const html = await (await fetch(`${base}/admin/reportes?desde=2026-10-01&hasta=2026-10-18`)).text();
+  const html = await (await fetchComo(base, "admin", "/admin/reportes?desde=2026-10-01&hasta=2026-10-18")).text();
   ver(SECRETOS_TUTOR_5C.every((v) => !html.includes(v)), "ADM-02: ningún dato de la persona tutora (nombre, correo, teléfono, token) en la página", "ADM-02: hay datos de la persona tutora");
 }
 
@@ -1288,7 +1291,7 @@ async function parametros(navegador: Browser) {
   await irA(pagina, "/admin/parametros?modal=restablecer");
   ver(await dialogoAbierto(pagina), "ADM-11 ?modal=restablecer: abre MOD-12", "ADM-11: ?modal=restablecer no abrió");
   await contexto.close();
-  const html = await (await fetch(`${base}/admin/parametros`)).text();
+  const html = await (await fetchComo(base, "admin", "/admin/parametros")).text();
   ver(SECRETOS_TUTOR_5C.every((v) => !html.includes(v)), "ADM-11: ningún dato de la persona tutora en la página", "ADM-11: hay datos de la persona tutora");
 }
 
@@ -1403,7 +1406,7 @@ async function bitacora(navegador: Browser) {
   await irA(pagina, `/admin/bitacora?pagina=${Math.floor(BITACORA.indexOf(conMotivo) / 8) + 1}`);
   ver((await pagina.locator(`li[data-accion='${conMotivo.id}']`).innerText()).includes(`Motivo ${conMotivo.motivo}`), "ADM-12 (390): la tarjeta de «deshabilitar caso» u «ocultar avistamiento» muestra el motivo", "ADM-12 (390): la tarjeta no muestra el motivo");
   await contexto.close();
-  const html = await (await fetch(`${base}/admin/bitacora`)).text();
+  const html = await (await fetchComo(base, "admin", "/admin/bitacora")).text();
   ver(SECRETOS_TUTOR_5C.every((v) => !html.includes(v)) && !html.includes("@example.org"), "ADM-12: ningún dato de la persona tutora (nombre, correo, teléfono, token) en la página", "ADM-12: hay datos de la persona tutora");
 }
 
@@ -1628,7 +1631,7 @@ async function enlacesYGeometria(navegador: Browser) {
   await contexto.close();
   const malos: string[] = [];
   for (const h of vistos) {
-    const s = (await fetch(`${base}${h}`, { redirect: "follow" })).status;
+    const s = (await fetchComo(base, rolDeRuta(h), h, { redirect: "follow" })).status;
     if (s === 404 || s >= 500) malos.push(`${h} → ${s}`);
   }
   ver(malos.length === 0, `enlaces internos de las pantallas del Administrador: ${vistos.size} rutas distintas, ninguna responde 404`, `enlaces rotos: ${malos.join(" | ")}`);

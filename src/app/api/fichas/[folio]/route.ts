@@ -1,6 +1,6 @@
 import { PATRON_FOLIO } from "@/mocks/tipos";
 import { normalizarFolio } from "@/server/dominio/folio";
-import { formatoInvalido, respuestaDeError } from "@/server/errores";
+import { formatoInvalido, jsonApi, respuestaDeError } from "@/server/errores";
 import { consultarFichaPorFolio } from "@/server/servicios/fichas";
 
 /**
@@ -11,7 +11,7 @@ export async function GET(_peticion: Request, contexto: RouteContext<"/api/ficha
   try {
     const { folio } = await contexto.params;
     if (!PATRON_FOLIO.test(normalizarFolio(folio))) throw formatoInvalido("FOLIO_INVALIDO", "El folio debe tener el formato RUPE-XXXXXXXX.");
-    return Response.json({ ficha: await consultarFichaPorFolio(folio) });
+    return jsonApi({ ficha: await consultarFichaPorFolio(folio) });
   } catch (e) {
     return respuestaDeError(e);
   }

@@ -6,6 +6,7 @@ import "server-only";
 // sus cifras no deben cambiar. En P6 deberán SUMAR a ellos los casos y avistamientos reales de este almacén (los sembrados aquí ya están en el
 // maquetado de moderación pero no en esas cifras), sin cambiar hoy ninguna cifra.
 import { hashSync } from "bcryptjs";
+import { COSTO_BCRYPT } from "../sesion/contrasenas";
 import { CASOS_ORIGEN } from "../../mocks/casos";
 import { CATEGORIAS_ESTADO_ANIMAL, CATEGORIAS_MOTIVO } from "../../mocks/catalogos";
 import { CATALOGOS } from "../../mocks/catalogosAdmin";
@@ -18,8 +19,6 @@ import type { Almacen } from "../memoria/almacen";
 import { siguienteId } from "../memoria/almacen";
 import type * as T from "../tipos";
 
-/** Costo de bcrypt: bajo lo bastante para que el arranque y las pruebas no se vuelvan lentos, sin ser trivial. */
-export const COSTO_BCRYPT = 10;
 const ID_ADMIN = 1; // Ricardo Vega Ficticio
 const ID_TUTOR_1 = 2; // Rosa Hernández Ficticia: dueña de los casos de CASOS_ORIGEN
 const ID_TUTOR_2 = 5; // Luis Navarro Ficticio: dueño de los casos extra de moderación
@@ -79,6 +78,8 @@ export function sembrar(a: Almacen, entorno: Entorno = process.env): Almacen {
       intentosFallidos: 0, bloqueadoHasta: null, notificacionesActivas: true, rol: u.rol,
     });
     a.ids.usuario = Math.max(a.ids.usuario ?? 0, u.id);
+    // R5: todo usuario tiene al menos una aceptación del aviso (versión vigente al registrarse).
+    a.aceptaciones.push({ idAceptacionAviso: siguienteId(a, "aceptacion"), versionAviso: "1.0", fechaHora: FECHA_REGISTRO_USUARIOS, idUsuario: u.id });
   }
   const usuarioPorNombre = (n: string) => a.usuarios.find((u) => u.nombreCompleto === n)!.idUsuario;
 

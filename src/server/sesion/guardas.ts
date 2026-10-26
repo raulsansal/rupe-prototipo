@@ -24,3 +24,10 @@ export function exigirAccesoAlCaso(sesion: SesionActual | undefined, idDuenoDelC
   if (s.idUsuario !== idDuenoDelCaso) throw noEncontrado();
   return s;
 }
+
+export type ResultadoDeAcceso = "ok" | "sin-sesion" | "prohibido";
+/** Para páginas y layouts: sin sesión → ir al inicio de sesión; con otro rol → acceso denegado (403). */
+export function resolverAcceso(sesion: SesionActual | undefined, rol: Rol): ResultadoDeAcceso {
+  if (!sesion) return "sin-sesion";
+  return sesion.rol === rol ? "ok" : "prohibido";
+}

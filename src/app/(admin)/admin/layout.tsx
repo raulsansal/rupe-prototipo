@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
 import { PlantillaAdmin } from "@/components/layout/PlantillaAdmin";
-import { SESION_ADMIN_EJEMPLO } from "@/mocks/sesion";
+import { exigirSesionDePagina } from "@/server/sesion/pagina";
 
-// Sin autenticación en esta fase: la sesión es ficticia.
-export default function LayoutAdmin({ children }: { children: ReactNode }) {
-  return <PlantillaAdmin sesion={SESION_ADMIN_EJEMPLO}>{children}</PlantillaAdmin>;
+export default async function LayoutAdmin({ children }: { children: ReactNode }) {
+  const sesion = await exigirSesionDePagina("Administrador");
+  return <PlantillaAdmin sesion={{ nombre: sesion.nombre, rol: "Administrador" }}>{children}</PlantillaAdmin>;
 }

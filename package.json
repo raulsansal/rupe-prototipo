@@ -19,7 +19,8 @@
     "verificar-admin": "tsx scripts/verificar-admin.ts",
     "auditar-tactil": "tsx scripts/auditar-tactil.ts",
     "probar": "tsx --require ./scripts/server-only-vacio.cjs --test --test-reporter=spec \"src/server/**/*.test.ts\"",
-    "verificar-secretos": "tsx scripts/verificar-secretos.ts"
+    "verificar-secretos": "tsx scripts/verificar-secretos.ts",
+    "verificar-acceso": "tsx scripts/verificar-acceso.ts"
   },
   "dependencies": {
     "@material-symbols/svg-400": "^0.48.0",

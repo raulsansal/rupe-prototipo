@@ -6,7 +6,7 @@ import type * as T from "../tipos";
 import { sembrar } from "../seed/seed";
 
 export type Almacen = {
-  usuarios: T.Usuario[]; sesiones: T.Sesion[]; fotografias: T.Fotografia[]; perros: T.Perro[]; casos: T.CasoExtravio[];
+  usuarios: T.Usuario[]; aceptaciones: T.AceptacionAviso[]; intentosAnonimos: Record<string, T.IntentosAnonimos>; sesiones: T.Sesion[]; fotografias: T.Fotografia[]; perros: T.Perro[]; casos: T.CasoExtravio[];
   historial: T.MovimientoDeHistorial[]; qr: T.CodigoQr[]; avistamientos: T.Avistamiento[]; avistamientoEstados: T.AvistamientoEstadoAnimal[];
   notificaciones: T.Notificacion[]; bitacora: T.AccionBitacoraReg[];
   alcaldias: T.Alcaldia[]; razas: T.Raza[]; categoriasMotivo: T.CategoriaMotivo[]; motivos: T.Motivo[];
@@ -16,7 +16,7 @@ export type Almacen = {
 };
 
 export const almacenVacio = (): Almacen => ({
-  usuarios: [], sesiones: [], fotografias: [], perros: [], casos: [], historial: [], qr: [], avistamientos: [], avistamientoEstados: [], notificaciones: [], bitacora: [],
+  usuarios: [], aceptaciones: [], intentosAnonimos: {}, sesiones: [], fotografias: [], perros: [], casos: [], historial: [], qr: [], avistamientos: [], avistamientoEstados: [], notificaciones: [], bitacora: [],
   alcaldias: [], razas: [], categoriasMotivo: [], motivos: [], categoriasEstadoAnimal: [], estadosAnimal: [], estadosCaso: [], parametros: [], ids: {},
 });
 

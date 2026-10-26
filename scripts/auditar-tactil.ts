@@ -11,6 +11,7 @@ import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { chromium, type Browser } from "playwright";
 import { ANCHOS, RUTAS } from "../capturas.config";
 import { CLAVE_TEMA } from "../src/lib/tema";
+import { agregarSesion, reiniciarDatos, rolDeRuta } from "./sesion-pruebas";
 
 const PUERTO = 3107;
 const base = `http://localhost:${PUERTO}`;
@@ -61,8 +62,11 @@ async function main() {
       if (esGaleria !== galerias || !(e.anchos ?? ANCHOS).includes(390)) continue;
       const contexto = await navegador.newContext({ viewport: { width: 390, height: e.ventana ? 844 : 900 } });
       await contexto.addInitScript(([k, v]) => localStorage.setItem(k, v), [CLAVE_TEMA, "light"]);
+      const rol = e.rol !== undefined ? e.rol : rolDeRuta(e.ruta);
+      if (rol) await agregarSesion(contexto, base, rol);
       const pagina = await contexto.newPage();
       await pagina.goto(`${base}${e.ruta}`, { waitUntil: "load" });
+      if (e.preparar) await e.preparar(pagina, { base });
       await pagina.evaluate(() => document.fonts.ready);
       await pagina.waitForTimeout(200);
       const lista = await pagina.evaluate(() => {
@@ -96,6 +100,7 @@ async function main() {
       await contexto.close();
     }
   } finally {
+    await reiniciarDatos(base); // limpia bloqueos y aviso de las pantallas con estado real
     await navegador?.close();
     apagar();
   }

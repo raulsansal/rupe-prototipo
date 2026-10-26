@@ -4,6 +4,7 @@
 // Opciones: --sin-build  reutiliza el build existente en .next
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
+import { agregarSesion, rolDeRuta } from "./sesion-pruebas";
 import { CLAVE_TEMA } from "../src/lib/tema";
 
 const PUERTO = 3104;
@@ -56,6 +57,9 @@ async function nuevaPagina(navegador: Browser, ancho: number, tema: "light" | "d
 }
 
 async function irA(pagina: Page, ruta: string) {
+  // Las rutas /tutor y /admin las protege el servidor: se visitan con la sesión real del rol (cuentas ficticias de .env.local).
+  const rol = rolDeRuta(ruta);
+  if (rol) await agregarSesion(pagina.context(), base, rol);
   // No se espera "networkidle": Next precarga (prefetch) enlaces a rutas que aún no existen y esas peticiones no terminan.
   await pagina.goto(`${base}${ruta}`, { waitUntil: "load" });
   await pagina.evaluate(() => document.fonts.ready);
@@ -250,7 +254,7 @@ async function menus(navegador: Browser) {
   const grupo = await dlg.locator("h2").allTextContents();
   ver(grupo.join("|") === "Resumen|Moderación|Usuarios|Catálogos|Sistema", "cajón de administración: grupos del mockup 3.1", `cajón de administración: grupos ${grupo.join("|")}`);
   await areasTactiles(pagina, "cajón de administración abierto 390px");
-  const salirCajon = dlg.getByRole("link", { name: "Cerrar sesión" });
+  const salirCajon = dlg.getByRole("button", { name: "Cerrar sesión" });
   const ultimo = await dlg.evaluate((d) => { const as = [...d.querySelectorAll("a, button")]; return as[as.length - 1]?.textContent?.trim(); });
   ver((await salirCajon.isVisible()) && ultimo === "Cerrar sesión" && (await dlg.getByText("Ricardo Vega").first().isVisible()), "cajón de administración: «Cerrar sesión» al final, con el nombre y el rol arriba", `cajón de administración: «Cerrar sesión» visible=${await salirCajon.isVisible()}, último control «${ultimo}»`);
   await pagina.keyboard.press("Escape");
@@ -262,7 +266,7 @@ async function menus(navegador: Browser) {
   await irA(pagina, "/dev/plantillas/admin");
   const lateral = pagina.locator("aside");
   const pie = await lateral.evaluate((a) => {
-    const salir = [...a.querySelectorAll("a")].find((x) => x.textContent?.includes("Cerrar sesión"));
+    const salir = [...a.querySelectorAll("button")].find((x) => x.textContent?.includes("Cerrar sesión"));
     const r = salir?.getBoundingClientRect();
     const ar = a.getBoundingClientRect();
     return { hay: !!salir, alPie: !!r && ar.bottom - r.bottom < 40, avatar: !!a.querySelector('[role=img][aria-label^="Avatar de"]'), texto: a.textContent ?? "" };
@@ -277,7 +281,7 @@ async function menus(navegador: Browser) {
   await irA(pagina, "/dev/plantillas/tutor");
   const cuenta = pagina.getByRole("button", { name: /^Cuenta de / });
   await cuenta.click();
-  const salir = pagina.getByRole("link", { name: "Cerrar sesión" });
+  const salir = pagina.getByRole("button", { name: "Cerrar sesión" });
   ver((await salir.isVisible()) && (await pagina.getByText("Rosa Hernández").first().isVisible()), "menú de cuenta (tutor): muestra el nombre y «Cerrar sesión»", "menú de cuenta (tutor): no muestra nombre o «Cerrar sesión»");
   await areasTactiles(pagina, "menú de cuenta (tutor) abierto");
   await pagina.keyboard.press("Escape");

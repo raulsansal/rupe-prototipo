@@ -9,6 +9,10 @@ export class ErrorApp extends Error {
     mensaje: string,
     /** Regla del diccionario (R10, R13…) que motivó el rechazo, si la hay. */
     readonly regla?: string,
+    /** Mensajes por campo de un formulario (validación del servidor). */
+    readonly campos?: Record<string, string>,
+    /** Datos extra que la pantalla necesita (p. ej. la versión vigente del aviso). */
+    readonly extra?: Record<string, unknown>,
   ) {
     super(mensaje);
     this.name = "ErrorApp";
@@ -20,13 +24,20 @@ export const sinSesion = () => new ErrorApp(401, "SIN_SESION", "Inicia sesión p
 export const sinPermiso = () => new ErrorApp(403, "SIN_PERMISO", "Tu rol no puede realizar esta acción.");
 export const noEncontrado = (mensaje = "No se encuentra.", codigo = "NO_ENCONTRADO") => new ErrorApp(404, codigo, mensaje);
 export const conflictoDeEstado = (codigo: string, mensaje: string, regla?: string) => new ErrorApp(409, codigo, mensaje, regla);
+/** 422: el formulario trae errores; `campos` dice cuáles, campo por campo. */
+export const validacion = (campos: Record<string, string>, mensaje = "Revisa los campos marcados.") => new ErrorApp(422, "VALIDACION", mensaje, undefined, campos);
 export const reglaDeNegocio = (regla: string, mensaje: string, codigo = "REGLA_DE_NEGOCIO") => new ErrorApp(422, codigo, mensaje, regla);
 
 /** Cuerpo JSON de cualquier error: {error:{codigo,mensaje,regla?}}. */
-export const cuerpoDeError = (e: ErrorApp) => ({ error: { codigo: e.codigo, mensaje: e.message, ...(e.regla ? { regla: e.regla } : {}) } });
+export const cuerpoDeError = (e: ErrorApp) => ({ error: { codigo: e.codigo, mensaje: e.message, ...(e.regla ? { regla: e.regla } : {}), ...(e.campos ? { campos: e.campos } : {}), ...(e.extra ?? {}) } });
+
+/** Toda respuesta de /api lleva `Cache-Control: no-store` (también las de error): nada de lo que devuelve la API se guarda en cachés. */
+export const SIN_CACHE = { "Cache-Control": "no-store" } as const;
+export const jsonApi = (cuerpo: unknown, estado = 200, cabeceras: HeadersInit = {}) => Response.json(cuerpo, { status: estado, headers: { ...SIN_CACHE, ...cabeceras } });
+export const redireccionApi = (destino: string, estado: 303 | 302 = 303) => new Response(null, { status: estado, headers: { Location: destino, ...SIN_CACHE } });
 
 export function respuestaDeError(e: unknown): Response {
-  if (e instanceof ErrorApp) return Response.json(cuerpoDeError(e), { status: e.estado });
+  if (e instanceof ErrorApp) return jsonApi(cuerpoDeError(e), e.estado);
   console.error(e);
-  return Response.json({ error: { codigo: "ERROR_INTERNO", mensaje: "Ocurrió un error inesperado." } }, { status: 500 });
+  return jsonApi({ error: { codigo: "ERROR_INTERNO", mensaje: "Ocurrió un error inesperado." } }, 500);
 }

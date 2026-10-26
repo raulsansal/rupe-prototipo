@@ -3,10 +3,15 @@ import { crearRepositorios } from "../memoria/repos";
 import type { Repositorios } from "../repos";
 import { relojDelSistema, type Reloj } from "../dominio/fechas";
 import type { Aleatorio } from "../dominio/folio";
+import type { Comparar, Hashear } from "../sesion/contrasenas";
 import type { MovimientoHistorial, EstadoCaso } from "../../mocks/tipos";
 
 /** Lo que reciben los servicios: repositorios y reloj (inyectables en las pruebas). */
-export type Contexto = { repos: Repositorios; reloj: Reloj; aleatorio?: Aleatorio };
+export type Contexto = {
+  repos: Repositorios; reloj: Reloj; aleatorio?: Aleatorio;
+  /** Inyectables en las pruebas (por defecto, bcryptjs). */
+  comparar?: Comparar; hashear?: Hashear;
+};
 export const contextoPorDefecto = (): Contexto => ({ repos: crearRepositorios(), reloj: relojDelSistema });
 
 /** Historial del caso con los nombres de estado (el dominio trabaja con los tipos del maquetado; el repositorio guarda ids, como el diccionario). */

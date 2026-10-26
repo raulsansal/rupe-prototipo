@@ -1,4 +1,4 @@
-import { respuestaDeError } from "@/server/errores";
+import { jsonApi, respuestaDeError } from "@/server/errores";
 import { obtenerAlmacen, reiniciarAlmacen } from "@/server/memoria/almacen";
 import { autorizarReinicio, reinicioRequiereSesion, VARIABLE_PERMITIR_REINICIO } from "@/server/servicios/reinicio";
 import { obtenerSesion } from "@/server/sesion/sesion";
@@ -14,7 +14,7 @@ export async function POST() {
     autorizarReinicio({ entorno, permitir, sesion: reinicioRequiereSesion(entorno, permitir) ? await obtenerSesion() : undefined });
     reiniciarAlmacen();
     const a = obtenerAlmacen();
-    return Response.json({ estado: "reiniciado", datos: { usuarios: a.usuarios.length, casos: a.casos.length, avistamientos: a.avistamientos.length } });
+    return jsonApi({ estado: "reiniciado", datos: { usuarios: a.usuarios.length, casos: a.casos.length, avistamientos: a.avistamientos.length } });
   } catch (e) {
     return respuestaDeError(e);
   }

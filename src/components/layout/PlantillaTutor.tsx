@@ -43,7 +43,7 @@ export function PlantillaTutor({ children, sesion, itemActivo, cuentaAbiertaInic
           <div className="ml-auto flex items-center gap-1">
             <ThemeToggle compacto />
             <EnlaceIcono href="/tutor/avistamientos" icono="notifications" etiqueta="Avistamientos" insignia={sesion.avisosNuevos} />
-            <MenuCuenta nombre={sesion.nombre} hrefCerrarSesion="/" abiertoInicial={cuentaAbiertaInicial} />
+            <MenuCuenta nombre={sesion.nombre} abiertoInicial={cuentaAbiertaInicial} />
           </div>
         </div>
       </header>

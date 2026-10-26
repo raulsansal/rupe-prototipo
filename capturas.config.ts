@@ -1,3 +1,6 @@
+import type { Page } from "playwright";
+import { credencial, fijarVersionAviso } from "./scripts/sesion-pruebas";
+import { USUARIOS_INICIALES } from "./src/mocks/usuarios";
 import { FOLIO_CON_AVISTAMIENTOS, FOLIO_UN_AVISTAMIENTO } from "./src/mocks/avistamientos";
 import { FOLIO_EN_CURSO } from "./src/mocks/casos";
 import { FOLIO_MODERACION_ACTIVO, FOLIO_MODERACION_CANCELADO, FOLIO_MODERACION_DESHABILITADO } from "./src/mocks/moderacion";
@@ -6,7 +9,17 @@ import { FOLIO_MODERACION_ACTIVO, FOLIO_MODERACION_CANCELADO, FOLIO_MODERACION_D
 // Una ruta sin `secciones` se captura completa; con `secciones`, cada [data-seccion="..."] por separado.
 // `anchos` sustituye a ANCHOS para esa entrada; `archivo` fija el nombre base (por defecto, la ruta sin parámetros).
 // `ventana`: con un modal abierto se captura la ventana visible (390×ALTO_TELEFONO) en lugar de la página completa.
-export type Captura = { ruta: string; secciones?: string[]; anchos?: number[]; archivo?: string; ventana?: boolean };
+export type Captura = {
+  ruta: string;
+  secciones?: string[];
+  anchos?: number[];
+  archivo?: string;
+  ventana?: boolean;
+  /** Sesión con la que se visita (cuentas ficticias de .env.local). Por defecto sale de la ruta: /admin → admin, /tutor → tutor1; null = sin sesión. */
+  rol?: "admin" | "tutor1" | "tutor2" | null;
+  /** Interacciones previas a la captura (estados REALES del servidor: errores, bloqueo…). */
+  preparar?: (pagina: Page, contexto: { base: string }) => Promise<void>;
+};
 
 export const RUTAS: Captura[] = [
   { ruta: "/dev/fundaciones" },
@@ -153,6 +166,33 @@ RUTAS.push(
   { ruta: "/admin/bitacora?pagina=2", archivo: "admin-bitacora-pagina-2", anchos: M },
   { ruta: "/admin/bitacora?estado=vacio", archivo: "admin-bitacora-sin-resultados" },
   { ruta: "/admin/bitacora?estado=cargando", archivo: "admin-bitacora-cargando", anchos: M },
+);
+// Prototipo P1 · Acceso. Estados REALES del servidor (no variantes de la URL): cada captura rellena el formulario y lo envía. Tutor y Administrador entran con
+// las cuentas ficticias de .env.local. Los datos se reinician al terminar (bloqueos, aviso de la versión 2.0, sesiones).
+const CORREO_SIN_CUENTA_CON_CREDENCIAL = USUARIOS_INICIALES.find((u) => u.id === 6)!.correo; // cuenta del seed sin contraseña: sirve para bloquear sin tocar las reales
+const llenarAcceso = async (p: Page, correo: string, contrasena: string) => {
+  await p.getByLabel("Correo electrónico").fill(correo);
+  await p.getByLabel(/^Contraseña/).fill(contrasena);
+  await p.getByRole("button", { name: "Iniciar sesión" }).click();
+};
+const llenarRegistro = async (p: Page, { correo, aceptar }: { correo: string; aceptar: boolean }) => {
+  await p.getByLabel(/^Nombre completo/).fill("Persona de Prueba Ficticia");
+  await p.getByLabel(/^Correo electrónico/).fill(correo);
+  await p.getByLabel(/^Contraseña/).fill("Clave2026Segura");
+  await p.getByLabel(/^Teléfono de contacto/).fill("5512345678");
+  if (aceptar) await p.locator("label", { hasText: "He leído y acepto el" }).click({ position: { x: 4, y: 10 } }); // la casilla es un control propio: se marca desde su etiqueta
+  await p.getByRole("button", { name: "Registrarse" }).click();
+};
+RUTAS.push(
+  { ruta: "/registro", archivo: "registro-errores", rol: null, preparar: (p) => p.getByRole("button", { name: "Registrarse" }).click() },
+  { ruta: "/registro", archivo: "registro-aviso-sin-aceptar", rol: null, preparar: (p) => llenarRegistro(p, { correo: "persona.nueva@example.org", aceptar: false }) },
+  { ruta: "/registro", archivo: "registro-correo-duplicado", rol: null, preparar: async (p) => { await llenarRegistro(p, { correo: credencial("tutor1").correo, aceptar: true }); await p.getByText("Ese correo ya está registrado: inicia sesión o usa otro.").waitFor(); } },
+  { ruta: "/acceso", archivo: "acceso-credenciales-invalidas", rol: null, preparar: async (p) => { await llenarAcceso(p, "persona.inexistente@example.org", "Incorrecta123"); await p.getByText("El correo o la contraseña no son correctos.").waitFor(); } },
+  { ruta: "/acceso", archivo: "acceso-bloqueada", rol: null, preparar: async (p) => { for (let i = 0; i < 5; i++) { await llenarAcceso(p, CORREO_SIN_CUENTA_CON_CREDENCIAL, "Incorrecta123"); await p.waitForTimeout(400); if (await p.getByRole("dialog").isVisible()) break; } await p.getByRole("dialog", { name: "Acceso bloqueado temporalmente" }).waitFor(); } },
+  { ruta: "/admin", archivo: "acceso-denegado", rol: "tutor1" },
+  { ruta: "/tutor", archivo: "tutor-identidad-luis", rol: "tutor2" },
+  // La última: cambia la versión vigente del aviso a 2.0 y entra con una cuenta real, que debe reaceptarlo (409 real del servidor, TRA-03).
+  { ruta: "/acceso", archivo: "acceso-reaceptacion-aviso", rol: null, preparar: async (p, { base }) => { await fijarVersionAviso(base, "2.0"); const c = credencial("tutor1"); await llenarAcceso(p, c.correo, c.contrasena); await p.getByRole("dialog", { name: /Aviso de privacidad actualizado v2\.0/ }).waitFor(); } },
 );
 export const ANCHOS = [390, 1280];
 export const TEMAS = ["claro", "oscuro"] as const; // se aplican como data-theme light | dark

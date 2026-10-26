@@ -12,6 +12,7 @@ import { errorNoEncontrado, exigirAdmiteAvistamientos, estatusPorFolioVisible, f
 import { formatoInvalido, noEncontrado, reglaDeNegocio } from "../errores";
 import { aConfirmacionAvistamiento, aConsultaEstatus, aFichaPublica } from "../serializadores/publico";
 import type { CasoExtravio, CodigoQr } from "../tipos";
+import { exigirAccesoAlCaso, type SesionActual } from "../sesion/guardas";
 import { contextoPorDefecto, historialDe, idDeEstado, type Contexto } from "./contexto";
 
 const MENSAJE_QR = "Este código QR ya no está vigente.";
@@ -116,8 +117,15 @@ export async function registrarAvistamiento(acceso: Acceso, datos: DatosAvistami
   return aConfirmacionAvistamiento(caso.folio, ahora);
 }
 
-/** HU 026 y R7: regenera el QR del caso; el anterior queda invalidado de inmediato y deja de abrir la ficha y el reporte. No cambia folio ni datos. */
-export async function regenerarQr(idCaso: number, ctx: Contexto = contextoPorDefecto()): Promise<CodigoQr> {
+/**
+ * HU 026 y R7: regenera el QR del caso; el anterior queda invalidado de inmediato y deja de abrir la ficha y el reporte. No cambia folio ni datos.
+ * Aplica por sí mismo la guarda de sesión, rol y dueño (R32): solo la persona tutora dueña (401 sin sesión, 404 si es otra tutora, 403 al Administrador).
+ */
+export async function regenerarQr(sesion: SesionActual | undefined, idCaso: number, ctx: Contexto = contextoPorDefecto()): Promise<CodigoQr> {
+  const caso = await ctx.repos.casos.porId(idCaso);
+  const dueno = caso && (await ctx.repos.casos.perro(caso.idPerro))?.idUsuario;
+  exigirAccesoAlCaso(sesion, dueno ?? -1, "editar");
+  if (!caso) throw errorNoEncontrado();
   const qrs = await ctx.repos.qr.deCaso(idCaso);
   const plan = planRegeneracion(qrs.map((q) => q), idCaso, ahoraUTC(ctx.reloj));
   return ctx.repos.qr.regenerar(idCaso, plan.nuevo.tokenPublico, plan.nuevo.fechaGeneracion);

@@ -9,7 +9,6 @@ import { BotonIcono } from "@/components/ui/BotonIcono";
 import { CampoTexto } from "@/components/ui/CampoTexto";
 import { Casilla } from "@/components/ui/Casilla";
 import { clasesBoton } from "@/components/ui/clasesBoton";
-import { etiquetaVersionAviso } from "@/mocks/parametros";
 import { ModalAvisoPrivacidad } from "./ModalAvisoPrivacidad";
 
 const REGEX_CORREO = /^[^@ ]+@[^@ ]+\.[^@ ]+$/; // tbl_usuario.correo
@@ -20,10 +19,11 @@ const MAX = { nombre: 150, correo: 254, telefono: 15 } as const;
 type Errores = Partial<Record<"nombre" | "correo" | "contrasena" | "telefono" | "aviso", string>>;
 
 /**
- * ACC-02: registro de la persona tutora. Maqueta: no crea ninguna cuenta; «Registrarse» lleva a /tutor. El registro no se
- * completa sin aceptar el aviso de privacidad (HU 002 y 003). `avisoAbiertoInicial` abre MOD-01 al cargar (capturas).
+ * ACC-02 (HU 002 y 003): registro de la persona tutora conectado a POST /api/acceso/registrar (valida el servidor y se muestran sus errores por campo).
+ * El registro no se completa sin aceptar el aviso de privacidad. `versionAviso` es la vigente (parámetro del servidor); `avisoAbiertoInicial` abre MOD-01
+ * al cargar (capturas).
  */
-export function FormularioRegistro({ avisoAbiertoInicial = false }: { avisoAbiertoInicial?: boolean }) {
+export function FormularioRegistro({ avisoAbiertoInicial = false, versionAviso }: { avisoAbiertoInicial?: boolean; versionAviso: string }) {
   const router = useRouter();
   const [nombre, setNombre] = useState("");
   const [correo, setCorreo] = useState("");
@@ -33,9 +33,35 @@ export function FormularioRegistro({ avisoAbiertoInicial = false }: { avisoAbier
   const [aceptado, setAceptado] = useState(false);
   const [errores, setErrores] = useState<Errores>({});
   const [aviso, setAviso] = useState(avisoAbiertoInicial);
-  const version = etiquetaVersionAviso();
+  const version = `v${versionAviso}`;
+  const [enviando, setEnviando] = useState(false);
 
   const quitar = (k: keyof Errores) => setErrores((e) => ({ ...e, [k]: undefined }));
+
+  async function registrar() {
+    setEnviando(true);
+    try {
+      const r = await fetch("/api/acceso/registrar", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nombre: nombre.trim(), correo: correo.trim(), contrasena, telefono, aceptaAviso: aceptado, versionAviso }) });
+      const datos = (await r.json().catch(() => ({}))) as { destino?: string; error?: { codigo: string; mensaje: string; campos?: Errores } };
+      if (r.ok && datos.destino) {
+        router.push(datos.destino);
+        router.refresh();
+        return;
+      }
+      let n: Errores = datos.error?.campos ?? {};
+      if (datos.error?.codigo === "AVISO_DESACTUALIZADO") {
+        setAceptado(false);
+        n = { aviso: "El aviso de privacidad cambió: revísalo y acéptalo de nuevo." };
+      } else if (!Object.keys(n).length) n = { correo: datos.error?.mensaje ?? "No pudimos completar el registro. Inténtalo de nuevo." };
+      setErrores(n);
+      const primero = (["nombre", "correo", "contrasena", "telefono", "aviso"] as const).find((k) => n[k]);
+      if (primero) document.getElementById(`registro-${primero}`)?.focus();
+    } catch {
+      setErrores({ correo: "No pudimos completar el registro. Revisa tu conexión e inténtalo de nuevo." });
+    } finally {
+      setEnviando(false);
+    }
+  }
 
   function alEnviar(e: FormEvent) {
     e.preventDefault();
@@ -43,14 +69,14 @@ export function FormularioRegistro({ avisoAbiertoInicial = false }: { avisoAbier
     if (!nombre.trim()) n.nombre = "Escribe tu nombre completo.";
     if (!correo.trim()) n.correo = "Escribe tu correo electrónico.";
     else if (!REGEX_CORREO.test(correo.trim())) n.correo = "Escribe un correo válido, como nombre@correo.com.";
-    if (contrasena.length < 8 || !/[A-Za-z]/.test(contrasena) || !/[0-9]/.test(contrasena)) n.contrasena = "La contraseña debe tener mínimo 8 caracteres, con letras y números.";
+    if (contrasena.length < 8 || !/\p{L}/u.test(contrasena) || !/\p{Nd}/u.test(contrasena)) n.contrasena = "La contraseña debe tener mínimo 8 caracteres, con letras y números.";
     if (!telefono) n.telefono = "Escribe tu teléfono de contacto.";
     else if (!REGEX_TELEFONO.test(telefono)) n.telefono = "El teléfono debe tener de 10 a 15 dígitos, sin espacios ni guiones.";
     if (!aceptado) n.aviso = `Debes aceptar el aviso de privacidad ${version} para registrarte.`;
     setErrores(n);
     const primero = (["nombre", "correo", "contrasena", "telefono", "aviso"] as const).find((k) => n[k]);
     if (primero) return document.getElementById(`registro-${primero}`)?.focus();
-    router.push("/tutor");
+    void registrar();
   }
 
   return (
@@ -147,7 +173,7 @@ export function FormularioRegistro({ avisoAbiertoInicial = false }: { avisoAbier
           }
           error={errores.aviso}
         />
-        <Boton type="submit" tamano="grande" anchoCompleto>
+        <Boton type="submit" tamano="grande" anchoCompleto cargando={enviando} textoCargando="Registrando…">
           Registrarse
         </Boton>
         <Link href="/" className={clasesBoton({ variante: "secundario", tamano: "grande", anchoCompleto: true })}>
@@ -163,6 +189,7 @@ export function FormularioRegistro({ avisoAbiertoInicial = false }: { avisoAbier
         abierto={aviso}
         onCerrar={() => setAviso(false)}
         modo="registro"
+        version={version}
         onAceptar={() => {
           setAceptado(true);
           quitar("aviso");

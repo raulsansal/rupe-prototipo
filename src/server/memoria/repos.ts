@@ -19,6 +19,27 @@ export function crearRepositorios(almacen: () => Almacen = obtenerAlmacen): Repo
         if (i >= 0) lista[i] = copia(u);
         else lista.push(copia(u));
       },
+      async crearConAceptacion(u, versionAviso, fechaHora) {
+        const al = a();
+        if (al.usuarios.some((x) => x.correo.toLowerCase() === u.correo.toLowerCase())) throw new Error("Correo duplicado"); // UNIQUE
+        const nuevo: T.Usuario = { ...u, idUsuario: siguienteId(al, "usuario") };
+        al.usuarios.push(nuevo);
+        al.aceptaciones.push({ idAceptacionAviso: siguienteId(al, "aceptacion"), versionAviso, fechaHora, idUsuario: nuevo.idUsuario });
+        return copia(nuevo);
+      },
+    },
+    aceptaciones: {
+      async ultimaDe(idUsuario) {
+        const propias = a().aceptaciones.filter((x) => x.idUsuario === idUsuario);
+        return copia(propias.sort((x, y) => y.fechaHora.localeCompare(x.fechaHora) || y.idAceptacionAviso - x.idAceptacionAviso)[0]);
+      },
+      async agregar(x) { const nueva = { ...x, idAceptacionAviso: siguienteId(a(), "aceptacion") }; a().aceptaciones.push(nueva); return copia(nueva); },
+      async deUsuario(idUsuario) { return copia(a().aceptaciones.filter((x) => x.idUsuario === idUsuario)); },
+    },
+    intentos: {
+      async de(correo) { return copia(a().intentosAnonimos[correo.trim().toLowerCase()] ?? { intentos: 0, bloqueadoHasta: null }); },
+      async guardar(correo, estado) { a().intentosAnonimos[correo.trim().toLowerCase()] = copia(estado); },
+      async limpiar(correo) { delete a().intentosAnonimos[correo.trim().toLowerCase()]; },
     },
     sesiones: {
       async crear(s) { const nueva = { ...s, idSesion: siguienteId(a(), "sesion") }; a().sesiones.push(nueva); return copia(nueva); },

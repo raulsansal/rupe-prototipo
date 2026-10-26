@@ -7,6 +7,19 @@ export interface RepoUsuarios {
   porCorreo(correo: string): Promise<T.Usuario | undefined>;
   todos(): Promise<T.Usuario[]>;
   guardar(u: T.Usuario): Promise<void>;
+  /** R5: el alta del usuario y su primera aceptación del aviso son UNA operación (si algo falla no se guarda nada). */
+  crearConAceptacion(u: Omit<T.Usuario, "idUsuario">, versionAviso: string, fechaHora: string): Promise<T.Usuario>;
+}
+export interface RepoAceptaciones {
+  /** R22: la de mayor fecha_hora, con desempate por id. */
+  ultimaDe(idUsuario: number): Promise<T.AceptacionAviso | undefined>;
+  agregar(a: Omit<T.AceptacionAviso, "idAceptacionAviso">): Promise<T.AceptacionAviso>;
+  deUsuario(idUsuario: number): Promise<T.AceptacionAviso[]>;
+}
+export interface RepoIntentos {
+  de(correo: string): Promise<T.IntentosAnonimos>;
+  guardar(correo: string, estado: T.IntentosAnonimos): Promise<void>;
+  limpiar(correo: string): Promise<void>;
 }
 export interface RepoSesiones {
   crear(s: Omit<T.Sesion, "idSesion">): Promise<T.Sesion>;
@@ -74,6 +87,6 @@ export interface RepoParametros {
 }
 
 export type Repositorios = {
-  usuarios: RepoUsuarios; sesiones: RepoSesiones; casos: RepoCasos; historial: RepoHistorial; qr: RepoQr;
+  usuarios: RepoUsuarios; aceptaciones: RepoAceptaciones; intentos: RepoIntentos; sesiones: RepoSesiones; casos: RepoCasos; historial: RepoHistorial; qr: RepoQr;
   avistamientos: RepoAvistamientos; notificaciones: RepoNotificaciones; bitacora: RepoBitacora; catalogos: RepoCatalogos; parametros: RepoParametros;
 };

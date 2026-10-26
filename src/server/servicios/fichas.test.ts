@@ -8,6 +8,7 @@ const BUSQUEDA = "RUPE-K7M4XQ9T"; // Max, En búsqueda
 const LOCALIZADO = "RUPE-C2J9RK6Z"; // Lola, Localizado (estuvo deshabilitada y se restauró)
 const DESHABILITADO = "RUPE-D5W2QK8X"; // Kira
 const CANCELADO = "RUPE-F7L3MN6Y"; // Simba
+const DUENA = { idUsuario: 2, rol: "Tutor" as const, nombre: "Rosa" }; // dueña de los casos de CASOS_ORIGEN (R32)
 const rechaza = (p: Promise<unknown>, estado: number, codigo?: string) => assert.rejects(p, (e) => e instanceof ErrorApp && e.estado === estado && (!codigo || e.codigo === codigo));
 
 const datos = (extra: Partial<DatosAvistamiento> = {}): DatosAvistamiento => ({ fechaHoraAvistamiento: "2026-10-18T10:00:00Z", latitud: 19.43, longitud: -99.13, idAlcaldia: 6, estadosAnimal: [1, 7], fotografia: { formato: "JPG", tamanoBytes: 50_000, referenciaArchivo: "/mocks/x.svg" }, ...extra });
@@ -56,7 +57,7 @@ test("R7/R27 · regenerar el QR invalida el anterior: deja de abrir la ficha y e
   const { ctx } = nuevoContexto();
   const caso = (await ctx.repos.casos.porFolio(BUSQUEDA))!;
   const viejo = (await ctx.repos.qr.activoDe(caso.idCasoExtravio))!.tokenPublico;
-  const nuevo = await regenerarQr(caso.idCasoExtravio, ctx);
+  const nuevo = await regenerarQr(DUENA, caso.idCasoExtravio, ctx);
   assert.notEqual(nuevo.tokenPublico, viejo);
   assert.equal((await ctx.repos.qr.deCaso(caso.idCasoExtravio)).filter((q) => q.fechaInvalidacion === null).length, 1);
   await rechaza(consultarFichaPorToken(viejo, ctx), 404);
@@ -89,7 +90,7 @@ test("R27 · si el QR se regenera ENTRE abrir y registrar, el registro por «qr�
   const caso = (await ctx.repos.casos.porFolio(BUSQUEDA))!;
   const token = (await ctx.repos.qr.activoDe(caso.idCasoExtravio))!.tokenPublico;
   await abrirReporteAvistamiento({ canal: "qr", token }, ctx); // paso 1: se abre el reporte
-  await regenerarQr(caso.idCasoExtravio, ctx); // la persona tutora regenera el QR
+  await regenerarQr(DUENA, caso.idCasoExtravio, ctx); // la persona tutora regenera el QR
   await rechaza(registrarAvistamiento({ canal: "qr", token }, datos(), ctx), 404, "QR_NO_VIGENTE"); // paso 2: se rechaza
   assert.equal((await ctx.repos.avistamientos.deCaso(caso.idCasoExtravio)).length, 0);
   assert.equal((await registrarAvistamiento({ canal: "folio", folio: BUSQUEDA }, datos(), ctx)).folio, BUSQUEDA);
@@ -135,4 +136,16 @@ test("R3, R11, R14, R10/HU 033, R13 · el registro rechaza lo inválido con 422 
   await rechaza(registrarAvistamiento(acc, datos({ idAlcaldia: 99 }), ctx), 422);
   await rechaza(registrarAvistamiento({ canal: "folio", folio: LOCALIZADO }, datos(), ctx), 409); // R13
   assert.equal((await ctx.repos.avistamientos.deCaso(caso.idCasoExtravio)).length, 0);
+});
+
+test("R32 · regenerar el QR aplica su propia guarda: 401 sin sesión, 404 a otra tutora, 403 al Administrador, y funciona para la dueña", async () => {
+  const { ctx } = nuevoContexto();
+  const caso = (await ctx.repos.casos.porFolio(BUSQUEDA))!; // dueña: Rosa (id 2)
+  const antes = (await ctx.repos.qr.activoDe(caso.idCasoExtravio))!.tokenPublico;
+  await rechaza(regenerarQr(undefined, caso.idCasoExtravio, ctx), 401);
+  await rechaza(regenerarQr({ idUsuario: 5, rol: "Tutor", nombre: "Luis" }, caso.idCasoExtravio, ctx), 404);
+  await rechaza(regenerarQr({ idUsuario: 1, rol: "Administrador", nombre: "Ricardo" }, caso.idCasoExtravio, ctx), 403);
+  await rechaza(regenerarQr(DUENA, 9999, ctx), 404);
+  assert.equal((await ctx.repos.qr.activoDe(caso.idCasoExtravio))!.tokenPublico, antes); // nada cambió con los rechazos
+  assert.notEqual((await regenerarQr(DUENA, caso.idCasoExtravio, ctx)).tokenPublico, antes);
 });

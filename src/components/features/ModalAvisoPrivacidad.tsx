@@ -28,12 +28,14 @@ type Props = {
   modo: "lectura" | "registro";
   onAceptar?: () => void;
   onRechazar?: () => void;
+  /** Etiqueta de la versión vigente (p. ej. «v1.0»); por defecto la del parámetro del maquetado. */
+  version?: string;
 };
 
 /** MOD-01: aviso de privacidad completo, con la versión del parámetro `version_aviso_privacidad`. */
-export function ModalAvisoPrivacidad({ abierto, onCerrar, modo, onAceptar, onRechazar }: Props) {
+export function ModalAvisoPrivacidad({ abierto, onCerrar, modo, onAceptar, onRechazar, version = etiquetaVersionAviso() }: Props) {
   return (
-    <Modal abierto={abierto} onCerrar={onCerrar} titulo={`Aviso de privacidad ${etiquetaVersionAviso()}`} tamano="md">
+    <Modal abierto={abierto} onCerrar={onCerrar} titulo={`Aviso de privacidad ${version}`} tamano="md">
       <TextoAvisoPrivacidad />
       {modo === "registro" ? (
         <div className="mt-2 grid grid-cols-2 gap-3">

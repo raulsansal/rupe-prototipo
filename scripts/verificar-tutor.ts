@@ -11,6 +11,7 @@ import { PARAMETROS } from "../src/mocks/parametros";
 import { AVISTAMIENTOS, avistamientosDelCaso, FOLIO_CON_AVISTAMIENTOS, FOLIO_UN_AVISTAMIENTO, FOTO_SENSIBLE } from "../src/mocks/avistamientos";
 import { CASOS_ORIGEN, FOLIO_EN_CURSO, FOLIO_NUEVO, casosDeLaPersonaTutora, valoresReservados } from "../src/mocks/casos";
 import { CLAVE_TEMA } from "../src/lib/tema";
+import { agregarSesion, credencial, fetchComo, rolDeRuta, type RolPrueba } from "./sesion-pruebas";
 
 const PUERTO = 3106;
 const baseExterna = process.argv.find((a) => a.startsWith("--base="))?.split("=")[1];
@@ -51,8 +52,10 @@ async function abrirNavegador(): Promise<Browser> {
   }
 }
 
-async function nuevaPagina(navegador: Browser, ancho = 390): Promise<{ contexto: BrowserContext; pagina: Page }> {
+/** Por defecto con la sesión REAL de la persona tutora 1 (las rutas /tutor las protege el servidor); `null` = sin sesión (pantallas públicas y flujos de acceso). */
+async function nuevaPagina(navegador: Browser, ancho = 390, rol: RolPrueba | null = "tutor1"): Promise<{ contexto: BrowserContext; pagina: Page }> {
   const contexto = await navegador.newContext({ viewport: { width: ancho, height: 900 }, colorScheme: "light", permissions: ["clipboard-read", "clipboard-write"] });
+  if (rol) await agregarSesion(contexto, base, rol);
   await contexto.addInitScript(([k, v]) => localStorage.setItem(k, v), [CLAVE_TEMA, "light"]);
   // Se cuenta window.print sin abrir el cuadro de impresión.
   await contexto.addInitScript(() => {
@@ -105,7 +108,7 @@ const eIso = (p: Page, n: number) => p.locator(`[data-paso="${n}"]`);
 
 // ---------- ACC-01 ----------
 async function acceso(navegador: Browser) {
-  let { contexto, pagina } = await nuevaPagina(navegador);
+  let { contexto, pagina } = await nuevaPagina(navegador, 390, null);
   await irA(pagina, "/acceso");
   ver((await pagina.locator("header").count()) >= 1 && (await pagina.locator("main#contenido").count()) === 1 && (await pagina.getByRole("link", { name: "Iniciar sesión" }).count()) >= 0, "ACC-01: en la plantilla pública (encabezado, un solo <main id=\"contenido\">, pie)", "ACC-01: estructura incorrecta");
   const correo = pagina.getByLabel("Correo electrónico");
@@ -121,16 +124,22 @@ async function acceso(navegador: Browser) {
   await ojo.click();
   ver((await clave.getAttribute("type")) === "text" && (await ojo.getAttribute("aria-pressed")) === "true", "ACC-01: «Mostrar contraseña» la muestra (aria-pressed)", "ACC-01: no mostró la contraseña");
   ver((await enlace(pagina, "Cancelar").getAttribute("href")) === "/" && (await enlace(pagina, "¿Olvidaste tu contraseña?").isVisible()) && (await enlace(pagina, "Crear cuenta de persona tutora").getAttribute("href")) === "/registro", "ACC-01: «Cancelar», «¿Olvidaste tu contraseña?» y «Crear cuenta de persona tutora»", "ACC-01: faltan enlaces");
-  await correo.fill("persona@correo.com");
+  // Credenciales incorrectas: error uniforme bajo «Contraseña», sin navegar. Credenciales reales (cuenta ficticia de .env.local): inicia sesión y navega a /tutor.
+  await correo.fill("persona-que-no-existe@correo.com");
+  await clave.fill("Incorrecta123");
+  await boton(pagina, "Iniciar sesión").click();
+  await pagina.getByText("El correo o la contraseña no son correctos.").waitFor({ timeout: 8000 });
+  await correo.fill(credencial("tutor1").correo);
+  await clave.fill(credencial("tutor1").contrasena);
   await boton(pagina, "Iniciar sesión").click();
   await pagina.waitForURL("**/tutor");
-  ver(true, "ACC-01: «Iniciar sesión» válido navega a /tutor (maqueta, sin autenticación)", "");
+  ver(true, "ACC-01: credenciales incorrectas dan el error uniforme bajo «Contraseña»; las reales inician sesión y navegan a /tutor", "");
   await contexto.close();
 
   // Modales: abren por la variante y se cierran con botón, Escape y clic fuera.
   for (const [estado, titulo, mensaje] of [["bloqueo", "Acceso bloqueado temporalmente", "5 intentos fallidos; intenta de nuevo en 15 minutos"], ["deshabilitada", "Cuenta deshabilitada", "Tu cuenta está deshabilitada; contacta a quien administra RUPE"]] as const) {
     for (const via of ["botón «Entendido»", "Escape", "clic fuera"] as const) {
-      ({ contexto, pagina } = await nuevaPagina(navegador));
+      ({ contexto, pagina } = await nuevaPagina(navegador, 390, null));
       await irA(pagina, `/acceso?estado=${estado}`);
       const dlg = pagina.getByRole("dialog", { name: titulo });
       if (via === "botón «Entendido»") {
@@ -462,6 +471,15 @@ async function detalle(navegador: Browser) {
   await contexto.close();
 }
 
+/**
+ * El encabezado de las pantallas de la persona tutora muestra SU PROPIO nombre (identidad de la sesión real): se quita de la respuesta ese uso (etiquetas de
+ * la cuenta y del avatar, y la propiedad que la plantilla recibe) para que la búsqueda de fugas siga detectando el nombre en cualquier otro lugar.
+ */
+const sinIdentidad = (html: string, nombre: string) => {
+  const n = nombre.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return html.replace(new RegExp(`(?:Cuenta de|Avatar de) ${n}`, "g"), "").replace(new RegExp(`\\\\?"nombre\\\\?":\\\\?"${n}\\\\?"`, "g"), "");
+};
+
 // ---------- (c) fugas y hoja ----------
 async function fugas(navegador: Browser) {
   let comprobaciones = 0;
@@ -473,7 +491,7 @@ async function fugas(navegador: Browser) {
     const reservados = valoresReservados(o);
     if (reservados.length < 5) throw new Error(`El origen de ${o.folio} no tiene suficientes datos reservados para la prueba`);
     for (const ruta of rutas(o.folio)) {
-      const html = await (await fetch(`${base}${ruta}`)).text();
+      const html = sinIdentidad(await (await fetchComo(base, rolDeRuta(ruta), ruta)).text(), o.tutor.nombreCompleto);
       comprobaciones++;
       const dentro = [...reservados, o.tokenPublico, ...reservadosAvistamientos].filter((v) => html.includes(v));
       if (dentro.length) {
@@ -486,10 +504,10 @@ async function fugas(navegador: Browser) {
 
   // Controles de sensibilidad: la misma búsqueda sí detecta lo que TUT-05 muestra a su dueña.
   const max = CASOS_ORIGEN[0];
-  const detalleHtml = await (await fetch(`${base}/tutor/casos/${max.folio}`)).text();
+  const detalleHtml = sinIdentidad(await (await fetchComo(base, "tutor1", `/tutor/casos/${max.folio}`)).text(), max.tutor.nombreCompleto);
   ver(detalleHtml.includes(max.direccionAproximada!) && detalleHtml.includes(max.referenciasDelLugar!) && detalleHtml.includes(max.motivo) && detalleHtml.includes(max.descripcionCircunstancias!), "control: TUT-05 sí muestra a su dueña los reservados del caso (la búsqueda de fugas los detecta)", "control: TUT-05 no muestra los reservados");
   ver(![max.tutor.nombreCompleto, max.tutor.correo, max.tutor.telefono, max.tokenPublico, ...reservadosAvistamientos].some((v) => detalleHtml.includes(v)), "TUT-05 no contiene su nombre, correo ni teléfono, el token del QR ni los datos reservados de avistamientos", "TUT-05 filtra datos de la persona tutora, el token o reservados de avistamientos");
-  const fichaHtml = await (await fetch(`${base}/tutor/casos/${max.folio}/ficha`)).text();
+  const fichaHtml = await (await fetchComo(base, "tutor1", `/tutor/casos/${max.folio}/ficha`)).text();
   ver(fichaHtml.includes(max.folio) && fichaHtml.includes(max.coloniaZona), "control: la vista previa sí contiene los campos públicos (folio, colonia)", "control: la vista previa no trae los campos públicos");
 
   // La hoja renderizada: contenido, sin desbordar y CSS de impresión.
@@ -612,7 +630,7 @@ async function enlacesInternos(navegador: Browser) {
   await contexto.close();
   const malos: string[] = [];
   for (const [ruta, origen] of vistos) {
-    const r = await fetch(`${base}${ruta}`, { redirect: "follow" });
+    const r = await fetchComo(base, rolDeRuta(ruta), ruta, { redirect: "follow" });
     if (r.status === 404 || r.status >= 500) malos.push(`${ruta} → ${r.status} (desde ${origen})`);
   }
   ver(malos.length === 0, `enlaces internos de ACC-01, TUT-01, TUT-04, TUT-05 y TUT-07: ${vistos.size} rutas distintas, ninguna responde 404`, `enlaces rotos: ${malos.join(" | ")}`);
@@ -695,7 +713,7 @@ async function detalleEscritorio(navegador: Browser) {
 
 // ---------- ACC-02 y MOD-01 ----------
 async function registroCuenta(navegador: Browser) {
-  let { contexto, pagina } = await nuevaPagina(navegador);
+  let { contexto, pagina } = await nuevaPagina(navegador, 390, null);
   await irA(pagina, "/registro");
   const campo = (n: RegExp | string) => pagina.getByLabel(n);
   const nombre = campo(/^Nombre completo/);
@@ -716,7 +734,8 @@ async function registroCuenta(navegador: Browser) {
   await tel.fill("55-1234");
   await boton(pagina, "Registrarse").click();
   ver(/correo válido/.test(await textoDescrito(correo)) && /mínimo 8 caracteres, con letras y números/.test(await textoDescrito(clave)) && /10 a 15 dígitos/.test(await textoDescrito(tel)), "ACC-02: correo inválido, contraseña sin números y teléfono con guiones se rechazan con su mensaje", "ACC-02: no validó correo, contraseña o teléfono");
-  await correo.fill("rosa@correo.com");
+  const correoNuevo = `rosa.${Date.now()}@correo.com`; // correo ficticio único: el registro es real y el correo no se repite
+  await correo.fill(correoNuevo);
   await clave.fill("Segura2026");
   await tel.fill("5512345678");
   await boton(pagina, "Registrarse").click();
@@ -742,11 +761,11 @@ async function registroCuenta(navegador: Browser) {
   ver(!(await dialogoAbierto(pagina)) && (await aviso.isChecked()), "MOD-01 desde ACC-02: «Aceptar» cierra el aviso y marca la casilla", "MOD-01 desde ACC-02: «Aceptar» no marcó la casilla");
   await boton(pagina, "Registrarse").click();
   await pagina.waitForURL("**/tutor");
-  ver(true, "ACC-02: aceptado el aviso y con todo válido, «Registrarse» navega a /tutor (maqueta)", "");
+  ver(true, "ACC-02: aceptado el aviso y con todo válido, «Registrarse» crea la cuenta, abre la sesión y navega a /tutor", "");
   await contexto.close();
 
   // Casilla manual y variante ?estado=aviso.
-  ({ contexto, pagina } = await nuevaPagina(navegador));
+  ({ contexto, pagina } = await nuevaPagina(navegador, 390, null));
   await irA(pagina, "/registro");
   await pagina.locator("label", { hasText: "He leído y acepto el" }).click({ position: { x: 4, y: 10 } });
   ver(await pagina.getByRole("checkbox", { name: /He leído y acepto el/ }).isChecked(), "ACC-02: la casilla también se marca a mano", "ACC-02: la casilla no se marcó");
@@ -782,7 +801,7 @@ async function avistamientos(navegador: Browser) {
   ver((await tFalle.locator("img").count()) === 0 && /estado «Fallecido»/.test(await tFalle.innerText()) && !/Libre en vía pública|Fallecido\b.*,/.test(await tFalle.innerText()), "TUT-08: el avistamiento «Fallecido» va con redacción sobria y marcador neutro, sin fotografía ni estados", "TUT-08: el «Fallecido» muestra imagen o estados");
   const normal = pagina.locator(`article:has(a[href$='/avistamientos/101'])`);
   ver((await normal.locator("img").count()) === 1 && /Herido \/ lesionado, Enfermo \/ débil/.test(await normal.innerText()), "TUT-08: un avistamiento normal muestra su fotografía, fecha y hora, alcaldía y estados", "TUT-08: tarjeta normal incorrecta");
-  const html = await (await fetch(`${base}${CON_AV}/avistamientos`)).text();
+  const html = await (await fetchComo(base, "tutor1", `${CON_AV}/avistamientos`)).text();
   ver(!html.includes(FOTO_SENSIBLE) && !AVISTAMIENTOS.some((a) => a.direccionAproximada && html.includes(a.direccionAproximada)), "TUT-08: el HTML no contiene la fotografía del «Fallecido» ni la dirección aproximada de ningún avistamiento", "TUT-08: el HTML trae la foto sensible o direcciones reservadas");
   ver((await pagina.getByRole("link", { name: "Mapa", exact: true }).getAttribute("href")) === `${CON_AV}/mapa`, "TUT-08: el selector «Mapa» lleva a TUT-09", "TUT-08: «Mapa» no enlaza a TUT-09");
   // Filtros.
@@ -909,15 +928,13 @@ async function transversalesSesion(navegador: Browser) {
   dlg = pagina.getByRole("dialog", { name: "Aviso de privacidad actualizado v1.0" });
   ver((await dlg.isVisible()) && /queda registrada con su fecha/.test(await dlg.innerText()) && (await dlg.getByRole("button").allInnerTexts()).join("|") === "Rechazar|Aceptar", "TRA-03: «Aviso de privacidad actualizado v1.0» con «Rechazar» y «Aceptar»", "TRA-03: contenido incorrecto");
   ver((await pagina.locator("header").getByRole("button", { name: "Menú", exact: true }).isVisible()) && (await pagina.getByRole("heading", { level: 1, name: "Iniciar sesión", includeHidden: true }).count()) === 1 && (await pagina.locator("nav[aria-label='Navegación inferior']").count()) === 0, "TRA-03: sobre ACC-01 con el encabezado público de fondo (como la lámina M4-1), sin barra inferior", "TRA-03: el fondo no es el encabezado público de ACC-01");
-  await boton(dlg, "Aceptar").click();
-  await pagina.waitForURL("**/tutor");
-  ver(true, "TRA-03: «Aceptar» lleva a /tutor", "");
+  await boton(dlg, "Aceptar").click(); // variante de maquetado (sin credenciales escritas): solo cierra; el flujo real lo prueba verificar-acceso
+  ver(!(await dialogoAbierto(pagina)) && new URL(pagina.url()).pathname === "/acceso", "TRA-03: «Aceptar» (variante de maquetado, sin credenciales) cierra el aviso", "TRA-03: Aceptar no cerró el aviso");
   await contexto.close();
   ({ contexto, pagina } = await nuevaPagina(navegador));
   await irA(pagina, "/acceso?estado=aviso-actualizado");
   await boton(pagina.getByRole("dialog", { name: /Aviso de privacidad actualizado/ }), "Rechazar").click();
-  await pagina.waitForURL((u) => u.pathname === "/acceso" && u.search === "");
-  ver(!(await dialogoAbierto(pagina)), "TRA-03: «Rechazar» lleva a /acceso (sin el aviso)", "TRA-03: Rechazar no llevó a /acceso");
+  ver(!(await dialogoAbierto(pagina)) && new URL(pagina.url()).pathname === "/acceso", "TRA-03: «Rechazar» cierra el aviso y se queda en /acceso (no entra)", "TRA-03: Rechazar no cerró el aviso");
   await contexto.close();
   for (const via of ["Escape", "clic fuera"] as const) {
     ({ contexto, pagina } = await nuevaPagina(navegador));

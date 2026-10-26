@@ -5,6 +5,7 @@
 //  (e) sin desplazamiento horizontal a 390, 768 y 1280 px y sin elementos interactivos de menos de 44 px.
 // Opciones: --sin-build  reutiliza el build existente · --base=URL  usa un servidor que ya corre (no compila ni arranca nada)
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { fetchComo } from "./sesion-pruebas";
 import { chromium, type Browser, type BrowserContext, type Locator, type Page } from "playwright";
 import { AVISTAMIENTOS } from "../src/mocks/avistamientos";
 import { PARAMETROS } from "../src/mocks/parametros";
@@ -554,7 +555,7 @@ async function sinReservadosDeAvistamientos() {
     }
   }
   ver(fugas === 0, `sin dirección aproximada, referencias ni comentarios de avistamientos en ${rutas.length} respuestas públicas (PUB-01, PUB-03 en todos sus estados, PUB-05, PUB-06, ACC, TRA-01 y TRA-04)`, `${fugas} pantalla(s) pública(s) con datos reservados de avistamientos`);
-  const control = await (await fetch(`${base}/tutor/casos/${AVISTAMIENTOS[0].folio}/avistamientos/${AVISTAMIENTOS[0].id}`)).text();
+  const control = await (await fetchComo(base, "tutor1", `/tutor/casos/${AVISTAMIENTOS[0].folio}/avistamientos/${AVISTAMIENTOS[0].id}`)).text(); // la ruta de la persona tutora exige su sesión
   ver(control.includes(AVISTAMIENTOS[0].direccionAproximada!), "control: TUT-10 sí muestra esos datos a la persona tutora dueña (la búsqueda de fugas los detecta)", "control: TUT-10 no muestra la dirección aproximada");
 }
 
