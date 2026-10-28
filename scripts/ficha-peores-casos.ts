@@ -3,13 +3,16 @@
 // fotografía y si algo desborda o queda recortado. Lo usa `npm run verificar-ficha` (scripts/verificar-ficha.ts).
 import type { Browser, Page } from "playwright";
 import { CLAVE_TEMA } from "../src/lib/tema";
+import { fotoVisible } from "../src/lib/ficha/composicion";
+import { JPEG_REAL } from "../src/server/pruebas/imagenes";
 import { agregarSesion, fetchComo } from "./sesion-pruebas";
 
-// JPEG válido de 1×1 px (gris): sirve para que la hoja cargue la imagen, pero se ve como un recuadro liso. Para MIRAR la hoja (capturas) se usa `usarImagenDePrueba`.
-let JPEG = Uint8Array.from(Buffer.from("/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=", "base64"));
+// Con el re-codificado del servidor (P3) la imagen debe ser una imagen REAL: por omisión un JPEG de 16×12 px. Para MIRAR la hoja se usa `usarImagenDePrueba`.
+let JPEG: Uint8Array = JPEG_REAL;
 // Imagen 4:5 (800×1000) dibujada en un canvas del navegador: fondo con degradado, una silueta de perro y la leyenda «FOTO DE PRUEBA»; no es la foto de ningún caso.
-const DIBUJO = `(() => {
-  var c = document.createElement("canvas"); c.width = 800; c.height = 1000; var x = c.getContext("2d");
+const DIBUJO = (ancho: number, alto: number) => `(() => {
+  var ANCHO = ${ancho}, ALTO = ${alto};
+  var c = document.createElement("canvas"); c.width = ANCHO; c.height = ALTO; var x = c.getContext("2d"); x.scale(ANCHO / 800, ALTO / 1000);
   var g = x.createLinearGradient(0, 0, 0, 1000); g.addColorStop(0, "#9ad0e8"); g.addColorStop(1, "#d9c28f"); x.fillStyle = g; x.fillRect(0, 0, 800, 1000);
   x.fillStyle = "#8a5a2b"; x.beginPath(); x.ellipse(400, 700, 230, 150, 0, 0, 7); x.fill();
   x.fillRect(230, 780, 60, 160); x.fillRect(350, 800, 60, 140); x.fillRect(470, 800, 60, 140); x.fillRect(560, 780, 60, 160);
@@ -22,8 +25,8 @@ const DIBUJO = `(() => {
   return c.toDataURL("image/jpeg", 0.85).split(",")[1];
 })()`;
 /** Sustituye la imagen de los casos que registran estos escenarios por una imagen de prueba bien visible. */
-export async function usarImagenDePrueba(pagina: Page): Promise<void> {
-  JPEG = Uint8Array.from(Buffer.from(await pagina.evaluate<string>(DIBUJO), "base64"));
+export async function usarImagenDePrueba(pagina: Page, ancho = 800, alto = 1000): Promise<void> {
+  JPEG = Uint8Array.from(Buffer.from(await pagina.evaluate<string>(DIBUJO(ancho, alto)), "base64"));
 }
 const palabras = (n: number, base: string) => base.repeat(Math.ceil(n / base.length)).slice(0, n).trim();
 const ANCHAS = "Wolfgang Wilhelmina Wenceslao Wellington Winston ";
@@ -83,6 +86,10 @@ export async function medirPeoresCasos(navegador: Browser, base: string, { prepa
             if (r.right > a.right + 1 || r.bottom > a.bottom + 1 || r.left < a.left - 1 || r.top < a.top - 1) fuera.push(`${el.tagName.toLowerCase()} «${(el.textContent ?? "").trim().slice(0, 24)}»`);
             if (el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).display !== "inline") fuera.push(`texto más ancho que su caja: «${(el.textContent ?? "").trim().slice(0, 24)}»`);
           }
+          for (const el of art.querySelectorAll<HTMLElement>('*')) {
+            const cs = getComputedStyle(el);
+            if (cs.overflow === 'hidden' && cs.getPropertyValue('-webkit-line-clamp') === 'none' && !el.closest('[data-foto-ficha]') && el.scrollHeight > el.clientHeight + 1) fuera.push(`contenido recortado en un recuadro de la hoja: «${(el.textContent ?? '').trim().slice(0, 24)}»`);
+          }
           if (art.scrollHeight > art.clientHeight + 1) fuera.push(`la hoja desborda en alto (${art.scrollHeight} > ${art.clientHeight})`);
           if (art.scrollWidth > art.clientWidth + 1) fuera.push(`la hoja desborda en ancho (${art.scrollWidth} > ${art.clientWidth})`);
           const qr = art.querySelector("[aria-label*='QR']");
@@ -94,6 +101,42 @@ export async function medirPeoresCasos(navegador: Browser, base: string, { prepa
         await contexto.close();
       }
     }
+  }
+  return salida;
+}
+
+export type Visible = { caso: "normal" | "peor"; proporcion: string; hoja: string; zona: number; visible: number };
+const PROPORCIONES: [string, number, number][] = [["4:5", 800, 1000], ["1:1", 900, 900], ["4:3", 1000, 750], ["16:9", 1120, 630]];
+
+/** Área de fotografía REALMENTE visible (la imagen sin recorte dentro de su zona) por proporción de foto (4:5, 1:1, 4:3, 16:9), Carta y Media carta, texto normal y peor caso. Solo se informa. */
+export async function medirFotoVisible(navegador: Browser, base: string): Promise<Visible[]> {
+  const salida: Visible[] = [];
+  const auxiliar = await navegador.newPage();
+  const guardada = JPEG;
+  try {
+    for (const [proporcion, ancho, alto] of PROPORCIONES) {
+      await usarImagenDePrueba(auxiliar, ancho, alto);
+      for (const e of [ESCENARIOS[0], ESCENARIOS[2]]) {
+        const folio = await registrar(base, e);
+        for (const hoja of ["carta", "media-carta"] as const) {
+          const contexto = await navegador.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: "light" });
+          await agregarSesion(contexto, base, "tutor1");
+          await contexto.addInitScript(([k, v]) => localStorage.setItem(k, v), [CLAVE_TEMA, "light"]);
+          const pagina = await contexto.newPage();
+          await pagina.goto(`${base}/tutor/casos/${folio}/ficha?modal=visor&hoja=${hoja}`, { waitUntil: "load" });
+          await pagina.getByRole("dialog", { name: "Tu ficha de búsqueda en PDF" }).waitFor();
+          await pagina.evaluate(() => document.fonts.ready);
+          await pagina.emulateMedia({ media: "print" });
+          const r = JSON.parse(await pagina.evaluate(`(function(){var a=document.querySelector(".ficha-impresion article").getBoundingClientRect();var f=document.querySelector(".ficha-impresion [data-foto-ficha]").getBoundingClientRect();return JSON.stringify({ha:a.width*a.height,fw:f.width,fh:f.height})})()`)) as { ha: number; fw: number; fh: number };
+          const v = fotoVisible({ ancho: r.fw, alto: r.fh }, ancho / alto, "contenido");
+          salida.push({ caso: e.tipo, proporcion, hoja, zona: (r.fw * r.fh) / r.ha, visible: (v.ancho * v.alto) / r.ha });
+          await contexto.close();
+        }
+      }
+    }
+  } finally {
+    JPEG = guardada;
+    await auxiliar.close();
   }
   return salida;
 }

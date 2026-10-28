@@ -7,19 +7,18 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { chromium, type Browser } from "playwright";
-import { ESCENARIOS, medirPeoresCasos, usarImagenDePrueba } from "./ficha-peores-casos";
+import { geometriaDeHoja } from "../src/lib/ficha/composicion";
+import { ESCENARIOS, medirFotoVisible, medirPeoresCasos, usarImagenDePrueba } from "./ficha-peores-casos";
 import { fetchComo, reiniciarDatos } from "./sesion-pruebas";
 
 const PUERTO = 3112;
 const baseExterna = process.argv.find((a) => a.startsWith("--base="))?.split("=")[1];
 const base = baseExterna ?? `http://localhost:${PUERTO}`;
 const imagenes = process.argv.find((a) => a.startsWith("--imagenes="))?.split("=")[1];
-const MINIMO = { normal: 0.4, peorMedia: 0.4, peorCarta: 0.32 };
-// Solo para «normal con la raza más larga del catálogo» en Carta: ahí la fotografía queda en 40,0 % (margen cero) y la tipografía de otra máquina puede mover una línea;
-// se tolera 0,5 puntos (≥ 39,5 %). El rediseño robusto de la hoja (bloque inferior en dos columnas) queda para P3.
-const TOLERANCIA_RAZA_LARGA_CARTA = 0.005;
-const minimoDe = (m: { tipo: string; hoja: string; escenario: string }) =>
-  m.tipo === "normal" ? (m.hoja === "carta" && /raza más larga/.test(m.escenario) ? MINIMO.normal - TOLERANCIA_RAZA_LARGA_CARTA : MINIMO.normal) : m.hoja === "carta" ? MINIMO.peorCarta : MINIMO.peorMedia;
+// La zona reservada para la fotografía es ≥ 40 % de la hoja POR CONSTRUCCIÓN (lib/ficha/composicion.ts): Carta ≥ 45,8 %, Media carta 40,8 %, con cualquier texto permitido.
+// Se mide la CAJA de la fotografía (no la imagen) y falla si baja de ese mínimo, si algo queda fuera de la hoja o recortado, o si el QR, el folio o el lugar se salen.
+// El área de foto VISIBLE (la imagen completa sin recorte dentro de la caja) depende de su proporción: solo se informa, no hace fallar.
+const MINIMO = { carta: geometriaDeHoja("carta").fraccionFoto - 0.0005, "media-carta": geometriaDeHoja("media-carta").fraccionFoto - 0.0005 };
 let fallos = 0;
 let total = 0;
 const ver = (ok: boolean, bien: string, mal: string) => {
@@ -75,7 +74,7 @@ async function main() {
     }
     const medidas = await medirPeoresCasos(navegador, base, { imagenes });
     for (const m of medidas) {
-      const minimo = minimoDe(m);
+      const minimo = MINIMO[m.hoja as "carta" | "media-carta"];
       const pct = `${(m.porcentaje * 100).toFixed(1)} %`;
       ver(m.porcentaje >= minimo && m.desbordes.length === 0, `${m.tipo === "normal" ? "normal" : "peor caso"} · ${m.escenario} · ${m.hoja} (${m.ancho} px): fotografía ${pct} (≥ ${(minimo * 100).toFixed(1)} %) y sin desbordes; QR, folio y lugar dentro de la hoja`, `${m.escenario} · ${m.hoja} (${m.ancho} px): fotografía ${pct} (mínimo ${(minimo * 100).toFixed(1)} %) · ${m.desbordes.length ? m.desbordes.join(" | ") : "sin desbordes"}`);
     }
@@ -83,6 +82,18 @@ async function main() {
     const peor = medidas.find((m) => m.tipo === "peor")!;
     const detalle = await (await fetchComo(base, "tutor1", `/tutor/casos/${peor.folio}`)).text();
     ver(detalle.includes(peor.caracteristicas), "el detalle del caso muestra completas las 300 características que la hoja recorta", "el detalle del caso no trae las características completas");
+    // Área de foto visible por proporción: solo informativa (no hace fallar).
+    const visibles = await medirFotoVisible(navegador, base);
+    console.log("\nÁrea de fotografía visible (imagen completa, sin recorte) como % de la hoja, texto normal / peor caso (zona reservada entre paréntesis):");
+    for (const hoja of ["carta", "media-carta"]) {
+      const fila = ["4:5", "1:1", "4:3", "16:9"].map((p) => {
+        const n = visibles.find((v) => v.hoja === hoja && v.proporcion === p && v.caso === "normal")!;
+        const w = visibles.find((v) => v.hoja === hoja && v.proporcion === p && v.caso === "peor")!;
+        return `${p}: ${(n.visible * 100).toFixed(1)} / ${(w.visible * 100).toFixed(1)} %`;
+      });
+      const z = visibles.filter((v) => v.hoja === hoja).map((v) => v.zona);
+      console.log(`  ℹ ${hoja.padEnd(11)} ${fila.join("   ")}   (zona ${(Math.min(...z) * 100).toFixed(1)}–${(Math.max(...z) * 100).toFixed(1)} %)`);
+    }
     ver(ESCENARIOS.length === 5, `${ESCENARIOS.length} escenarios medidos (2 normales y 3 peores) × Carta y Media carta × 390 y 1280 px`, `escenarios inesperados: ${ESCENARIOS.length}`);
   } finally {
     await reiniciarDatos(base); // los casos de prueba se registraron de verdad en el almacén

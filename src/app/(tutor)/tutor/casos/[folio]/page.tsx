@@ -1,4 +1,8 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
+import { basePublicaDeCabeceras } from "@/server/config/urlPublica";
+import { ErrorApp } from "@/server/errores";
+import { enlaceParaCompartir } from "@/server/servicios/fichaBusqueda";
 import { DetalleCasoTutor } from "@/components/features/DetalleCasoTutor";
 import type { EstadoCaso } from "@/mocks/tipos";
 import { casoDelTutor } from "@/server/servicios/misRegistros";
@@ -20,5 +24,10 @@ export default async function DetalleCaso({ params, searchParams }: PageProps<"/
   const { folio } = await params;
   const { estado } = await searchParams;
   const caso = await paraPagina(casoDelTutor(await obtenerSesion(), folio, { estadoForzado: estadoVariante(typeof estado === "string" ? estado : undefined) }));
-  return <DetalleCasoTutor caso={caso} />;
+  // Enlace para compartir: solo con el caso en curso y con la URL pública configurada; si no, la ventana de compartir lo avisa.
+  const enlace = await enlaceParaCompartir(await obtenerSesion(), folio, basePublicaDeCabeceras(await headers())).catch((e) => {
+    if (e instanceof ErrorApp && e.estado === 409) return null;
+    throw e;
+  });
+  return <DetalleCasoTutor caso={caso} enlaceCompartir={enlace} />;
 }

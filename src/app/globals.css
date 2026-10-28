@@ -400,17 +400,22 @@ cite {
   }
   /* La hoja se muestra reducida con transform; al imprimir vuelve a su tamaño real. */
   .escala-hoja {
+    display: block !important;
     height: auto !important;
     visibility: visible !important;
   }
-  .escala-hoja > div {
+  .escala-hoja-caja {
+    width: auto !important;
+    height: auto !important;
+  }
+  .escala-hoja-caja > div {
     width: auto !important;
     transform: none !important;
   }
   .ficha-impresion {
     position: fixed;
     inset: 0 auto auto 0;
-    width: 21.6cm;
+    width: 612pt;
     margin: 0;
     box-shadow: none;
   }

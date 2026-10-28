@@ -2,16 +2,9 @@
 // (RUPE_…) ni código del almacén en memoria, de las credenciales o de la sesión. Uso: npm run verificar-secretos (requiere el build hecho).
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { hallazgosEn } from "./lib/patronesSecretos";
 
 const RAIZ = join(process.cwd(), ".next", "static");
-const PROHIBIDOS: { patron: RegExp; porQue: string }[] = [
-  { patron: /RUPE_[A-Z0-9_]{3,}/, porQue: "nombre de variable de entorno del servidor (RUPE_SESION_SECRETO, contraseñas, RUPE_PERMITIR_REINICIO…)" },
-  { patron: /__RUPE_ALMACEN__/, porQue: "singleton del almacén en memoria" },
-  { patron: /contrasenaHash|tokenHash|intentosFallidos|bloqueadoHasta/, porQue: "columnas de usuarios y sesiones (solo existen en el servidor)" },
-  { patron: /crearRepositorios|reiniciarAlmacen|obtenerAlmacen|siguienteId/, porQue: "código del almacén y de los repositorios" },
-  { patron: /\bhashSync\b|\bbcryptjs\b|createHmac|timingSafeEqual/, porQue: "código de contraseñas y firma de sesión" },
-];
-
 function archivos(dir: string): string[] {
   return readdirSync(dir).flatMap((n) => {
     const r = join(dir, n);
@@ -27,10 +20,7 @@ const lista = archivos(RAIZ);
 const hallazgos: string[] = [];
 for (const f of lista) {
   const texto = readFileSync(f, "utf8");
-  for (const { patron, porQue } of PROHIBIDOS) {
-    const m = texto.match(patron);
-    if (m) hallazgos.push(`${f.replace(process.cwd() + "/", "")}: «${m[0]}» (${porQue})`);
-  }
+  for (const [coincidencia, porQue] of hallazgosEn(texto)) hallazgos.push(`${f.replace(process.cwd() + "/", "")}: «${coincidencia}» (${porQue})`);
 }
 if (hallazgos.length) {
   console.log(`✗ ${hallazgos.length} hallazgo(s) en el código que viaja al navegador:\n  ${hallazgos.join("\n  ")}`);

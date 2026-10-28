@@ -523,14 +523,14 @@ async function fugas(navegador: Browser) {
       const incluye = ["¡ayúdame a regresar a casa!", max.nombre.toLowerCase(), max.folio.toLowerCase(), "se extravió el 18 de octubre de 2026", `col. ${max.coloniaZona}, alcaldía ${max.alcaldia}`.toLowerCase(), "¿lo viste?", max.color.toLowerCase()];
       const falta = incluye.filter((t) => !texto.includes(t));
       const reservadosEnHoja = valoresReservados(max).filter((v) => texto.includes(v.toLowerCase()));
-      ver(falta.length === 0 && reservadosEnHoja.length === 0 && (await hojaEl.getByRole("img", { name: /Fotografía de Max, .*sin recorte/ }).isVisible()) && (await hojaEl.getByRole("img", { name: /Código QR ilustrativo/ }).isVisible()), `ficha ${hoja} ${ancho}px: título, fotografía sin recorte, nombre, datos públicos, fecha, lugar, folio y QR; sin reservados`, `ficha ${hoja} ${ancho}px: falta [${falta.join(", ")}] o trae reservados [${reservadosEnHoja.join(", ")}]`);
+      ver(falta.length === 0 && reservadosEnHoja.length === 0 && (await hojaEl.getByRole("img", { name: /Fotografía de Max, .*sin recorte/ }).isVisible()) && (await hojaEl.getByRole("img", { name: /Código QR de la ficha/ }).isVisible()), `ficha ${hoja} ${ancho}px: título, fotografía sin recorte, nombre, datos públicos, fecha, lugar, folio y QR; sin reservados`, `ficha ${hoja} ${ancho}px: falta [${falta.join(", ")}] o trae reservados [${reservadosEnHoja.join(", ")}]`);
       const medida = await hojaEl.evaluate((a) => ({ sh: a.scrollHeight, ch: a.clientHeight, sw: a.scrollWidth, cw: a.clientWidth, w: a.getBoundingClientRect().width, h: a.getBoundingClientRect().height, ar: getComputedStyle(a).backgroundColor, tinta: getComputedStyle(a).color }));
       const razon = hoja === "carta" ? 21.6 / 27.9 : 21.6 / 14;
       ver(medida.sh <= medida.ch + 1 && medida.sw <= medida.cw + 1 && Math.abs(medida.w / medida.h - razon) < 0.01, `ficha ${hoja} ${ancho}px: el contenido cabe en la hoja (${Math.round(medida.w)}×${Math.round(medida.h)} px, proporción ${razon.toFixed(3)}) sin desbordar`, `ficha ${hoja} ${ancho}px: desborda o proporción incorrecta ${JSON.stringify(medida)}`);
       ver(medida.ar === "rgb(255, 255, 255)" && medida.tinta === "rgb(0, 0, 0)", `ficha ${hoja} ${ancho}px: blanco sobre negro (papel y tinta)`, `ficha ${hoja} ${ancho}px: colores ${medida.ar} / ${medida.tinta}`);
       if (ancho === 390) {
         const css = await pagina.locator("style").evaluateAll((ss) => ss.map((s) => s.textContent ?? "").find((t) => t.includes("@page")) ?? "");
-        ver(css.includes(hoja === "carta" ? "21.6cm 27.9cm" : "21.6cm 14cm"), `ficha ${hoja}: la regla de impresión fija la página en ${hoja === "carta" ? "21.6 × 27.9 cm" : "21.6 × 14 cm"}`, `ficha ${hoja}: sin regla @page (${css})`);
+        ver(css.includes(hoja === "carta" ? "612pt 792pt" : "612pt 396pt"), `ficha ${hoja}: la regla de impresión fija la página en ${hoja === "carta" ? "612 × 792 pt" : "612 × 396 pt"}`, `ficha ${hoja}: sin regla @page (${css})`);
         await pagina.emulateMedia({ media: "print" });
         // Proporción real de la fotografía respecto de la hoja, medida con la hoja a su tamaño de impresión (21.6 cm de ancho).
         const prop = await pagina.evaluate(() => {
@@ -552,6 +552,7 @@ async function fugas(navegador: Browser) {
 }
 
 // ---------- (d) modales de TUT-07 ----------
+const pulsado2 = async (dlg: Locator, nombre: string) => (await dlg.getByRole("button", { name: nombre, exact: true }).getAttribute("aria-pressed")) === "true";
 async function modalesFicha(navegador: Browser) {
   const casos: { boton: string; modal: string }[] = [
     { boton: "Imprimir ficha de búsqueda", modal: "Tu ficha de búsqueda en PDF" },
@@ -584,29 +585,71 @@ async function modalesFicha(navegador: Browser) {
   ver(/no incluye tus datos personales ni la calle, las referencias, el motivo o la descripción/.test(texto) && (await enlace(pagina, "Regresar al detalle del caso").getAttribute("href")) === CASO, "TUT-07: mensaje de lo que no incluye la ficha y «Regresar al detalle del caso»", "TUT-07: contenido incorrecto");
   await boton(pagina, "Imprimir ficha de búsqueda").click();
   const dlg = pagina.getByRole("dialog", { name: "Tu ficha de búsqueda en PDF" });
-  ver((await dlg.getByRole("radio", { name: "Carta", exact: true }).isChecked()) && (await dlg.locator("article[aria-label*='tamaño Carta']").isVisible()), "visor: empieza en Carta", "visor: no empieza en Carta");
-  await dlg.locator("label", { hasText: "Media carta" }).click();
-  ver((await dlg.locator("article[aria-label*='Media carta']").isVisible()) && (await dlg.locator("article[aria-label*='tamaño Carta']").count()) === 0, "visor: el selector cambia a Media carta", "visor: el selector no cambió la hoja");
-  await boton(dlg, "Descargar PDF").click();
-  ver(await dlg.getByRole("status").getByText(/Descarga simulada/).isVisible(), "visor: «Descargar PDF» avisa que la descarga es simulada (no hay PDF real)", "visor: «Descargar PDF» no respondió");
+  const pulsado = async (nombre: string) => (await dlg.getByRole("button", { name: nombre, exact: true }).getAttribute("aria-pressed")) === "true";
+  ver((await pulsado("Carta")) && (await dlg.locator("article[aria-label*='tamaño Carta']").isVisible()) && (await dlg.getByText(/Vista simulada/).count()) === 0, "visor: empieza en Carta y ya no dice «Vista simulada»", "visor: no empieza en Carta o conserva el texto «Vista simulada»");
+  await dlg.getByRole("button", { name: "Media carta", exact: true }).click();
+  ver((await pulsado("Media carta")) && (await dlg.locator("article[aria-label*='Media carta']").isVisible()) && (await dlg.locator("article[aria-label*='tamaño Carta']").count()) === 0, "visor: el selector por botones (aria-pressed) cambia a Media carta", "visor: el selector no cambió la hoja");
+  // Descarga REAL: el navegador recibe un PDF con el nombre ficha-<FOLIO>-<hoja>.pdf.
+  const [descarga] = await Promise.all([pagina.waitForEvent("download"), boton(dlg, "Descargar PDF").click()]);
+  const ruta = await descarga.path();
+  const cabecera = ruta ? (await import("node:fs")).readFileSync(ruta).subarray(0, 5).toString() : "";
+  ver(descarga.suggestedFilename() === `ficha-${FOLIO_EN_CURSO}-media-carta.pdf` && cabecera === "%PDF-", `visor: «Descargar PDF» baja el PDF real (${descarga.suggestedFilename()})`, `visor: la descarga fue «${descarga.suggestedFilename()}» (${cabecera})`);
   await boton(dlg, "Imprimir").click();
   ver((await pagina.evaluate(() => (window as unknown as { __impresiones: number }).__impresiones)) === 1, "visor: «Imprimir» invoca la impresión del navegador", "visor: «Imprimir» no invocó window.print");
   await boton(dlg, "Regresar a la ficha").click();
-  // Regenerar QR cambia el código y avisa.
+  ver((await enlace(pagina, "Regresar a editar").getAttribute("href")) === `${CASO}/editar`, "TUT-07: «Regresar a editar» lleva a la pantalla de editar (pendiente, como en el maquetado)", "TUT-07: falta «Regresar a editar»");
+  // Regenerar QR cambia el código (real, con confirmación) y avisa.
   const qr = () => pagina.locator("section[aria-labelledby=vista-previa] svg[role=img] path").getAttribute("d");
   const antes = await qr();
   await boton(pagina, "Regenerar QR").click();
   const regen = pagina.getByRole("dialog", { name: "Regenerar código QR" });
   ver(/dejará de ser válido de inmediato/.test(await regen.innerText()), "MOD-06: advierte que el QR anterior dejará de ser válido de inmediato", "MOD-06: sin advertencia");
   await boton(regen, "Regenerar QR").click();
-  ver((await qr()) !== antes && (await pagina.getByRole("status").getByText(/Código QR regenerado/).isVisible()), "MOD-06: «Regenerar QR» cambia el código de la vista previa y lo anuncia", "MOD-06: el QR no cambió");
+  await pagina.waitForFunction((d) => document.querySelector("section[aria-labelledby=vista-previa] svg[role=img] path")?.getAttribute("d") !== d, antes);
+  ver((await qr()) !== antes && (await pagina.getByRole("status").getByText(/Código QR regenerado el .*: el anterior ya no es válido/).isVisible()), "MOD-06: «Regenerar QR» crea un QR nuevo (el anterior se invalida), refresca la vista previa y lo anuncia con la fecha", "MOD-06: el QR no cambió");
   await contexto.close();
+
+  // Visor en 1280×844: la hoja COMPLETA (QR, folio y pie) sin desplazarse, y operable con teclado.
+  for (const hoja of ["carta", "media-carta"] as const) {
+    const v = await nuevaPagina(navegador, 1280);
+    await v.pagina.setViewportSize({ width: 1280, height: 844 });
+    await irA(v.pagina, `${CASO}/ficha?modal=visor&hoja=${hoja}`);
+    const d = v.pagina.getByRole("dialog", { name: "Tu ficha de búsqueda en PDF" });
+    const m = await v.pagina.evaluate(() => {
+      const dl = document.querySelector("dialog[open]") as HTMLDialogElement;
+      const a = dl.querySelector(".ficha-impresion article")!.getBoundingClientRect();
+      const q = dl.querySelector("[aria-label^='Código QR']")!.getBoundingClientRect();
+      const f = [...dl.querySelectorAll("p")].find((p) => /^RUPE-/.test(p.textContent ?? ""))!.getBoundingClientRect();
+      return { scroll: dl.scrollHeight > dl.clientHeight + 1, hoja: a.top >= 0 && a.bottom <= innerHeight, qr: q.top >= 0 && q.bottom <= innerHeight, folio: f.top >= 0 && f.bottom <= innerHeight };
+    });
+    ver(!m.scroll && m.hoja && m.qr && m.folio, `visor 1280×844 (${hoja}): la hoja completa, con el QR y el folio, se ve sin desplazarse`, `visor 1280×844 (${hoja}): ${JSON.stringify(m)}`);
+    if (hoja === "carta") {
+      // Las flechas no quedan atrapadas por el selector; Tab da la vuelta dentro del diálogo; Espacio activa; Escape cierra y devuelve el foco.
+      await d.getByRole("button", { name: "Carta", exact: true }).focus();
+      for (let i = 0; i < 3; i++) await v.pagina.keyboard.press("ArrowDown");
+      await v.pagina.keyboard.press("ArrowRight");
+      ver(await pulsado2(d, "Carta"), "visor: las flechas no cambian la hoja (el selector no atrapa el teclado)", "visor: las flechas cambiaron la hoja");
+      await d.getByRole("button", { name: "Media carta", exact: true }).focus();
+      await v.pagina.keyboard.press("Space");
+      ver(await pulsado2(d, "Media carta"), "visor: Espacio activa «Media carta»", "visor: Espacio no activó «Media carta»");
+      const dentro: boolean[] = [];
+      for (let i = 0; i < 9; i++) {
+        await v.pagina.keyboard.press("Tab");
+        dentro.push(await v.pagina.evaluate(() => !!document.activeElement?.closest("dialog[open]")));
+      }
+      ver(dentro.every(Boolean), "visor: el foco queda atrapado en el diálogo (9 pulsaciones de Tab)", `visor: el foco salió del diálogo (${dentro.join()})`);
+      await v.pagina.keyboard.press("Escape");
+      ver(!(await dialogoAbierto(v.pagina)), "visor: Escape cierra el diálogo", "visor: Escape no cerró el diálogo");
+    }
+    await v.contexto.close();
+  }
 
   // Casos sin ficha.
   const c2 = await nuevaPagina(navegador);
   const localizado = CASOS_ORIGEN.find((x) => x.estado === "Localizado")!;
   await irA(c2.pagina, `/tutor/casos/${localizado.folio}/ficha`);
-  ver(/La ficha ya no está disponible/.test(await c2.pagina.locator("main").innerText()) && (await c2.pagina.getByRole("button", { name: "Imprimir ficha de búsqueda" }).count()) === 0, "TUT-07: un caso «Localizado» no ofrece imprimir ni compartir la ficha", "TUT-07: ofrece la ficha de un caso localizado");
+  const botonesBloqueados = await Promise.all(["Imprimir ficha de búsqueda", "Compartir", "Regenerar QR"].map(async (n) => (await boton(c2.pagina, n).count()) === 1 && (await boton(c2.pagina, n).isDisabled())));
+  ver(/La ficha ya no está disponible/.test(await c2.pagina.locator("main").innerText()) && /Disponible solo mientras el caso sigue en curso/.test(await c2.pagina.locator("main").innerText()) && botonesBloqueados.every(Boolean) && (await c2.pagina.locator("article[aria-label^='Ficha de búsqueda']").count()) === 0, "TUT-07: un caso «Localizado» muestra el aviso, sin vista previa, con Imprimir, Compartir y Regenerar QR deshabilitados y su explicación", "TUT-07: ofrece la ficha de un caso localizado");
   const r = await c2.pagina.goto(`${base}/tutor/casos/RUPE-Z5C6VR4P`, { waitUntil: "load" });
   ver(r?.status() === 404, "un folio que no es de la persona tutora responde 404 (TRA-01)", `folio ajeno: HTTP ${r?.status()}`);
   await c2.contexto.close();

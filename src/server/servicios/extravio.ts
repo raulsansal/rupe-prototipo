@@ -3,6 +3,7 @@ import "server-only";
 // de la sesión. R6: el caso, el perro, la fotografía, el QR inicial y los movimientos «registro» y «ficha generada» se crean en UNA transacción, de modo que el caso queda
 // en «En búsqueda» (E1; «Extraviado» es un estado instantáneo). R24 no aplica: la bitácora solo registra acciones administrativas.
 import { ahoraUTC, hoyCDMX } from "../dominio/fechas";
+import { LADO_MAXIMO_CASO, prepararImagen } from "../imagenes/prepararImagen";
 import { generarFolio } from "../dominio/folio";
 import { generarTokenQr } from "../dominio/qr";
 import { leerDatosDeExtravio, validarExtravio } from "../dominio/caso";
@@ -33,14 +34,22 @@ export async function registrarExtravio(sesion: SesionActual | undefined, entrad
   const r = validarExtravio(datos, { razas, alcaldias, motivos }, { hoy: hoyCDMX(reloj), foto: entrada.foto, maximoMb });
   if (!r.validado) throw validacion(r.campos);
   const v = r.validado;
+  // HU 011 regla 6: la foto se re-codifica en el SERVIDOR (orientación aplicada, lado máximo 1600 px, JPEG, sin EXIF ni ubicación) antes de guardarla. Si la cabecera es
+  // válida pero la imagen no se puede leer (truncada, corrupta), se rechaza con el mismo mensaje que un archivo que no es JPG o PNG.
+  let foto: { bytes: Uint8Array };
+  try {
+    foto = { bytes: (await prepararImagen(entrada.foto!.bytes, { tipo: "lado", maximo: LADO_MAXIMO_CASO })).bytes };
+  } catch {
+    throw validacion({ foto: "La fotografía debe ser JPG o PNG." });
+  }
   const ahora = ahoraUTC(reloj);
   const [idExtraviado, idEnBusqueda] = [await idDeEstado(repos, "Extraviado"), await idDeEstado(repos, "En búsqueda")];
   for (let intento = 0; intento < INTENTOS_DE_FOLIO; intento++) {
     const folio = generarFolio(ctx.aleatorio);
     try {
       const caso = await repos.casos.crearConPerro({
-        fotografia: { referenciaArchivo: "", formato: v.foto.formato, tamanoBytes: entrada.foto!.bytes.length, fechaCarga: ahora },
-        contenidoFotografia: { tipo: v.foto.tipoMime, bytes: entrada.foto!.bytes },
+        fotografia: { referenciaArchivo: "", formato: "JPG", tamanoBytes: foto.bytes.length, fechaCarga: ahora },
+        contenidoFotografia: { tipo: "image/jpeg", bytes: foto.bytes },
         perro: { ...v.perro, idUsuario: persona.idUsuario }, // el dueño es la sesión, nunca un campo del cliente
         caso: { folio, ...v.caso, fechaRegistro: ahora, fechaUltimaModificacion: ahora },
         qr: { tokenPublico: generarTokenQr(), fechaGeneracion: ahora, fechaInvalidacion: null },

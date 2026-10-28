@@ -7,6 +7,7 @@ import { CAMPOS_FICHA_PUBLICA } from "../serializadores/publico";
 import { AHORA, nuevoContexto } from "../pruebas/auxiliares";
 import { jpeg, PNG_1X1 } from "../pruebas/imagenes";
 import type { SesionActual } from "../sesion/guardas";
+import { verificarResultado } from "../imagenes/prepararImagen";
 import { casoRecienCreado, fotografiaDelCaso, registrarExtravio } from "./extravio";
 import { consultarFichaPorFolio } from "./fichas";
 
@@ -42,8 +43,11 @@ test("HU 011, 012 y 013 · caso feliz: caso, perro, foto, historial (2 movimient
   const f = (await ctx.repos.casos.fotografia(perro.idFotografia))!;
   assert.equal(f.referenciaArchivo, `/api/fotografias/${f.idFotografia}`);
   assert.equal(f.formato, "JPG");
-  assert.equal(f.tamanoBytes, foto.bytes.length);
-  assert.deepEqual((await ctx.repos.casos.contenidoDeFotografia(f.idFotografia))?.bytes, foto.bytes);
+  // HU 011 regla 6: se guarda la foto RE-CODIFICADA en el servidor (JPEG sin metadatos), no los bytes originales.
+  const guardada = (await ctx.repos.casos.contenidoDeFotografia(f.idFotografia))!;
+  assert.equal(f.tamanoBytes, guardada.bytes.length);
+  assert.equal(guardada.tipo, "image/jpeg");
+  assert.equal((await verificarResultado(guardada.bytes)).esJpeg, true);
   assert.equal(almacen.bitacora.length, 25); // R24: la bitácora es solo de acciones administrativas; el registro no escribe en ella
 });
 
@@ -108,7 +112,7 @@ test("HU 013 · dos registros seguidos del mismo dueño dan folios, ids, fotos y
   assert.notEqual(pa.idFotografia, pb.idFotografia);
   assert.equal(pb.idFotografia, pa.idFotografia + 1);
   assert.notEqual((await ctx.repos.qr.activoDe(ca.idCasoExtravio))!.tokenPublico, (await ctx.repos.qr.activoDe(cb.idCasoExtravio))!.tokenPublico);
-  assert.equal((await ctx.repos.casos.contenidoDeFotografia(pb.idFotografia))?.tipo, "image/png");
+  assert.equal((await ctx.repos.casos.contenidoDeFotografia(pb.idFotografia))?.tipo, "image/jpeg"); // un PNG subido se guarda como JPEG
   assert.equal((await ctx.repos.casos.contenidoDeFotografia(pa.idFotografia))?.tipo, "image/jpeg"); // la primera no se pisó
 });
 
@@ -189,7 +193,7 @@ test("Fotografía · solo la ve su dueña (y el Administrador, en consulta); otr
   const r = await registrarExtravio(ROSA, { datos: datos(), foto }, ctx);
   const caso = (await ctx.repos.casos.porFolio(r.folio))!;
   const idFoto = (await ctx.repos.casos.perro(caso.idPerro))!.idFotografia;
-  assert.deepEqual((await fotografiaDelCaso(ROSA, idFoto, ctx)).bytes, foto.bytes);
+  assert.deepEqual((await fotografiaDelCaso(ROSA, idFoto, ctx)).bytes, (await ctx.repos.casos.contenidoDeFotografia(idFoto))!.bytes);
   assert.equal((await fotografiaDelCaso(ADMIN, idFoto, ctx)).tipo, "image/jpeg"); // consulta
   assert.equal((await falla(fotografiaDelCaso(undefined, idFoto, ctx)))?.estado, 401);
   const sembrada = (await ctx.repos.casos.perro((await ctx.repos.casos.porFolio("RUPE-K7M4XQ9T"))!.idPerro))!.idFotografia;

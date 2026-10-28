@@ -57,3 +57,18 @@ test("Transacción · si todo sale bien se conserva y devuelve el resultado; el 
   assert.equal(almacen.ids.prueba, 1);
   assert.equal(new ConflictoDeUnicidad("folio").message, "Valor duplicado");
 });
+
+test("Transacción · si algo falla después de invalidar el QR vigente, la fila invalidada se RESTAURA (R7: nunca un caso sin QR activo)", () => {
+  const { almacen } = nuevoContexto();
+  const antes = JSON.stringify(almacen.qr);
+  const vigente = almacen.qr.find((q) => q.idCasoExtravio === 1 && q.fechaInvalidacion === null)!;
+  assert.throws(() =>
+    transaccion(almacen, () => {
+      vigente.fechaInvalidacion = "2026-10-20T00:00:00Z"; // muta una fila existente
+      almacen.qr.push({ idCodigoQr: 999, idCasoExtravio: 1, tokenPublico: "x".repeat(32), fechaGeneracion: "2026-10-20T00:00:00Z", fechaInvalidacion: null });
+      throw new Error("falla a mitad");
+    }),
+  );
+  assert.equal(JSON.stringify(almacen.qr), antes);
+  assert.equal(almacen.qr.filter((q) => q.idCasoExtravio === 1 && q.fechaInvalidacion === null).length, 1);
+});

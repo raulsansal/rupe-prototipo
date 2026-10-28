@@ -112,13 +112,18 @@ export function crearRepositorios(almacen: () => Almacen = obtenerAlmacen): Repo
       async activoDe(id) { return copia(a().qr.find((q) => q.idCasoExtravio === id && q.fechaInvalidacion === null)); },
       async porToken(token) { return copia(a().qr.find((q) => q.tokenPublico === token)); }, // sensible a mayúsculas (E6)
       async deCaso(id) { return copia(a().qr.filter((q) => q.idCasoExtravio === id)); },
+      /** R7: invalida el QR vigente y crea el nuevo en UNA transacción (si algo falla no queda el caso sin QR activo ni dos activos). */
       async regenerar(id, tokenNuevo, fecha) {
         const al = a();
-        if (al.qr.some((q) => q.tokenPublico === tokenNuevo)) throw new Error("Token duplicado");
-        al.qr.filter((q) => q.idCasoExtravio === id && q.fechaInvalidacion === null).forEach((q) => (q.fechaInvalidacion = fecha));
-        const nuevo: T.CodigoQr = { idCodigoQr: siguienteId(al, "qr"), idCasoExtravio: id, tokenPublico: tokenNuevo, fechaGeneracion: fecha, fechaInvalidacion: null };
-        al.qr.push(nuevo);
-        return copia(nuevo);
+        return copia(
+          transaccion(al, () => {
+            if (al.qr.some((q) => q.tokenPublico === tokenNuevo)) throw new ConflictoDeUnicidad("token"); // UNIQUE
+            al.qr.filter((q) => q.idCasoExtravio === id && q.fechaInvalidacion === null).forEach((q) => (q.fechaInvalidacion = fecha));
+            const nuevo: T.CodigoQr = { idCodigoQr: siguienteId(al, "qr"), idCasoExtravio: id, tokenPublico: tokenNuevo, fechaGeneracion: fecha, fechaInvalidacion: null };
+            al.qr.push(nuevo);
+            return nuevo;
+          }),
+        );
       },
     },
     avistamientos: {

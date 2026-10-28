@@ -45,7 +45,7 @@ export function Toast({ mensaje, accion, onCerrar, duracion = 5000, posicion = "
       onBlur={armar}
       className={cx(
         "flex min-h-12 w-full max-w-md items-center gap-3 rounded-campo bg-text px-4 py-2 text-small text-background shadow-lg",
-        posicion === "fija" && "fixed inset-x-4 bottom-4 z-50 mx-auto",
+        posicion === "fija" && "fixed inset-x-4 bottom-20 z-50 mx-auto md:bottom-4" /* en móvil sobre la barra de navegación inferior (64 px) */,
       )}
     >
       <Icono nombre="check_circle" tamano={20} />

@@ -44,3 +44,27 @@ test("R7 · rechazo de coincidencia: si el token generado ya existe, se genera o
   const tokens = ["A".repeat(32), "B".repeat(32)];
   assert.equal(planRegeneracion(qrs, 1, "t1", () => tokens.shift()!).nuevo.tokenPublico, "B".repeat(32));
 });
+
+test("R27 · mapeo exacto sin sesgo: los 248 bytes aceptados (0 a 247) dan cada uno de los 62 símbolos exactamente 4 veces (prueba determinista)", () => {
+  const cuentas = new Map<string, number>();
+  for (let b = 0; b < 248; b++) cuentas.set(ALFABETO_TOKEN[b % 62], (cuentas.get(ALFABETO_TOKEN[b % 62]) ?? 0) + 1);
+  assert.equal(cuentas.size, 62);
+  assert.ok([...cuentas.values()].every((n) => n === 4));
+  // El generador con una fuente inyectada: bytes 0..247 en orden → los primeros 32 símbolos del alfabeto; los bytes ≥ 248 nunca producen símbolo.
+  let siguiente = 0;
+  const token = generarTokenQr((n) => Uint8Array.from({ length: n }, () => siguiente++ % 256));
+  assert.equal(token, [...ALFABETO_TOKEN].slice(0, 32).join(""));
+  assert.equal(generarTokenQr(() => Uint8Array.from([255, 254, 253, 252, 251, 250, 249, 248, ...new Array(24).fill(61), ...new Array(32).fill(0)])), "A".repeat(0) + ALFABETO_TOKEN[61].repeat(24) + ALFABETO_TOKEN[0].repeat(8));
+});
+
+test("R27 · vigencia: solo el token del QR activo es vigente; el invalidado y el de otra capitalización no", () => {
+  const qrs = [
+    { idCodigoQr: 1, idCasoExtravio: 7, tokenPublico: "aB3".padEnd(32, "x"), fechaGeneracion: "2026-10-01T10:00:00Z", fechaInvalidacion: "2026-10-05T10:00:00Z" },
+    { idCodigoQr: 2, idCasoExtravio: 7, tokenPublico: "Zq9".padEnd(32, "y"), fechaGeneracion: "2026-10-05T10:00:00Z", fechaInvalidacion: null },
+  ];
+  assert.equal(qrVigentePorToken(qrs, "Zq9".padEnd(32, "y"))?.idCodigoQr, 2);
+  assert.equal(qrVigentePorToken(qrs, "aB3".padEnd(32, "x")), undefined, "el invalidado ya no es vigente");
+  assert.equal(qrVigentePorToken(qrs, "zq9".padEnd(32, "y")), undefined, "E6: distingue mayúsculas");
+  assert.equal(qrVigentePorToken(qrs, "no-existe"), undefined);
+  assert.ok(qrs[0].fechaInvalidacion! >= qrs[0].fechaGeneracion, "invalidación ≥ generación");
+});

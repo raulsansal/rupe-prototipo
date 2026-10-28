@@ -1,6 +1,6 @@
 // Errores de la aplicación con la forma final de las respuestas HTTP (uniformes para todas las rutas):
 // 400 formato · 401 sin sesión · 403 rol insuficiente · 404 no encontrado · 409 estado o duplicado · 413 cuerpo demasiado grande · 422 regla de negocio.
-export type EstadoHttp = 400 | 401 | 403 | 404 | 409 | 413 | 422;
+export type EstadoHttp = 400 | 401 | 403 | 404 | 409 | 413 | 422 | 503;
 
 export class ErrorApp extends Error {
   constructor(

@@ -4,6 +4,8 @@
 // Opciones: --sin-build reutiliza el build · --base=URL usa un servidor que ya corre (debe tener RUPE_PERMITIR_REINICIO=1).
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { USUARIOS_INICIALES } from "../src/mocks/usuarios";
+import { JPEG_REAL } from "../src/server/pruebas/imagenes";
+import { request as peticionHttp } from "node:http";
 import { credencial, fetchComo, NOMBRE_COOKIE, olvidarSesiones, valorDeSesion, type RolPrueba } from "./sesion-pruebas";
 
 const PUERTO = 3109;
@@ -31,7 +33,8 @@ async function peticion(metodo: string, ruta: string, { rol, valorCookie, cuerpo
   return { estado: r.status, cabeceras: r.headers, texto, json };
 }
 
-const JPEG = Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, ...new Array(400).fill(9), 0xff, 0xd9]);
+// Con el re-codificado del servidor (P3) la fotografía debe ser una imagen REAL.
+const JPEG = JPEG_REAL;
 const datosDeCaso = (extra: Record<string, unknown> = {}) => ({ nombre: "Pelusa", sexo: "Hembra", idRaza: 1, edad: { valor: 0, unidad: "meses" }, tamano: "pequeño", color: "Blanco", fechaExtravio: new Date(Date.now() - 6 * 3600 * 1000).toISOString().slice(0, 10), momento: "tarde", alcaldia: "Coyoacán", colonia: "Del Carmen", calle: "Calle Reservada 99", idMotivo: 1, ...extra });
 /** POST /api/casos como lo envía el navegador: multipart con «datos» y «fotografia». */
 async function postCaso({ rol, datos = datosDeCaso(), bytes = JPEG, tipo = "image/jpeg", origen = new URL(base).origin, sinFoto = false }: { rol?: RolPrueba; datos?: unknown; bytes?: Uint8Array; tipo?: string; origen?: string; sinFoto?: boolean } = {}): Promise<Resp> {
@@ -221,6 +224,56 @@ async function pruebas() {
   } else {
     for (const t of ["la dueña la recibe (200)", "otra persona tutora recibe 404", "el Administrador la consulta (200)", "sin sesión, 401"]) ver(false, `foto real de un caso sembrado, ${t}: ${SIN_FOTO}`);
   }
+  // ---- P3 · ficha de búsqueda: PDF real, QR y regeneración (HU 019 a 023, 026 y 027) ----
+  const MAX = DE_ROSA[0];
+  const PDF = (folio: string, hoja = "carta") => `/api/casos/${folio}/ficha?hoja=${hoja}`;
+  for (const hoja of ["carta", "media-carta"]) {
+    const r = await peticion("GET", PDF(MAX, hoja), { rol: "tutor1" });
+    const c = r.cabeceras;
+    ver(r.estado === 200 && c.get("content-type") === "application/pdf" && c.get("content-disposition") === `attachment; filename="ficha-${MAX}-${hoja}.pdf"` && c.get("cache-control") === "no-store" && c.get("x-content-type-options") === "nosniff" && r.texto.startsWith("%PDF-"), `GET PDF ${hoja}: 200 application/pdf, attachment ficha-<FOLIO>-${hoja}.pdf, no-store y nosniff`, r);
+  }
+  const porOmision = await peticion("GET", `/api/casos/${MAX}/ficha`, { rol: "tutor1" });
+  ver(porOmision.estado === 200 && porOmision.cabeceras.get("content-disposition") === `attachment; filename="ficha-${MAX}-carta.pdf"`, "GET PDF sin ?hoja=: Carta por omisión", porOmision);
+  const hojaMala = await peticion("GET", PDF(MAX, "a4"), { rol: "tutor1" });
+  ver(hojaMala.estado === 400 && (hojaMala.json?.error as { codigo: string })?.codigo === "HOJA_INVALIDA", "GET PDF con una hoja inválida: 400 HOJA_INVALIDA (solo a la dueña)", hojaMala);
+  const [pdfAnon, pdfAdmin] = [await peticion("GET", PDF(MAX)), await peticion("GET", PDF(MAX), { rol: "admin" })];
+  ver(pdfAnon.estado === 401 && pdfAdmin.estado === 403, "GET PDF: sin sesión 401 y el Administrador 403 (la ficha es solo de su dueña)", pdfAdmin);
+  const [ajenoPdf, inexistentePdf, malFormadoPdf, ajenoHojaMala] = [await peticion("GET", PDF(MAX), { rol: "tutor2" }), await peticion("GET", PDF("RUPE-ZZZZZZZZ"), { rol: "tutor2" }), await peticion("GET", PDF("no-es-un-folio"), { rol: "tutor2" }), await peticion("GET", PDF(MAX, "a4"), { rol: "tutor2" })];
+  ver([ajenoPdf, inexistentePdf, malFormadoPdf, ajenoHojaMala].every((r) => r.estado === 404 && r.texto === ajenoPdf.texto && r.cabeceras.get("content-type") === ajenoPdf.cabeceras.get("content-type") && r.cabeceras.get("cache-control") === ajenoPdf.cabeceras.get("cache-control")), "GET PDF: un caso ajeno (Luis→Rosa), uno inexistente, uno mal formado y uno ajeno con hoja inválida dan el MISMO 404 (cuerpo y cabeceras)", ajenoPdf);
+  const sinRutaQr = await peticion("GET", `/api/casos/${MAX}/qr`, { rol: "tutor1" });
+  ver(sinRutaQr.estado === 404, "no existe una ruta que entregue el token ni la imagen del QR (GET /api/casos/<folio>/qr: 404)", sinRutaQr);
+  for (const [rol, folio, etiqueta] of [["tutor1", "RUPE-B6R2TZ7C", "Localizado (Toby)"], ["tutor1", "RUPE-3HN8WD2B", "Cerrado (Rocky)"], ["tutor2", "RUPE-D5W2QK8X", "Cerrado por deshabilitación (Kira)"], ["tutor2", "RUPE-F7L3MN6Y", "Cerrado por cancelación (Simba)"]] as const) {
+    const [pdf, reg] = [await peticion("GET", PDF(folio), { rol }), await peticion("POST", `/api/casos/${folio}/qr/regenerar`, { rol })];
+    ver(pdf.estado === 409 && reg.estado === 409 && (pdf.json?.error as { codigo: string })?.codigo === "CASO_NO_ACTIVO" && (reg.json?.error as { codigo: string })?.codigo === "CASO_NO_ACTIVO", `${etiqueta}: PDF y regenerar el QR dan 409 CASO_NO_ACTIVO con mensaje claro`, reg);
+  }
+  const [regAnon, regAdmin, regAjeno, regInexistente] = [await peticion("POST", `/api/casos/${MAX}/qr/regenerar`), await peticion("POST", `/api/casos/${MAX}/qr/regenerar`, { rol: "admin" }), await peticion("POST", `/api/casos/${MAX}/qr/regenerar`, { rol: "tutor2" }), await peticion("POST", "/api/casos/RUPE-ZZZZZZZZ/qr/regenerar", { rol: "tutor2" })];
+  ver(regAnon.estado === 401 && regAdmin.estado === 403 && regAjeno.estado === 404 && regAjeno.texto === regInexistente.texto, "regenerar el QR: sin sesión 401, Administrador 403, ajeno e inexistente el mismo 404", regAjeno);
+  const origenMalo = await peticion("POST", `/api/casos/${MAX}/qr/regenerar`, { rol: "tutor1", origen: "https://otro-sitio.example" });
+  const origenNulo = await peticion("POST", `/api/casos/${MAX}/qr/regenerar`, { rol: "tutor1", origen: "null" });
+  ver(origenMalo.estado === 403 && (origenMalo.json?.error as { codigo: string })?.codigo === "ORIGEN_NO_PERMITIDO" && origenNulo.estado === 403, "regenerar el QR con un Origin distinto del sitio (o «null»): 403 ORIGEN_NO_PERMITIDO", origenMalo);
+  const fichaAntes = await peticion("GET", `/tutor/casos/${MAX}/ficha`, { rol: "tutor1" });
+  const regOk = await peticion("POST", `/api/casos/${MAX}/qr/regenerar`, { rol: "tutor1", cuerpo: { idCasoExtravio: 99, folio: "RUPE-AAAAAAAA", estado: "Cerrado", tokenPublico: "x".repeat(32), fechaGeneracion: "2000-01-01T00:00:00Z" } });
+  const fichaDespues = await peticion("GET", `/tutor/casos/${MAX}/ficha`, { rol: "tutor1" });
+  const rutaQr = (t: string) => /role="img"[^>]*Código QR[\s\S]*?<path d="([^"]+)"/.exec(t)?.[1];
+  const cuerpoOk = regOk.json as { regenerado?: boolean; fechaRegeneracion?: string } | undefined;
+  ver(regOk.estado === 200 && cuerpoOk?.regenerado === true && /^\d{4}-\d{2}-\d{2}T/.test(cuerpoOk?.fechaRegeneracion ?? "") && !/[A-Za-z0-9]{32}/.test(regOk.texto), "regenerar el QR con Origin válido: 200 {regenerado, fechaRegeneracion}, sin devolver el token", regOk);
+  ver(!!rutaQr(fichaAntes.texto) && rutaQr(fichaAntes.texto) !== rutaQr(fichaDespues.texto) && fichaDespues.estado === 200 && fichaDespues.texto.includes(MAX) && !fichaDespues.texto.includes("x".repeat(32)) && !fichaDespues.texto.includes("RUPE-AAAAAAAA"), "regenerar ignora cualquier campo del cuerpo (sin asignación masiva): la ficha sigue siendo la del caso, en curso, y el QR cambió", fichaDespues);
+  // URL pública: sin RUPE_URL_PUBLICA, un host que no es local ni de red privada NO genera QR (503 en el PDF; aviso en pantalla); un host local sí.
+  const conHost = (ruta: string, host: string, rol: RolPrueba) => new Promise<{ estado: number; texto: string }>((resolver, rechazar) => {
+    void valorDeSesion(base, rol).then((v) => {
+      const u = new URL(base);
+      const req = peticionHttp({ host: u.hostname, port: u.port, path: ruta, method: "GET", headers: { Host: host, Cookie: `${NOMBRE_COOKIE}=${v}` } }, (res) => {
+        let t = "";
+        res.on("data", (d) => (t += d));
+        res.on("end", () => resolver({ estado: res.statusCode ?? 0, texto: t }));
+      });
+      req.on("error", rechazar);
+      req.end();
+    });
+  });
+  const [pdfLocal, pdfAjeno, pantallaAjena] = [await conHost(PDF(MAX), `localhost:${PUERTO}`, "tutor1"), await conHost(PDF(MAX), "evil.example", "tutor1"), await conHost(`/tutor/casos/${MAX}/ficha`, "evil.example", "tutor1")];
+  ver(pdfLocal.estado === 200 && pdfAjeno.estado === 503 && pdfAjeno.texto.includes("CONFIGURACION_FALTANTE") && !/evil|localhost|RUPE_URL|process|env/i.test(JSON.parse(pdfAjeno.texto).error.mensaje), "sin RUPE_URL_PUBLICA: un Host local genera el PDF y un Host ajeno da 503 CONFIGURACION_FALTANTE sin datos internos", { estado: pdfAjeno.estado, cabeceras: new Headers(), texto: pdfAjeno.texto });
+  ver(pantallaAjena.estado === 200 && pantallaAjena.texto.includes("Configura RUPE_URL_PUBLICA para generar el QR.") && !pantallaAjena.texto.includes("https://evil.example"), "sin RUPE_URL_PUBLICA y con un Host ajeno la ficha se muestra y la zona del QR avisa «Configura RUPE_URL_PUBLICA para generar el QR.» (sin usar ese host)", { estado: pantallaAjena.estado, cabeceras: new Headers(), texto: pantallaAjena.texto.slice(0, 200) });
   const grande = await postCaso({ rol: "tutor1", bytes: new Uint8Array(5 * 1024 * 1024).fill(1) });
   ver(grande.estado === 413 && (grande.json?.error as { codigo: string }).codigo === "CUERPO_DEMASIADO_GRANDE" && grande.cabeceras.get("cache-control") === "no-store", "una petición de más de 4.5 MB: 413 CUERPO_DEMASIADO_GRANDE", grande);
   const invalido = await postCaso({ rol: "tutor1", datos: datosDeCaso({ nombre: "", alcaldia: "Fuera de la Ciudad de México", fechaExtravio: "2999-01-01" }), bytes: Uint8Array.from(Buffer.from("GIF89a-no-es-jpeg")) });
@@ -276,14 +329,21 @@ async function herramientasSinPermiso(base2: string) {
   ver(login.status === 200 && [a, b, c, d].every((r) => r.estado === 404 && r.texto === a.texto && r.cabeceras.get("cache-control") === "no-store"), "POST /api/dev/reiniciar y POST /api/dev/parametro: 404 con el MISMO cuerpo y no-store, sin sesión y también con sesión de Administrador", b, `(reiniciar sin sesión ${a.estado}, parametro sin sesión ${b.estado}, reiniciar con Administrador ${c.estado}, parametro con Administrador ${d.estado})`);
 }
 
+/** Entorno de los servidores de prueba SIN RUPE_URL_PUBLICA (la pone el .env.local de cada persona): así el respaldo de hosts locales se prueba igual en todas las máquinas. */
+function entornoSinUrlPublica(extra: Record<string, string>): NodeJS.ProcessEnv {
+  const e: NodeJS.ProcessEnv = { ...process.env, ...extra };
+  delete e.RUPE_URL_PUBLICA;
+  return e;
+}
+
 async function main() {
   let servidor: ChildProcess | undefined;
   let servidor2: ChildProcess | undefined;
   const base2 = `http://localhost:${PUERTO_SIN_PERMISO}`;
   if (!baseExterna) {
     if (!process.argv.includes("--sin-build") && spawnSync("npx", ["next", "build"], { stdio: "inherit" }).status !== 0) throw new Error("Falló next build");
-    servidor = spawn("npx", ["next", "start", "-p", String(PUERTO)], { stdio: "ignore", detached: true, env: { ...process.env, RUPE_PERMITIR_REINICIO: "1" } });
-    servidor2 = spawn("npx", ["next", "start", "-p", String(PUERTO_SIN_PERMISO)], { stdio: "ignore", detached: true, env: { ...process.env, RUPE_PERMITIR_REINICIO: "0" } });
+    servidor = spawn("npx", ["next", "start", "-p", String(PUERTO)], { stdio: "ignore", detached: true, env: entornoSinUrlPublica({ RUPE_PERMITIR_REINICIO: "1" }) });
+    servidor2 = spawn("npx", ["next", "start", "-p", String(PUERTO_SIN_PERMISO)], { stdio: "ignore", detached: true, env: entornoSinUrlPublica({ RUPE_PERMITIR_REINICIO: "0" }) });
   }
   // Los dos servidores se apagan SIEMPRE (también si algo falla o se interrumpe): sin procesos colgados.
   const apagar = () => {

@@ -1,0 +1,4 @@
+Montserrat estática (pesos 400, 500, 700 y 800, subconjunto latino, formato woff) para el PDF de la ficha (pdf-lib no admite fuentes variables).
+Origen: paquete npm @fontsource/montserrat 5.3.0 (https://fontsource.org/fonts/montserrat), archivos files/montserrat-latin-{400,500,700,800}-normal.woff.
+Licencia: SIL Open Font License 1.1 (OFL.txt, junto a los archivos): permite incrustarla en documentos.
+Se leen con fs desde process.cwd() (en despliegues standalone o Vercel hace falta outputFileTracingIncludes).

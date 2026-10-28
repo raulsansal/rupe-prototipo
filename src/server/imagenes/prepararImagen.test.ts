@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import sharp from "sharp";
-import { LADO_MAXIMO_CASO, prepararImagen, verificarResultado } from "./prepararFoto";
+import { LADO_MAXIMO_CASO, prepararImagen, verificarResultado } from "./prepararImagen";
 
 const lienzo = (ancho: number, alto: number, fondo = { r: 200, g: 120, b: 40, alpha: 1 }) => sharp({ create: { width: ancho, height: alto, channels: 4, background: fondo } });
 

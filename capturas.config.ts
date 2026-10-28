@@ -1,7 +1,6 @@
 import type { Page } from "playwright";
 import { botonContinuar, capturarRegistroCompleto, ENTRADA_FOTO, registrarPorLaInterfaz } from "./scripts/imagenes-pruebas";
 import { credencial, fijarVersionAviso } from "./scripts/sesion-pruebas";
-import { ESCENARIOS, registrar as registrarCasoDeFicha } from "./scripts/ficha-peores-casos";
 import { USUARIOS_INICIALES } from "./src/mocks/usuarios";
 import { FOLIO_CON_AVISTAMIENTOS, FOLIO_UN_AVISTAMIENTO } from "./src/mocks/avistamientos";
 import { FOLIO_EN_CURSO } from "./src/mocks/casos";
@@ -222,18 +221,15 @@ RUTAS.push(
   { ruta: "/tutor/registrar", archivo: "tutor-editar-caso-nuevo", rol: "tutor1", preparar: async (p, { base }) => { const folio = await registrarPorLaInterfaz(p); await p.goto(`${base}/tutor/casos/${folio}/editar`, { waitUntil: "load" }); await p.getByRole("heading", { level: 1 }).first().waitFor(); } },
   { ruta: "/tutor/registrar", archivo: "tutor-notificaciones-caso-nuevo", rol: "tutor1", preparar: async (p, { base }) => { const folio = await registrarPorLaInterfaz(p); await p.goto(`${base}/tutor/casos/${folio}/notificaciones`, { waitUntil: "load" }); await p.getByRole("heading", { level: 1 }).first().waitFor(); } },
 );
-// Hoja impresa de la ficha, antes y después de los topes de línea (P2b). «antes» quita en la página los topes y el ajuste de relleno; el caso se registra de verdad por la API.
-const SIN_TOPES = `(() => { var art = document.querySelector(".ficha-impresion article"); Array.prototype.forEach.call(art.querySelectorAll("[class*='line-clamp-']"), function (el) { el.className = el.className.split(" ").filter(function (c) { return c.indexOf("line-clamp-") !== 0 && c !== "[overflow-wrap:anywhere]" && c !== "overflow-hidden"; }).join(" "); }); Array.prototype.forEach.call(art.querySelectorAll("div.border-tinta"), function (el) { if (/Se extravi/.test(el.textContent || "")) el.style.paddingBlock = "1.4cqw"; }); })()`;
-const hojaDeFicha = (escenario: number, hoja: "carta" | "media-carta", sinTopes: boolean): Captura => ({
-  ruta: "/tutor/registrar", archivo: `tutor-ficha-hoja-${hoja}-${ESCENARIOS[escenario].tipo === "normal" ? "normal" : "peor-caso"}-${sinTopes ? "antes" : "despues"}`, rol: "tutor1", anchos: [1280], ventana: true,
-  preparar: async (p, { base }) => {
-    const folio = await registrarCasoDeFicha(base, ESCENARIOS[escenario]);
-    await p.goto(`${base}/tutor/casos/${folio}/ficha?modal=visor&hoja=${hoja}`, { waitUntil: "load" });
-    await p.getByRole("dialog", { name: "Tu ficha de búsqueda en PDF" }).waitFor();
-    if (sinTopes) await p.evaluate(SIN_TOPES);
-  },
-});
-RUTAS.push(...[true, false].flatMap((antes) => ["carta", "media-carta"].flatMap((h) => [0, 2].map((e) => hojaDeFicha(e, h as "carta" | "media-carta", antes)))));
+// P3 · ficha de búsqueda con QR y PDF reales. Los renders del PDF como página completa salen de `npm run verificar-pdf -- --imagenes=capturas` (p3-pdf-<hoja>-<caso>.png).
+RUTAS.push(
+  { ruta: `${CASO}/ficha`, archivo: "tutor-ficha-vista-previa-real", rol: "tutor1" },
+  { ruta: `${CASO}/ficha`, archivo: "tutor-ficha-qr-regenerado", rol: "tutor1", anchos: M, preparar: async (p) => { await p.getByRole("button", { name: "Regenerar QR" }).click(); const d = p.getByRole("dialog", { name: "Regenerar código QR" }); await d.getByRole("button", { name: "Regenerar QR" }).click(); await p.getByRole("status").getByText(/Código QR regenerado el/).waitFor(); } },
+  { ruta: "/tutor/casos/RUPE-B6R2TZ7C/ficha", archivo: "tutor-ficha-localizado-bloqueada", rol: "tutor1" },
+  // El visor a 1280×844: la hoja completa (QR, folio y pie) sin desplazarse.
+  { ruta: `${CASO}/ficha?modal=visor&hoja=carta`, archivo: "tutor-ficha-visor-1280-carta", anchos: [1280], ventana: true },
+  { ruta: `${CASO}/ficha?modal=visor&hoja=media-carta`, archivo: "tutor-ficha-visor-1280-media-carta", anchos: [1280], ventana: true },
+);
 // SIEMPRE la última: fija la versión del aviso en 2.0, y lo que se capture después ya no sería comparable (los datos se reinician al terminar la corrida).
 RUTAS.push(
   // Cambia la versión vigente del aviso a 2.0 y entra con una cuenta real, que debe reaceptarlo (409 real del servidor, TRA-03).

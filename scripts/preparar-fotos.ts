@@ -6,7 +6,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, extname, join } from "node:path";
 import { CASOS_MODERACION } from "../src/mocks/moderacion";
-import { ANCHO_MAXIMO_PORTADA, LADO_MAXIMO_CASO, prepararImagen, verificarResultado } from "./lib/prepararFoto";
+import { ANCHO_MAXIMO_PORTADA, LADO_MAXIMO_CASO, prepararImagen, verificarResultado } from "../src/server/imagenes/prepararImagen";
 
 const arg = (nombre: string) => process.argv.find((a) => a.startsWith(`--${nombre}=`))?.split("=").slice(1).join("=");
 const portada = process.argv.includes("--portada");

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, type ReactNode } from "react";
+import { useEffect, useId, useRef, type KeyboardEvent, type ReactNode } from "react";
 import { cx } from "@/lib/clases";
 
 type Props = {
@@ -30,11 +30,28 @@ export function Modal({ abierto, onCerrar, titulo, children, tamano = "sm", clas
     if (!abierto && dialogo.open) dialogo.close();
   }, [abierto]);
 
+  /** Tab y Shift+Tab dan la vuelta dentro del diálogo: el foco no se escapa a la barra del navegador. */
+  function alTabular(e: KeyboardEvent<HTMLDialogElement>) {
+    if (e.key !== "Tab" || !ref.current) return;
+    const foco = [...ref.current.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')].filter((el) => el.getClientRects().length > 0);
+    if (!foco.length) return;
+    const [primero, ultimo] = [foco[0], foco[foco.length - 1]];
+    const activo = document.activeElement;
+    if (e.shiftKey && (activo === primero || activo === ref.current)) {
+      e.preventDefault();
+      ultimo.focus();
+    } else if (!e.shiftKey && activo === ultimo) {
+      e.preventDefault();
+      primero.focus();
+    }
+  }
+
   return (
     <dialog
       ref={ref}
       aria-labelledby={id}
       onClose={onCerrar}
+      onKeyDown={alTabular}
       onClick={(e) => e.target === ref.current && onCerrar()}
       className={cx("m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] overflow-y-auto rounded-tarjeta bg-surface-raised p-0 text-text backdrop:bg-scrim", ANCHOS[tamano], className)}
     >

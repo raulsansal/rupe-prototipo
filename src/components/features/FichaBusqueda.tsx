@@ -1,149 +1,162 @@
 import Image from "next/image";
-import { altDeFoto } from "@/lib/altDeFoto";
 import { Icono } from "@/components/ui/Icono";
 import { Logo } from "@/components/ui/Logo";
+import { altDeFoto } from "@/lib/altDeFoto";
 import { cx } from "@/lib/clases";
-import { formatearFechaLarga } from "@/lib/formato";
-import { edadAproximada, etiquetaTamano } from "@/lib/perro";
-import { DOMINIO_PUBLICO } from "@/mocks/parametros";
+import { bloquesDeFicha } from "@/lib/ficha/aHoja";
+import { GEOMETRIA_CARTA as C, MODULOS_ZONA_DE_SILENCIO, PAGINA_PT, PT_POR_CM, QR_SIMBOLO_CM, TIPOGRAFIA, geometriaDeHoja, type Bloque, type BloqueId, type TamanoHoja } from "@/lib/ficha/composicion";
+import { MENSAJE_FALTA_URL } from "@/server/config/mensajes";
 import type { FichaPublica } from "@/mocks/tipos";
-import { QrIlustrativo } from "./QrIlustrativo";
+import { QrFicha } from "./QrFicha";
 
-export type TamanoHoja = "carta" | "media-carta";
+export type { TamanoHoja };
 
-/** 21.6 × 27.9 cm y 21.6 × 14 cm (lámina 4.11 y HU 027). */
-const PAGINAS: Record<TamanoHoja, { size: string; aspecto: string }> = {
-  carta: { size: "21.6cm 27.9cm", aspecto: "aspect-[21.6/27.9]" },
-  "media-carta": { size: "21.6cm 14cm", aspecto: "aspect-[21.6/14]" },
-};
-
-// Topes de línea de la hoja: un texto largo se corta con elipsis (y una palabra sin espacios se parte) en vez de empujar la fotografía, el lugar, el QR o el folio fuera
-// de la hoja. El texto completo de las características se lee en el detalle del caso. Valen para los máximos de las validaciones (nombre 50, colonia 100, características 300).
-const CORTE = "[overflow-wrap:anywhere] overflow-hidden";
-const TOPE_NOMBRE = `line-clamp-1 ${CORTE}`;
-const TOPE_DATOS = `line-clamp-2 ${CORTE}`;
-const TOPE_CARACTERISTICAS = `line-clamp-3 ${CORTE}`;
-const TOPE_LUGAR = `line-clamp-2 ${CORTE}`;
+// Topes de línea: un texto largo se corta con elipsis (y una palabra sin espacios se parte) en vez de empujar la fotografía, el lugar, el QR o el folio fuera de la hoja.
+// El texto completo de las características se lee en el detalle del caso. Los topes y las medidas salen de lib/ficha/composicion.ts: los mismos del PDF.
+const tope = (n: number) => ({ display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: n, overflow: "hidden", overflowWrap: "anywhere" }) as const;
 
 type Props = {
   /** Solo campos públicos: la ficha de búsqueda nunca lleva datos de la persona tutora ni lo reservado. */
   ficha: FichaPublica;
   tamano?: TamanoHoja;
-  /** Cambia el dibujo del QR ilustrativo (al regenerarlo). */
-  versionQr?: number;
+  /** Matriz del QR con el token vigente (calculada en el servidor). Sin ella (falta RUPE_URL_PUBLICA) la zona del QR avisa. */
+  qr: { filas: boolean[][] } | null;
+  /** Dominio de consulta que se imprime en el pie (host de la URL pública). */
+  dominio: string;
   /** Marca esta hoja como la que se imprime (CSS de impresión): solo debe haber una en la página. */
   paraImprimir?: boolean;
   className?: string;
 };
 
-/**
- * Hoja de la ficha de búsqueda (lámina 4.11), en Carta o Media carta. Siempre negro sobre blanco (en ambos modos de la
- * interfaz, por el `data-theme="light"` y los tokens papel/tinta). Los tamaños de texto son los de la lámina en puntos,
- * expresados en cqw (1 pt = 0.1634 cqw en una hoja de 21.6 cm) para que la vista previa escale igual que la hoja real.
- */
-export function FichaBusqueda({ ficha, tamano = "carta", versionQr = 1, paraImprimir = false, className }: Props) {
-  const carta = tamano === "carta";
-  const { folio, nombre } = ficha;
-  const datos = `${ficha.sexo} · ${edadAproximada(ficha)} · ${ficha.raza} · ${etiquetaTamano(ficha.tamano)} · ${ficha.color}`;
-  const semilla = `${folio}-${versionQr}`;
+const est = (t: TamanoHoja, id: keyof (typeof TIPOGRAFIA)["carta"]) => ({ fontSize: `${TIPOGRAFIA[t][id].tam}pt`, lineHeight: TIPOGRAFIA[t][id].interlinea });
 
-  const lugar = (
-    <div className="rounded-[1.4cqw] border-[0.35cqw] border-tinta px-[2.4cqw] py-[0.8cqw] text-[2.29cqw] leading-[1.35]">
-      <p className="flex items-center gap-[1cqw]">
-        <Icono nombre="calendar_month" className="size-[2.6cqw]" />
-        <span>
-          <strong className="font-bold">Se extravió el</strong> {formatearFechaLarga(ficha.fechaExtravio)}
-        </span>
-      </p>
-      <p className="flex items-center gap-[1cqw]">
-        <Icono nombre="location_on" className="size-[2.6cqw]" />
-        <span className={TOPE_LUGAR}>
-          <strong className="font-bold">Lugar:</strong> col. {ficha.coloniaZona}, alcaldía {ficha.alcaldia}
-        </span>
-      </p>
+/**
+ * Hoja de la ficha de búsqueda (lámina 4.11), en Carta (612×792 pt) o Media carta horizontal (612×396 pt). Siempre negro sobre blanco (en ambos modos de la interfaz, por el
+ * `data-theme="light"` y los tokens papel/tinta). Todo se mide en puntos y se reduce con EscalaHoja; la zona de la fotografía es ≥ 40 % de la hoja POR CONSTRUCCIÓN (Carta ≥ 45,8 %,
+ * Media carta 40,8 %): todo texto tiene tope de líneas, así que la banda de texto y QR tiene una altura máxima fija.
+ */
+export function FichaBusqueda({ ficha, tamano = "carta", qr, dominio, paraImprimir = false, className }: Props) {
+  const carta = tamano === "carta";
+  const pagina = PAGINA_PT[tamano];
+  const g = geometriaDeHoja(tamano);
+  const bloques = bloquesDeFicha(ficha, dominio, tamano);
+  const b = (id: BloqueId) => bloques.find((x) => x.id === id) as Bloque;
+  const caracteristicas = bloques.find((x) => x.id === "caracteristicas");
+  const simbolo = QR_SIMBOLO_CM[tamano] * PT_POR_CM;
+  const modulos = qr?.filas.length ?? 37;
+  const lado = simbolo * ((modulos + 2 * MODULOS_ZONA_DE_SILENCIO) / modulos);
+
+  const codigo = qr ? (
+    <QrFicha filas={qr.filas} ladoPt={lado} etiqueta={`Código QR de la ficha ${ficha.folio}`} />
+  ) : (
+    <div role="note" className="flex items-center justify-center border border-tinta p-[4pt] text-center font-semibold" style={{ width: `${lado}pt`, height: `${lado}pt`, fontSize: `${carta ? 9 : 7}pt`, lineHeight: 1.2 }}>
+      {MENSAJE_FALTA_URL}
     </div>
   );
 
-  const encabezado = (ancho: string, etiqueta: string) => (
-    <div className="flex items-center justify-between gap-[1cqw]">
-      <Logo variante="horizontal" className={cx(ancho, "h-auto")} />
-      <span className={cx(etiqueta, "font-bold uppercase tracking-[0.2em]")}>Ficha de búsqueda</span>
+  const foto = (
+    <div data-foto-ficha className="relative h-full w-full overflow-hidden border border-border bg-background" style={{ borderRadius: "5pt" }}>
+      <Image src={ficha.fotografiaUrl} alt={`${altDeFoto(ficha)}, sin recorte`} unoptimized={ficha.fotografiaUrl.startsWith("/api/")} fill sizes={carta ? "640px" : "320px"} className="object-contain" priority />
+    </div>
+  );
+
+  const rotulado = (bl: Bloque) => (
+    <>
+      {bl.rotulo && <strong className="font-bold">{bl.rotulo}</strong>} {bl.texto}
+    </>
+  );
+  const textos = (
+    <div className="flex min-w-0 flex-col" style={{ gap: carta ? "4pt" : "3pt" }}>
+      <div>
+        <div className="font-bold uppercase" style={{ ...est(tamano, "nombre"), ...tope(b("nombre").maxLineas) }}>
+          {b("nombre").texto}
+        </div>
+        <div className="font-medium" style={{ ...est(tamano, "datos"), ...tope(b("datos").maxLineas) }}>
+          {b("datos").texto}
+        </div>
+        {caracteristicas && (
+          <div className="font-medium" style={{ ...est(tamano, "caracteristicas"), ...tope(caracteristicas.maxLineas) }}>
+            {rotulado(caracteristicas)}
+          </div>
+        )}
+      </div>
+      <div className="border-tinta" style={{ ...est(tamano, "fechaLugar"), borderWidth: carta ? "1pt" : "0.9pt", borderStyle: "solid", borderRadius: carta ? "8pt" : "4pt", padding: carta ? "3pt 8pt" : "2pt 5pt" }}>
+        <p className="flex items-center gap-[4pt]">
+          <Icono nombre="calendar_month" className={cx("shrink-0", carta ? "size-[11pt]" : "size-[8pt]")} />
+          <span>{rotulado(b("fecha"))}</span>
+        </p>
+        <p className="flex items-center gap-[4pt]">
+          <Icono nombre="location_on" className={cx("shrink-0", carta ? "size-[11pt]" : "size-[8pt]")} />
+          <span style={tope(b("lugar").maxLineas)}>{rotulado(b("lugar"))}</span>
+        </p>
+      </div>
+    </div>
+  );
+
+  const encabezado = (
+    <div className="flex items-center justify-between" style={{ height: carta ? `${C.encabezado}pt` : "13pt" }}>
+      <Logo variante="horizontal" ancho={Math.round((carta ? 20 : 13) * (1772 / 709) * (96 / 72))} />
+      <span className="font-bold uppercase" style={est(tamano, "etiqueta")}>
+        {b("encabezado").texto}
+      </span>
     </div>
   );
 
   return (
-    <div className={cx("[container-type:inline-size] w-full", paraImprimir && "ficha-impresion", className)} data-theme="light">
-      {paraImprimir && <style>{`@media print { @page { size: ${PAGINAS[tamano].size}; margin: 0; } }`}</style>}
+    <div className={cx("w-full", paraImprimir && "ficha-impresion", className)} data-theme="light">
+      {paraImprimir && <style>{`@media print { @page { size: ${pagina.ancho}pt ${pagina.alto}pt; margin: 0; } }`}</style>}
       <article
         data-hoja={tamano}
-        aria-label={`Ficha de búsqueda de ${nombre}, ${carta ? "tamaño Carta" : "tamaño Media carta"}`}
-        className={cx("relative w-full overflow-hidden border border-border bg-papel p-[6.94cqw] font-sans text-tinta shadow-sm", PAGINAS[tamano].aspecto)}
+        aria-label={`Ficha de búsqueda de ${ficha.nombre}, ${carta ? "tamaño Carta" : "tamaño Media carta"}`}
+        className="relative overflow-hidden bg-papel font-sans text-tinta shadow-sm ring-1 ring-border"
+        style={{ width: `${pagina.ancho}pt`, height: `${pagina.alto}pt`, padding: "42.5pt" }}
       >
         {carta ? (
-          // Carta: la fotografía ocupa todo el alto que dejan los demás elementos (≥ 40 % de la hoja, lámina 4.11).
-          <div className="flex h-full flex-col gap-[0.9cqw]">
-            {encabezado("w-[12cqw]!", "text-[1.4cqw]")}
-            <h2 className="text-[4.58cqw] font-extrabold uppercase leading-none">¡Ayúdame a regresar a casa!</h2>
-            <div data-foto-ficha className="relative min-h-0 flex-1 overflow-hidden rounded-[1cqw] border border-border bg-background">
-              <Image src={ficha.fotografiaUrl} alt={`${altDeFoto(ficha)}, sin recorte`} unoptimized={ficha.fotografiaUrl.startsWith("/api/")} fill sizes="640px" className="object-contain" priority />
+          <div className="flex h-full flex-col" style={{ gap: `${C.separacion}pt` }}>
+            {encabezado}
+            <h2 className="font-extrabold uppercase" style={{ ...est(tamano, "titulo"), height: `${C.titulo}pt`, whiteSpace: "nowrap" }}>
+              {b("titulo").texto}
+            </h2>
+            <div className="min-h-0 flex-1" style={{ minHeight: `${g.foto.alto}pt` }}>
+              {foto}
             </div>
-            <div>
-              <p className="flex flex-wrap items-baseline gap-x-[1.6cqw]">
-                <strong className={cx("max-w-full text-[3.59cqw] font-bold uppercase leading-tight", TOPE_NOMBRE)}>{nombre}</strong>
-                <span className={cx("min-w-0 text-[2.29cqw] font-medium", TOPE_DATOS)}>{datos}</span>
-              </p>
-              {ficha.caracteristicasDistintivas && (
-                <p className={cx("mt-[0.3cqw] text-[2.29cqw] font-medium leading-[1.25]", TOPE_CARACTERISTICAS)}>
-                  <strong className="font-bold">Características distintivas:</strong> {ficha.caracteristicasDistintivas}
+            <div className="flex items-start overflow-hidden" data-banda style={{ gap: "12pt", maxHeight: `${C.bandaMaxima}pt` }}>
+              <div className="min-w-0 flex-1">{textos}</div>
+              <div className="flex flex-col items-center" style={{ width: `${C.columnaQr}pt`, gap: "4pt" }}>
+                <p className="text-center font-bold" style={{ ...est(tamano, "indicacion") }}>
+                  {b("indicacion").texto}
                 </p>
-              )}
-            </div>
-            {lugar}
-            <hr className="border-t-[0.35cqw] border-tinta" />
-            <div className="flex items-center justify-between gap-[2cqw]">
-              <div className="min-w-0">
-                <p className="text-[2.29cqw] font-bold leading-tight">¿Lo viste? Escanea el código y cuéntanos dónde.</p>
-                <p className="text-[1.47cqw] leading-tight">O entra a {DOMINIO_PUBLICO} y escribe el folio.</p>
-                <p className="mt-[0.5cqw] text-[2.94cqw] font-extrabold leading-none tabular-nums">{folio}</p>
+                {codigo}
+                <p className="whitespace-nowrap font-extrabold tabular-nums" style={est(tamano, "folio")}>
+                  {ficha.folio}
+                </p>
               </div>
-              <QrIlustrativo semilla={semilla} className="size-[14cqw] shrink-0 rounded-[0.8cqw] border-[0.35cqw] border-tinta" />
             </div>
-            <p className="text-[1.25cqw] leading-tight">Esta ficha no incluye datos de contacto de la persona tutora; los avisos llegan a ella a través del sistema. No sustituye ningún registro oficial.</p>
+            <p className="overflow-hidden" style={{ ...est(tamano, "pie"), height: `${C.pie}pt` }}>
+              {b("pie").texto}
+            </p>
           </div>
         ) : (
-          // Media carta: la fotografía ocupa todo el alto de la hoja a la izquierda; el resto va en la columna derecha.
-          <div className="grid h-full grid-cols-[52cqw_minmax(0,1fr)] gap-[2.2cqw]">
-            <div data-foto-ficha className="relative overflow-hidden rounded-[1cqw] border border-border bg-background">
-              <Image src={ficha.fotografiaUrl} alt={`${altDeFoto(ficha)}, sin recorte`} unoptimized={ficha.fotografiaUrl.startsWith("/api/")} fill sizes="320px" className="object-contain" priority />
-            </div>
-            <div className="flex min-h-0 flex-col gap-[0.9cqw]">
-              {encabezado("w-[11cqw]!", "text-[1cqw]")}
-              <h2 className="text-[2.9cqw] font-extrabold uppercase leading-[1.05]">¡Ayúdame a regresar a casa!</h2>
-              <div>
-                <strong className={cx("max-w-full text-[2.5cqw] font-bold uppercase leading-tight", TOPE_NOMBRE)}>{nombre}</strong>
-                <p className={cx("text-[1.5cqw] font-medium leading-[1.25]", TOPE_DATOS)}>{datos}</p>
-                {ficha.caracteristicasDistintivas && (
-                  <p className={cx("text-[1.5cqw] font-medium leading-[1.25]", TOPE_CARACTERISTICAS)}>
-                    <strong className="font-bold">Características distintivas:</strong> {ficha.caracteristicasDistintivas}
+          <div className="grid h-full" style={{ gridTemplateColumns: `${g.foto.ancho}pt minmax(0, 1fr)`, gap: "13.5pt" }}>
+            <div data-foto-zona>{foto}</div>
+            <div className="flex min-h-0 min-w-0 flex-col" style={{ gap: "3pt" }}>
+              {encabezado}
+              <h2 className="font-extrabold uppercase" style={{ ...est(tamano, "titulo"), ...tope(b("titulo").maxLineas) }}>
+                {b("titulo").texto}
+              </h2>
+              {textos}
+              <div className="mt-auto flex flex-col border-t-tinta" style={{ borderTopWidth: "0.9pt", paddingTop: "3pt", gap: "2pt" }}>
+                <p className="whitespace-nowrap font-extrabold" style={est(tamano, "folio")}>
+                  {ficha.folio}
+                </p>
+                <div className="flex items-center justify-between" style={{ gap: "6pt" }}>
+                  <p className="min-w-0 font-bold" style={est(tamano, "indicacion")}>
+                    {b("indicacion").texto}
                   </p>
-                )}
-              </div>
-              <div className="rounded-[1.2cqw] border-[0.3cqw] border-tinta px-[1.5cqw] py-[0.7cqw] text-[1.5cqw] leading-[1.3]">
-                <p>
-                  <strong className="font-bold">Se extravió el</strong> {formatearFechaLarga(ficha.fechaExtravio)}
-                </p>
-                <p className={TOPE_LUGAR}>
-                  <strong className="font-bold">Lugar:</strong> col. {ficha.coloniaZona}, alcaldía {ficha.alcaldia}
-                </p>
-              </div>
-              <div className="mt-auto flex items-center justify-between gap-[1.4cqw] border-t-[0.3cqw] border-tinta pt-[0.8cqw]">
-                <div className="min-w-0">
-                  <p className="text-[1.5cqw] font-bold leading-tight">¿Lo viste? Escanea el código.</p>
-                  <p className="text-[2.2cqw] font-extrabold leading-tight tabular-nums">{folio}</p>
+                  <div className="shrink-0">{codigo}</div>
                 </div>
-                <QrIlustrativo semilla={semilla} className="size-[14cqw] shrink-0 rounded-[0.6cqw] border-[0.3cqw] border-tinta" />
               </div>
-              <p className="text-[1.05cqw] leading-tight">Esta ficha no incluye datos de contacto de la persona tutora; los avisos llegan a ella a través del sistema. No sustituye ningún registro oficial.</p>
+              <p style={est(tamano, "pie")}>{b("pie").texto}</p>
             </div>
           </div>
         )}

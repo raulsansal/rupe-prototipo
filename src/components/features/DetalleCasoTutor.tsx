@@ -82,7 +82,7 @@ const enlaceBoton = clasesBoton({ variante: "secundario", className: "text-cente
  * confirmación. Los cambios de estado solo viven en esta pantalla (maqueta): al recargar vuelve al estado de origen.
  * Aquí no se muestran avistamientos: esas pantallas (y la regla de «Ver fotografía» de HU 040) son de otro bloque.
  */
-export function DetalleCasoTutor({ caso }: { caso: CasoTutor }) {
+export function DetalleCasoTutor({ caso, enlaceCompartir }: { caso: CasoTutor; /** Enlace público para compartir (<base>/ficha/<FOLIO>), calculado en el servidor; null si falta RUPE_URL_PUBLICA. */ enlaceCompartir: string | null }) {
   const [estado, setEstado] = useState<EstadoCaso>(caso.estado);
   const [historial, setHistorial] = useState<MovimientoHistorial[]>(caso.historial);
   const [accion, setAccion] = useState<Accion | null>(null);
@@ -241,7 +241,7 @@ export function DetalleCasoTutor({ caso }: { caso: CasoTutor }) {
         </div>
       </div>
 
-      <ModalCompartir abierto={accion === "compartir"} onCerrar={cerrarDialogo} folio={folio} nombre={caso.nombre} />
+      <ModalCompartir abierto={accion === "compartir"} onCerrar={cerrarDialogo} folio={folio} nombre={caso.nombre} enlace={enlaceCompartir} />
       <DialogoConfirmacion
           abierto={accion !== null && accion !== "compartir"}
           onCerrar={cerrarDialogo}
