@@ -3,12 +3,16 @@
 // se muestran los atributos). El último paso reinicia los datos ficticios (invalida las sesiones usadas) y deja limpios los contadores de intentos.
 // Opciones: --sin-build reutiliza el build · --base=URL usa un servidor que ya corre (debe tener RUPE_PERMITIR_REINICIO=1).
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { USUARIOS_INICIALES } from "../src/mocks/usuarios";
 import { JPEG_REAL } from "../src/server/pruebas/imagenes";
 import { request as peticionHttp } from "node:http";
 import { credencial, fetchComo, NOMBRE_COOKIE, olvidarSesiones, valorDeSesion, type RolPrueba } from "./sesion-pruebas";
 
 const PUERTO = 3109;
+const PUERTO_SIN_FOTOS = 3136; // tercer servidor con la carpeta de fotos sembradas VACÍA (seed con el marcador y sin archivos): foto sembrada sin archivo → 404
 const PUERTO_SIN_PERMISO = 3111; // segundo servidor, SIN RUPE_PERMITIR_REINICIO (las herramientas /api/dev deben dar 404)
 const baseExterna = process.argv.find((a) => a.startsWith("--base="))?.split("=")[1];
 const base = baseExterna ?? `http://localhost:${PUERTO}`;
@@ -82,6 +86,33 @@ async function esperarServidor(servidor: ChildProcess, destino: string = base) {
     await new Promise((r) => setTimeout(r, 500));
   }
   throw new Error("El servidor no respondió a tiempo");
+}
+
+const CARPETA_FOTOS_AVISTAMIENTOS = join(process.cwd(), "src", "server", "seed", "fotos", "avistamientos");
+/** ¿Existe el archivo real de la foto del avistamiento? (el seed lee `<ID>.jpg`; sin él conserva el marcador del maquetado, que no tiene bytes: la ruta da 404). */
+const hayFotoDeAvistamiento = (idAvistamiento: number) => existsSync(join(CARPETA_FOTOS_AVISTAMIENTOS, `${idAvistamiento}.jpg`));
+let baseSinFotos: string | undefined;
+let carpetaSinFotos: string | undefined;
+/** Servidor de PRUEBA con la carpeta de fotos sembradas vacía: el seed lee `process.cwd()/src/server/seed/fotos`, así que se arranca desde un directorio temporal con enlaces al build y una carpeta vacía. Sin ruta de desarrollo nueva. */
+function arrancarServidorSinFotos(): ChildProcess {
+  carpetaSinFotos = mkdtempSync(join(tmpdir(), "rupe-sin-fotos-"));
+  for (const f of [".next", "node_modules", "package.json", "next.config.ts", "public", "tsconfig.json", ".env.local"]) if (existsSync(join(process.cwd(), f))) symlinkSync(join(process.cwd(), f), join(carpetaSinFotos, f));
+  mkdirSync(join(carpetaSinFotos, "src", "server", "seed", "fotos"), { recursive: true });
+  baseSinFotos = `http://localhost:${PUERTO_SIN_FOTOS}`;
+  return spawn("npx", ["next", "start", "-p", String(PUERTO_SIN_FOTOS)], { cwd: carpetaSinFotos, stdio: "ignore", detached: true, env: entornoSinUrlPublica({ RUPE_PERMITIR_REINICIO: "0" }) });
+}
+
+/** GET con sesión REAL en OTRO servidor (el de la carpeta de fotos vacía), con la misma forma de respuesta. */
+async function leerComo(destino: string, rol: RolPrueba, ruta: string): Promise<Resp> {
+  const r = await fetchComo(destino, rol, ruta);
+  const texto = await r.text();
+  let json: Resp["json"];
+  try {
+    json = JSON.parse(texto);
+  } catch {
+    json = undefined;
+  }
+  return { estado: r.status, cabeceras: r.headers, texto, json };
 }
 
 const valorDeCookie = (r: Resp) => r.cabeceras.getSetCookie().find((c) => c.startsWith(`${NOMBRE_COOKIE}=`))?.slice(NOMBRE_COOKIE.length + 1).split(";")[0];
@@ -206,9 +237,20 @@ async function pruebas() {
   ver(anonimas.every((r, i) => r.estado === 307 && r.cabeceras.get("location") === `/acceso?siguiente=${encodeURIComponent(`/tutor/casos/${NALA}${PANTALLAS[i][1]}`)}`), "sin sesión: las 7 pantallas redirigen (307) a /acceso?siguiente= con su propia ruta", anonimas[0]);
   const idFoto = /\/api\/fotografias\/(\d+)/.exec(conf.texto)?.[1] ?? "0";
   const [fDueno, fOtra, fAdmin, fAnon, fNoExiste] = [await peticion("GET", `/api/fotografias/${idFoto}`, { rol: "tutor1" }), await peticion("GET", `/api/fotografias/${idFoto}`, { rol: "tutor2" }), await peticion("GET", `/api/fotografias/${idFoto}`, { rol: "admin" }), await peticion("GET", `/api/fotografias/${idFoto}`), await peticion("GET", "/api/fotografias/987654", { rol: "tutor1" })];
-  // Una foto SEMBRADA sin bytes: las de avistamientos (ids 13 en adelante; los ids 1 a 12 son las fotos de los casos, que con P2c tienen su archivo real).
-  const sembrada = await peticion("GET", "/api/fotografias/13", { rol: "tutor1" });
-  ver(fDueno.estado === 200 && fDueno.cabeceras.get("content-type") === "image/jpeg" && fAdmin.estado === 200 && fAnon.estado === 401 && fOtra.estado === 404 && fOtra.texto === fNoExiste.texto && fOtra.texto === sembrada.texto, "GET /api/fotografias/<id>: dueña 200 image/jpeg, Administrador 200 (consulta), anónimo 401, y otra persona, id inexistente y foto sembrada 404 con el MISMO cuerpo", fOtra);
+  // Una foto SEMBRADA sin archivo, creada a propósito: el servidor de prueba arranca con la carpeta de fotos sembradas VACÍA (el seed conserva el marcador, sin bytes). La 13 es la del avistamiento 101.
+  const sembrada = baseSinFotos ? await leerComo(baseSinFotos, "tutor1", "/api/fotografias/13") : await peticion("GET", "/api/fotografias/13", { rol: "tutor1" });
+  ver(fDueno.estado === 200 && fDueno.cabeceras.get("content-type") === "image/jpeg" && fAdmin.estado === 200 && fAnon.estado === 401 && fOtra.estado === 404 && fOtra.texto === fNoExiste.texto && fOtra.texto === sembrada.texto, "GET /api/fotografias/<id>: dueña 200 image/jpeg, Administrador 200 (consulta), anónimo 401, y otra persona, id inexistente y foto sembrada SIN ARCHIVO (servidor con carpeta de fotos vacía) 404 con el MISMO cuerpo", fOtra);
+  // Fotos de AVISTAMIENTOS sembrados (P4): 13 = avistamiento 101 (visible), 17 = 105 y 21 = 303 (ocultos por moderación). Con los archivos reales presentes la dueña recibe la 13 y el Administrador las ocultas;
+  // sin ellos (el seed conserva el marcador del maquetado, que no tiene bytes) esas rutas dan el 404 uniforme. Las ocultas dan 404 a la dueña en ambos casos.
+  const FOTOS_AV = [{ id: 13, av: 101 }, { id: 17, av: 105 }, { id: 21, av: 303 }];
+  const hay = (id: number) => hayFotoDeAvistamiento(FOTOS_AV.find((f) => f.id === id)!.av);
+  const [dueña13, anon13, dueña17, dueña21, admin17, admin21] = [await peticion("GET", "/api/fotografias/13", { rol: "tutor1" }), await peticion("GET", "/api/fotografias/13"), await peticion("GET", "/api/fotografias/17", { rol: "tutor1" }), await peticion("GET", "/api/fotografias/21", { rol: "tutor1" }), await peticion("GET", "/api/fotografias/17", { rol: "admin" }), await peticion("GET", "/api/fotografias/21", { rol: "admin" })];
+  const esJpeg = (r: Resp) => r.estado === 200 && r.cabeceras.get("content-type") === "image/jpeg" && r.cabeceras.get("cache-control") === "no-store";
+  const es404Uniforme = (r: Resp) => r.estado === 404 && r.texto === fNoExiste.texto;
+  ver(hay(13) ? esJpeg(dueña13) : es404Uniforme(dueña13), hay(13) ? "foto 13 (avistamiento 101, visible): la dueña recibe 200 image/jpeg con Cache-Control: no-store" : "foto 13 sin archivo real (respaldo del maquetado): la dueña recibe el 404 uniforme", dueña13);
+  ver(anon13.estado === 401, "foto 13: sin sesión 401", anon13);
+  ver(es404Uniforme(dueña17) && es404Uniforme(dueña21), "fotos 17 y 21 (avistamientos 105 y 303, ocultos por moderación): la dueña recibe 404 con el MISMO cuerpo que un id inexistente", dueña17);
+  ver((hay(17) ? esJpeg(admin17) : es404Uniforme(admin17)) && (hay(21) ? esJpeg(admin21) : es404Uniforme(admin21)), hay(17) && hay(21) ? "fotos 17 y 21 (ocultas): el Administrador las lee, 200 image/jpeg con Cache-Control: no-store" : "fotos 17 y 21 (ocultas) sin archivo real: el Administrador recibe el 404 uniforme", admin17);
   // P2c · foto REAL de un caso sembrado (Max, de Rosa; generada con `npm run preparar-fotos`). Si no existe es una FALLA (no se omite): el seed conserva el marcador y la ruta da 404.
   const detalleMax = await peticion("GET", `/tutor/casos/${DE_ROSA[0]}`, { rol: "tutor1" });
   const idFotoMax = /\/api\/fotografias\/(\d+)/.exec(detalleMax.texto)?.[1];
@@ -344,21 +386,26 @@ function entornoSinUrlPublica(extra: Record<string, string>): NodeJS.ProcessEnv 
 async function main() {
   let servidor: ChildProcess | undefined;
   let servidor2: ChildProcess | undefined;
+  let servidor3: ChildProcess | undefined;
   const base2 = `http://localhost:${PUERTO_SIN_PERMISO}`;
   if (!baseExterna) {
     if (!process.argv.includes("--sin-build") && spawnSync("npx", ["next", "build"], { stdio: "inherit" }).status !== 0) throw new Error("Falló next build");
     servidor = spawn("npx", ["next", "start", "-p", String(PUERTO)], { stdio: "ignore", detached: true, env: entornoSinUrlPublica({ RUPE_PERMITIR_REINICIO: "1" }) });
     servidor2 = spawn("npx", ["next", "start", "-p", String(PUERTO_SIN_PERMISO)], { stdio: "ignore", detached: true, env: entornoSinUrlPublica({ RUPE_PERMITIR_REINICIO: "0" }) });
+    servidor3 = arrancarServidorSinFotos();
   }
   // Los dos servidores se apagan SIEMPRE (también si algo falla o se interrumpe): sin procesos colgados.
   const apagar = () => {
-    for (const s of [servidor, servidor2]) {
+    for (const s of [servidor, servidor2, servidor3]) {
       try {
         if (s?.pid) process.kill(-s.pid);
       } catch {
         // ya terminó
       }
     }
+    // Solo contiene enlaces simbólicos y una carpeta vacía: rmSync borra los enlaces, no lo que apuntan.
+    if (carpetaSinFotos) rmSync(carpetaSinFotos, { recursive: true, force: true });
+    carpetaSinFotos = undefined;
   };
   process.on("SIGINT", () => {
     apagar();
@@ -367,6 +414,7 @@ async function main() {
   process.on("exit", apagar);
   try {
     if (servidor) await esperarServidor(servidor);
+    if (servidor3 && baseSinFotos) await esperarServidor(servidor3, baseSinFotos);
     await pruebas();
     if (servidor2) {
       await esperarServidor(servidor2, base2);

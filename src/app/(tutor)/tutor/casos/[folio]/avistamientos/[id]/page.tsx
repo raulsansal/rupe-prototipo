@@ -19,7 +19,7 @@ export const metadata: Metadata = { title: "Detalle del avistamiento · RUPE" };
 
 /**
  * TUT-10. Solo la persona tutora dueña ve estos datos, incluidos la dirección aproximada y las referencias (reservadas frente al
- * público). El visitante permanece anónimo: no hay ningún dato suyo. ?foto=visible revela la fotografía de un «Fallecido» al cargar.
+ * público). El visitante permanece anónimo: no hay ningún dato suyo. ?foto=visible entrega y revela la fotografía de un «Fallecido».
  */
 export default async function DetalleAvistamiento({ params, searchParams }: PageProps<"/tutor/casos/[folio]/avistamientos/[id]">) {
   const { folio, id } = await params;
@@ -40,7 +40,13 @@ export default async function DetalleAvistamiento({ params, searchParams }: Page
       <p className="w-fit rounded-campo border border-border bg-surface px-3 py-2 text-small">
         Folio <span className="font-bold tabular-nums">{a.folio}</span>
       </p>
-      <FotoAvistamiento src={a.fotografiaUrl} sensible={fallecido} reveladaInicial={foto === "visible"} />
+      {/* La dirección de la foto de un «Fallecido» solo se entrega con ?foto=visible (y solo a su dueña: la guarda de arriba da 404 a cualquier otra persona); en los demás avistamientos el parámetro no hace nada. */}
+      <FotoAvistamiento
+        src={!fallecido || foto === "visible" ? a.fotografiaUrl : undefined}
+        sensible={fallecido}
+        hrefRevelar={`${lista}/${id}?foto=visible`}
+        hrefOcultar={`${lista}/${id}`}
+      />
       <TarjetaDatos
         id="datos-avistamiento"
         titulo="Datos del avistamiento"

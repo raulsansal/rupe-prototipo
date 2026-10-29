@@ -17,6 +17,7 @@
     "verificar-visitante": "tsx scripts/verificar-visitante.ts",
     "verificar-ficha": "tsx scripts/verificar-ficha.ts",
     "verificar-publico": "tsx scripts/verificar-publico.ts",
+    "verificar-imagenes": "tsx scripts/verificar-imagenes.ts",
     "verificar-pdf": "tsx --require ./scripts/server-only-vacio.cjs scripts/verificar-pdf.ts",
     "preparar-fotos": "tsx scripts/preparar-fotos.ts",
     "verificar-tutor": "tsx scripts/verificar-tutor.ts",

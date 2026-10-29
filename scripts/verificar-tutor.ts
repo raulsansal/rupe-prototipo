@@ -928,6 +928,7 @@ async function avistamientos(navegador: Browser) {
   ver(JSON.stringify(dt) === JSON.stringify(["Fecha y hora", "Alcaldía", "Colonia o zona", "Dirección aproximada", "Referencias"]) && t.includes(a.direccionAproximada!) && t.includes(a.referencias!) && t.includes(a.coloniaZona!) && t.includes("Iztapalapa") && t.includes("5 oct 2026, 10:20"), "TUT-10: los cinco campos de la lámina 2.8 (fecha y hora, alcaldía, colonia o zona, dirección aproximada y referencias)", `TUT-10: campos ${dt.join(", ")}`);
   const chips = async (cat: string) => pagina.locator(`section:has(h2:text-is("${cat}")) li`).allInnerTexts();
   ver(JSON.stringify(await chips("Integridad física y salud")) === JSON.stringify(["Herido / lesionado", "Enfermo / débil"]) && JSON.stringify(await chips("Contención y ubicación")) === JSON.stringify(["Resguardado / En custodia temporal"]) && JSON.stringify(await chips("Conducta")) === JSON.stringify(["Asustado / temeroso"]), "TUT-10: estados del animal como chips por categoría, incluida «Contención y ubicación» (Resguardado / En custodia temporal)", "TUT-10: chips por categoría incorrectos");
+  ver(await pagina.waitForFunction(() => { const i = document.querySelector<HTMLImageElement>('main img[alt="Fotografía del avistamiento"]'); return !!i && i.complete; }, undefined, { timeout: 10000 }).then(() => pagina.locator('main img[alt="Fotografía del avistamiento"]').evaluate((e) => (e as HTMLImageElement).naturalWidth > 0)).catch(() => false), "TUT-10: la fotografía del avistamiento (real o respaldo) se carga de verdad (naturalWidth > 0)", "TUT-10: la fotografía del avistamiento no se carga (imagen rota)");
   ver((await pagina.getByAltText("Fotografía del avistamiento").isVisible()) && (await boton(pagina, "Ver fotografía").count()) === 0 && t.includes(a.comentario!) && /Quien reportó permanece anónimo/.test(t) && (await pagina.getByRole("group", { name: /Mapa ilustrativo con el punto/ }).isVisible()), "TUT-10: fotografía, mapa del punto, comentario y aviso de anonimato", "TUT-10: faltan fotografía, mapa, comentario o aviso de anonimato");
   ver(!/teléfono|correo|nombre de quien|contacto del/i.test(t), "TUT-10: ningún dato de quien reporta (ni teléfono, correo ni nombre)", "TUT-10: aparece un dato de contacto");
   ver((await enlace(pagina, "Regresar al listado").first().getAttribute("href")) === `${CON_AV}/avistamientos`, "TUT-10: «Regresar al listado»", "TUT-10: enlace de regreso incorrecto");
@@ -935,12 +936,48 @@ async function avistamientos(navegador: Browser) {
   await irA(pagina, `${CON_AV}/avistamientos/${fallecido.id}`);
   ver((await pagina.locator("main img").count()) === 0 && (await pagina.getByText("Esta imagen puede resultar sensible").isVisible()) && (await pagina.getByText("Se reportó un perro sin vida que podría ser el tuyo. Lamentamos esta noticia.").isVisible()), "TUT-10 «Fallecido»: la fotografía NO se dibuja, con el aviso «Esta imagen puede resultar sensible» y redacción sobria", "TUT-10 «Fallecido»: se ve la imagen o falta el aviso");
   ver(JSON.stringify(await chips("Integridad física y salud")) === JSON.stringify(["Fallecido"]) && (await pagina.getByText("Conducta: no aplica con «Fallecido»").isVisible()) && (await pagina.locator("section:has(h2:text-is('Conducta'))").count()) === 0, "TUT-10 «Fallecido»: «Fallecido» va solo, Conducta no aplica y se explica con texto", "TUT-10 «Fallecido»: reglas de exclusión incorrectas");
-  await boton(pagina, "Ver fotografía").click();
-  ver((await pagina.locator(`main img[src*="sensible"]`).count()) === 1 && (await boton(pagina, "Ocultar fotografía").isVisible()), "TUT-10 «Fallecido»: «Ver fotografía» revela la imagen y ofrece «Ocultar fotografía»", "TUT-10 «Fallecido»: no reveló la fotografía");
-  await boton(pagina, "Ocultar fotografía").click();
-  ver((await pagina.locator("main img").count()) === 0 && (await boton(pagina, "Ver fotografía").isVisible()), "TUT-10 «Fallecido»: «Ocultar fotografía» vuelve a ocultarla", "TUT-10 «Fallecido»: no volvió a ocultar");
-  await irA(pagina, `${CON_AV}/avistamientos/${fallecido.id}?foto=visible`);
-  ver((await pagina.locator(`main img[src*="sensible"]`).count()) === 1, "TUT-10 ?foto=visible: abre con la fotografía revelada", "TUT-10 ?foto=visible: no reveló");
+  // La dirección de la foto (la real, /api/fotografias/<id>, o el respaldo del maquetado) NO debe estar en el HTML servido ni en el DOM mientras la foto siga oculta: no basta con ocultarla por estilo.
+  const DIRECCION_FOTO = /\/api\/fotografias\/\d+|%2Fapi%2Ffotografias%2F\d+|avistamiento-sensible/;
+  const rutaDetalle = `${CON_AV}/avistamientos/${fallecido.id}`;
+  // La dirección EXACTA de la foto de este avistamiento (la que el servidor entrega con ?foto=visible): las demás fotos del listado y de la página no cuentan.
+  const dirFotoFallecido = /(\/api\/fotografias\/\d+|\/mocks\/avistamiento-sensible\.svg)/.exec(await (await fetchComo(base, "tutor1", `${rutaDetalle}?foto=visible`)).text())?.[1] ?? "(sin dirección)";
+  const escapar = (t: string) => t.replace(/[.*+?^${}()|[\]\\\/]/g, "\\$&");
+  const CON_DIRECCION = new RegExp(`${escapar(dirFotoFallecido)}(?!\\d)|${escapar(encodeURIComponent(dirFotoFallecido))}(?!\\d)`);
+  const htmlServido = await (await fetchComo(base, "tutor1", rutaDetalle)).text(); // texto CRUDO, con los datos de Next (self.__next_f)
+  const htmlListado = await (await fetchComo(base, "tutor1", `${CON_AV}/avistamientos`)).text();
+  const domCompleto = await pagina.content();
+  const donde = [CON_DIRECCION.test(htmlServido) && "el HTML servido (con sus datos de Next)", CON_DIRECCION.test(domCompleto) && "el DOM", CON_DIRECCION.test(htmlListado) && "el listado del caso"].filter(Boolean);
+  ver(dirFotoFallecido !== "(sin dirección)" && htmlServido.includes("__next_f") && donde.length === 0, "TUT-10 «Fallecido»: antes de «Ver fotografía» la dirección de la fotografía no está en el HTML servido (incluidos los datos de Next), ni en el DOM, ni en el listado de avistamientos del caso", `TUT-10 «Fallecido»: la dirección de la foto ya está en ${donde.join(", ") || "(el HTML servido no trae los datos de Next: la prueba no es válida)"} aunque no se dibuje`);
+  // La imagen revelada se busca solo dentro del avistamiento (por su texto alternativo) y debe CARGAR de verdad (naturalWidth > 0), no solo estar presente.
+  const fotoDelAvistamiento = pagina.locator('main img[alt="Fotografía del avistamiento"]');
+  const cargada = async () => {
+    await pagina.waitForFunction(() => { const i = document.querySelector<HTMLImageElement>('main img[alt="Fotografía del avistamiento"]'); return !!i && i.complete; }, undefined, { timeout: 10000 }).catch(() => undefined);
+    return fotoDelAvistamiento.evaluate((e) => (e as HTMLImageElement).naturalWidth > 0).catch(() => false);
+  };
+  const esDelOrigen = async () => DIRECCION_FOTO.test((await fotoDelAvistamiento.getAttribute("src")) ?? "");
+  const verFoto = enlace(pagina, "Ver fotografía");
+  ver((await verFoto.getAttribute("href")) === `${rutaDetalle}?foto=visible` && (await boton(pagina, "Ver fotografía").count()) === 0, "TUT-10 «Fallecido»: «Ver fotografía» es un enlace a ?foto=visible", "TUT-10 «Fallecido»: «Ver fotografía» no es un enlace a ?foto=visible");
+  const historiaAntes = await pagina.evaluate(() => history.length);
+  await verFoto.click();
+  await fotoDelAvistamiento.waitFor({ timeout: 10000 }).catch(() => undefined);
+  ver(new URL(pagina.url()).searchParams.get("foto") === "visible" && (await fotoDelAvistamiento.count()) === 1 && (await esDelOrigen()) && (await enlace(pagina, "Ocultar fotografía").isVisible()) && (await pagina.getByText("Esta imagen puede resultar sensible").count()) === 0, "TUT-10 «Fallecido»: «Ver fotografía» revela la imagen del avistamiento (origen real o respaldo) y ofrece «Ocultar fotografía»", "TUT-10 «Fallecido»: no reveló la fotografía");
+  ver(await cargada(), "TUT-10 «Fallecido»: la fotografía revelada se carga de verdad (naturalWidth > 0)", "TUT-10 «Fallecido»: la fotografía revelada no se carga (imagen rota)");
+  ver(await pagina.evaluate(() => document.activeElement?.getAttribute("aria-label") === "Fotografía del avistamiento"), "TUT-10 «Fallecido»: al revelar, el foco pasa a la región de la imagen", "TUT-10 «Fallecido»: el foco no pasó a la imagen al revelar");
+  ver(DIRECCION_FOTO.test(await (await fetchComo(base, "tutor1", `${rutaDetalle}?foto=visible`)).text()), "TUT-10 «Fallecido»: con ?foto=visible el servidor SÍ entrega la dirección de la fotografía (a su dueña)", "TUT-10 «Fallecido»: con ?foto=visible el servidor no entregó la fotografía");
+  await enlace(pagina, "Ocultar fotografía").click();
+  await verFoto.waitFor({ timeout: 10000 });
+  ver(new URL(pagina.url()).searchParams.get("foto") === null && (await pagina.locator("main img").count()) === 0 && !CON_DIRECCION.test(await pagina.locator("main").innerHTML()) && (await pagina.evaluate(() => history.length)) === historiaAntes + 1, "TUT-10 «Fallecido»: «Ocultar fotografía» vuelve a la URL sin el parámetro con replace (el historial solo suma la entrada de «Ver»), quita la dirección del DOM y vuelve a mostrar el aviso", "TUT-10 «Fallecido»: «Ocultar fotografía» no restauró el estado oculto o acumuló historial");
+  ver(await pagina.evaluate(() => document.activeElement?.textContent?.trim() === "Ver fotografía"), "TUT-10 «Fallecido»: al ocultar, el foco vuelve a «Ver fotografía»", "TUT-10 «Fallecido»: el foco no volvió a «Ver fotografía»");
+  await irA(pagina, `${rutaDetalle}?foto=visible`);
+  ver((await fotoDelAvistamiento.count()) === 1 && (await esDelOrigen()) && (await cargada()), "TUT-10 ?foto=visible: abre con la fotografía revelada y cargada", "TUT-10 ?foto=visible: no reveló o no cargó");
+  // El parámetro no hace nada en un avistamiento sin «Fallecido» (la foto ya se muestra, sin botones) ni con otra sesión (404 igual que sin él) ni con el Administrador (403).
+  const htmlNormal = await (await fetchComo(base, "tutor1", `${CON_AV}/avistamientos/101?foto=visible`)).text();
+  const htmlNormalSin = await (await fetchComo(base, "tutor1", `${CON_AV}/avistamientos/101`)).text();
+  const ajena = await fetchComo(base, "tutor2", `${rutaDetalle}?foto=visible`);
+  const admin = await fetchComo(base, "admin", `${rutaDetalle}?foto=visible`);
+  const sinSesion = await fetch(`${base}${rutaDetalle}?foto=visible`, { redirect: "manual" });
+  const FOTO_NORMAL = /\/api\/fotografias\/\d+|%2Fapi%2Ffotografias%2F\d+|perro-ejemplo\.svg/; // la real o el respaldo del maquetado
+  ver(FOTO_NORMAL.test(htmlNormal) && !htmlNormal.includes("Ver fotografía") && !htmlNormal.includes("Ocultar fotografía") && FOTO_NORMAL.test(htmlNormalSin) && ajena.status === 404 && !CON_DIRECCION.test(await ajena.text()) && admin.status === 403 && sinSesion.status === 307, "TUT-10 ?foto=visible no tiene efecto en un avistamiento sin «Fallecido»; con otra persona tutora da 404 sin la dirección, con el Administrador 403 y sin sesión 307", `TUT-10 ?foto=visible: sin «Fallecido» ${FOTO_NORMAL.test(htmlNormal)}, otra sesión ${ajena.status}, Administrador ${admin.status}, sin sesión ${sinSesion.status}`);
   // Un id ajeno al caso o un folio ajeno: 404.
   const c1 = await pagina.goto(`${base}${CON_AV}/avistamientos/201`, { waitUntil: "load" });
   const c2 = await pagina.goto(`${base}/tutor/casos/RUPE-Z5C6VR4P/avistamientos/101`, { waitUntil: "load" });
