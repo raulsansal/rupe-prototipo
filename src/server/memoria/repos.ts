@@ -3,6 +3,10 @@ import "server-only";
 import type * as T from "../tipos";
 import type { Repositorios } from "../repos";
 import { ConflictoDeUnicidad } from "../repos/errores";
+import { validarEntrada, type EntradaNueva } from "../dominio/bitacora";
+import { errorAvistamientoYaOculto, errorAvistamientoYaVisible, errorCasoYaCambio } from "../dominio/moderacion";
+import { errorConfirmarSesionPropia, errorSinCambioDeCuenta, errorUltimoAdministrador, esUltimoAdministradorActivo, validarRol } from "../dominio/usuarios";
+import { ErrorApp } from "../errores";
 import { qrPorToken } from "../dominio/qr";
 import { estadoActual, registrarMovimiento } from "../dominio/transiciones";
 import type { EstadoCaso, MovimientoHistorial } from "../../mocks/tipos";
@@ -29,6 +33,31 @@ function aplicarMovimiento(al: Almacen, idCaso: number, m: { tipo: T.TipoMovimie
   return { movimiento: fila, estado: nuevo.estado };
 }
 
+/** R24: inserta la entrada de bitácora (validada) dentro de la transacción de la acción. Solo se agrega: nunca se edita ni se borra (R15). */
+function agregarBitacora(al: Almacen, e: EntradaNueva & { idUsuario: number; fechaHora: string }): T.AccionBitacoraReg {
+  const v = validarEntrada(e);
+  const fila: T.AccionBitacoraReg = { idBitacoraAdmin: siguienteId(al, "bitacora"), tipoAccion: v.tipoAccion, idAfectada: v.idAfectada, ...(v.motivo ? { motivo: v.motivo } : {}), ...(v.detalle ? { detalle: v.detalle } : {}), fechaHora: e.fechaHora, idUsuario: e.idUsuario };
+  al.bitacora.push(fila);
+  return fila;
+}
+
+/** La matriz R12 rechaza una transición que ya no vale con un 409 técnico: para el Administrador se responde el mensaje amable de «ya cambió». */
+function movimientoDeModeracion(al: Almacen, idCaso: number, m: Parameters<typeof aplicarMovimiento>[2]) {
+  try {
+    return aplicarMovimiento(al, idCaso, m);
+  } catch (e) {
+    if (e instanceof ErrorApp && e.estado === 409 && e.codigo === "TRANSICION_INVALIDA") throw errorCasoYaCambio();
+    throw e;
+  }
+}
+
+/** Cierra todas las sesiones activas de la cuenta (R19) y dice cuántas eran. */
+function cerrarSesiones(al: Almacen, idUsuario: number, fecha: string): number {
+  const activas = al.sesiones.filter((s) => s.idUsuario === idUsuario && !s.fechaCierre);
+  activas.forEach((s) => (s.fechaCierre = fecha));
+  return activas.length;
+}
+
 export function crearRepositorios(almacen: () => Almacen = obtenerAlmacen): Repositorios {
   const a = almacen;
   return {
@@ -41,6 +70,14 @@ export function crearRepositorios(almacen: () => Almacen = obtenerAlmacen): Repo
         const i = lista.findIndex((x) => x.idUsuario === u.idUsuario);
         if (i >= 0) lista[i] = copia(u);
         else lista.push(copia(u));
+      },
+      async cambiarEstatus(idUsuario, estatus, fecha) {
+        const u = a().usuarios.find((x) => x.idUsuario === idUsuario);
+        if (u) { u.estatus = estatus; u.fechaUltimaModificacion = fecha; }
+      },
+      async cambiarRol(idUsuario, rol, fecha) {
+        const u = a().usuarios.find((x) => x.idUsuario === idUsuario);
+        if (u) { u.rol = rol; u.fechaUltimaModificacion = fecha; }
       },
       async crearConAceptacion(u, versionAviso, fechaHora) {
         const al = a();
@@ -237,6 +274,107 @@ export function crearRepositorios(almacen: () => Almacen = obtenerAlmacen): Repo
       async categoriasEstadoAnimal() { return copia(a().categoriasEstadoAnimal); },
       async estadosAnimal() { return copia(a().estadosAnimal); },
       async estadosCaso() { return copia(a().estadosCaso); },
+    },
+    administracion: {
+      async deshabilitarCaso(idCaso, e) {
+        const al = a();
+        return copia(
+          transaccion(al, () => {
+            const r = movimientoDeModeracion(al, idCaso, { tipo: "deshabilitación", actor: "Administrador", motivo: e.motivo, idUsuario: e.idAdministrador, fechaHora: e.fecha });
+            const entrada = agregarBitacora(al, { tipoAccion: "deshabilitar caso", idAfectada: String(idCaso), motivo: e.motivo, idUsuario: e.idAdministrador, fechaHora: e.fecha });
+            return { movimiento: r.movimiento, estado: r.estado, entrada };
+          }),
+        );
+      },
+      async restaurarCaso(idCaso, e) {
+        const al = a();
+        return copia(
+          transaccion(al, () => {
+            const r = movimientoDeModeracion(al, idCaso, { tipo: "restauración", actor: "Administrador", idUsuario: e.idAdministrador, fechaHora: e.fecha });
+            const entrada = agregarBitacora(al, { tipoAccion: "restaurar caso", idAfectada: String(idCaso), idUsuario: e.idAdministrador, fechaHora: e.fecha });
+            return { movimiento: r.movimiento, estado: r.estado, entrada };
+          }),
+        );
+      },
+      async ocultarAvistamiento(idAvistamiento, e) {
+        const al = a();
+        return copia(
+          transaccion(al, () => {
+            const av = al.avistamientos.find((x) => x.idAvistamiento === idAvistamiento);
+            if (!av) throw new Error("Avistamiento inexistente");
+            if (!av.visible) throw errorAvistamientoYaOculto();
+            const entrada = agregarBitacora(al, { tipoAccion: "ocultar avistamiento", idAfectada: String(idAvistamiento), motivo: e.motivo, idUsuario: e.idAdministrador, fechaHora: e.fecha }); // valida el motivo ANTES de cambiar nada
+            av.visible = false;
+            av.motivoModeracion = entrada.motivo; // CHECK: oculto ⇒ con motivo
+            return { entrada };
+          }),
+        );
+      },
+      async restaurarAvistamiento(idAvistamiento, e) {
+        const al = a();
+        return copia(
+          transaccion(al, () => {
+            const av = al.avistamientos.find((x) => x.idAvistamiento === idAvistamiento);
+            if (!av) throw new Error("Avistamiento inexistente");
+            if (av.visible) throw errorAvistamientoYaVisible();
+            av.visible = true;
+            av.motivoModeracion = undefined; // restaurar limpia el motivo (D12)
+            return { entrada: agregarBitacora(al, { tipoAccion: "restaurar avistamiento", idAfectada: String(idAvistamiento), idUsuario: e.idAdministrador, fechaHora: e.fecha }) };
+          }),
+        );
+      },
+      async deshabilitarUsuario(idUsuario, e) {
+        const al = a();
+        return copia(
+          transaccion(al, () => {
+            const u = al.usuarios.find((x) => x.idUsuario === idUsuario);
+            if (!u) throw new Error("Usuario inexistente");
+            if (u.estatus === 0) throw errorSinCambioDeCuenta("La cuenta ya está deshabilitada.");
+            if (esUltimoAdministradorActivo(al.usuarios, idUsuario)) throw errorUltimoAdministrador(); // R21
+            const propia = idUsuario === e.idAdministrador;
+            if (propia && !e.confirmarSesionPropia) throw errorConfirmarSesionPropia();
+            u.estatus = 0;
+            u.fechaUltimaModificacion = e.fecha;
+            const sesionesCerradas = cerrarSesiones(al, idUsuario, e.fecha); // R19, en la misma transacción
+            const entrada = agregarBitacora(al, { tipoAccion: "deshabilitar usuario", idAfectada: String(idUsuario), idUsuario: e.idAdministrador, fechaHora: e.fecha });
+            return { usuario: u, sesionesCerradas, esLaPropiaCuenta: propia, entrada };
+          }),
+        );
+      },
+      async habilitarUsuario(idUsuario, e) {
+        const al = a();
+        return copia(
+          transaccion(al, () => {
+            const u = al.usuarios.find((x) => x.idUsuario === idUsuario);
+            if (!u) throw new Error("Usuario inexistente");
+            if (u.estatus === 1) throw errorSinCambioDeCuenta("La cuenta ya está habilitada.");
+            u.estatus = 1;
+            u.fechaUltimaModificacion = e.fecha;
+            const entrada = agregarBitacora(al, { tipoAccion: "habilitar usuario", idAfectada: String(idUsuario), idUsuario: e.idAdministrador, fechaHora: e.fecha });
+            return { usuario: u, sesionesCerradas: 0, esLaPropiaCuenta: idUsuario === e.idAdministrador, entrada };
+          }),
+        );
+      },
+      async cambiarRolDeUsuario(idUsuario, rolNuevo, e) {
+        const al = a();
+        return copia(
+          transaccion(al, () => {
+            const u = al.usuarios.find((x) => x.idUsuario === idUsuario);
+            if (!u) throw new Error("Usuario inexistente");
+            const rol = validarRol(rolNuevo);
+            if (u.rol === rol) throw errorSinCambioDeCuenta("La persona ya tiene ese rol.");
+            if (esUltimoAdministradorActivo(al.usuarios, idUsuario)) throw errorUltimoAdministrador(); // R21: deja de ser administradora
+            const propia = idUsuario === e.idAdministrador;
+            if (propia && !e.confirmarSesionPropia) throw errorConfirmarSesionPropia();
+            const rolAnterior = u.rol;
+            u.rol = rol;
+            u.fechaUltimaModificacion = e.fecha;
+            const sesionesCerradas = cerrarSesiones(al, idUsuario, e.fecha);
+            const entrada = agregarBitacora(al, { tipoAccion: "cambiar rol", idAfectada: String(idUsuario), detalle: `${rolAnterior} → ${rol}`, idUsuario: e.idAdministrador, fechaHora: e.fecha });
+            return { usuario: u, sesionesCerradas, esLaPropiaCuenta: propia, rolAnterior, entrada };
+          }),
+        );
+      },
     },
     parametros: {
       async todos() { return copia(a().parametros); },

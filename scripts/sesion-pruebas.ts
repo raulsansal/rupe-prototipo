@@ -74,13 +74,20 @@ export async function fijarVersionAviso(base: string, valor: string): Promise<vo
   if (!r.ok) throw new Error(`No se pudo fijar la versión del aviso: HTTP ${r.status}`);
 }
 
-/** Vuelve a los datos ficticios iniciales (también los contadores de intentos y las sesiones). Devuelve el código HTTP; no lanza (el servidor puede no permitirlo). */
+/**
+ * Vuelve a los datos ficticios iniciales (también los contadores de intentos y las sesiones). LANZA si el servidor no responde 200: un reinicio que falla en silencio dejaba pruebas y capturas
+ * trabajando sobre datos sucios. El servidor debe arrancarse con RUPE_PERMITIR_REINICIO=1 (los scripts que lo levantan ya la fijan).
+ */
 export async function reiniciarDatos(base: string): Promise<number> {
+  let estado = 0;
   try {
     const r = await fetchComo(base, "admin", "/api/dev/reiniciar", { method: "POST", headers: { Origin: new URL(base).origin } });
-    olvidarSesiones();
-    return r.status;
+    estado = r.status;
   } catch {
-    return 0;
+    estado = 0;
+  } finally {
+    olvidarSesiones();
   }
+  if (estado !== 200) throw new Error(`No se pudieron reiniciar los datos (HTTP ${estado}). Arranca el servidor con RUPE_PERMITIR_REINICIO=1 y una cuenta de Administrador activa.`);
+  return estado;
 }

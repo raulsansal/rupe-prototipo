@@ -172,6 +172,17 @@ export function sembrar(a: Almacen, entorno: Entorno = process.env, { carpetaFot
     a.bitacora.push({ idBitacoraAdmin: b.id, tipoAccion: b.tipo, idAfectada, motivo: b.motivo, detalle: b.detalle, fechaHora: b.fechaHora, idUsuario: usuarioPorNombre(b.administrador) });
     a.ids.bitacora = Math.max(a.ids.bitacora ?? 0, b.id);
   });
+  // P6a: el seed deja TODOS los catálogos activos, pero el historial sembrado registra desactivaciones (alcaldía 12, raza 6, motivo 2 y estados del animal 16 y 17). Para que el historial sea coherente con el
+  // seed, se siembran sus 5 REACTIVACIONES («edición de catálogo»: reactivar = editar, R9), POSTERIORES a las desactivaciones. La bitácora del almacén pasa de 26 a 31 entradas; la pantalla del maqueta (que
+  // todavía lee `mocks/bitacora.ts`) conserva las 26 hasta que lea el almacén (Etapa 2).
+  const REACTIVACIONES = [
+    { id: "alcaldia:12", detalle: "Inactiva → Activa", fechaHora: "2026-10-18T11:05:00Z" }, { id: "raza:6", detalle: "Inactivo → Activo", fechaHora: "2026-10-18T11:10:00Z" },
+    { id: "motivo:2", detalle: "Inactivo → Activo", fechaHora: "2026-10-18T11:15:00Z" }, { id: "estado_animal:16", detalle: "Inactivo → Activo", fechaHora: "2026-10-18T11:20:00Z" },
+    { id: "estado_animal:17", detalle: "Inactivo → Activo", fechaHora: "2026-10-18T11:25:00Z" },
+  ];
+  for (const r of REACTIVACIONES) {
+    a.bitacora.push({ idBitacoraAdmin: siguienteId(a, "bitacora"), tipoAccion: "edición de catálogo", idAfectada: r.id, detalle: r.detalle, fechaHora: r.fechaHora, idUsuario: usuarioPorNombre("Ricardo Vega Ficticio") });
+  }
 
   return a;
 }

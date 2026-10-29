@@ -11,6 +11,9 @@ export function exigirRol(sesion: SesionActual | undefined, rol?: Rol): SesionAc
   return sesion;
 }
 
+/** P6: primera línea de cada servicio y ruta del Administrador: 401 sin sesión y 403 con cualquier otro rol (la tutora). El rol sale SIEMPRE del almacén en cada petición, no de la cookie. */
+export const exigirAdministrador = (sesion: SesionActual | undefined): SesionActual => exigirRol(sesion, "Administrador");
+
 /**
  * R32: solo la persona tutora dueña consulta el detalle y edita o cancela; el Administrador consulta y modera (no edita).
  * Una tutora que no es la dueña recibe 404 (no se revela que el caso existe).

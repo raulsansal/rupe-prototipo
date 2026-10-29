@@ -51,3 +51,21 @@ export function aplicarFiltros<T extends { fechaHora: string; idAlcaldia: number
     return (!f.desde || dia >= f.desde) && (!f.hasta || dia <= f.hasta) && (f.alcaldia === undefined || x.idAlcaldia === f.alcaldia);
   });
 }
+
+/** Rango de días (AAAA-MM-DD, día de la Ciudad de México) de los listados del Administrador (HU 037 y 058): ambos opcionales; reales; «hasta» no anterior a «desde». El campo malo no se aplica. */
+export function validarRangoDeDias(entrada: { desde?: unknown; hasta?: unknown }): { desde?: string; hasta?: string; errores: { desde?: string; hasta?: string } } {
+  const errores: { desde?: string; hasta?: string } = {};
+  const [d, h] = [texto(entrada.desde), texto(entrada.hasta)];
+  let desde: string | undefined;
+  let hasta: string | undefined;
+  if (d) {
+    if (!esDiaReal(d)) errores.desde = "Elige una fecha válida.";
+    else desde = d;
+  }
+  if (h) {
+    if (!esDiaReal(h)) errores.hasta = "Elige una fecha válida.";
+    else if (desde && h < desde) errores.hasta = "«Hasta» no puede ser anterior a «Desde».";
+    else hasta = h;
+  }
+  return { ...(desde ? { desde } : {}), ...(hasta ? { hasta } : {}), errores };
+}

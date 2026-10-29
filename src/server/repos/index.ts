@@ -9,6 +9,10 @@ export interface RepoUsuarios {
   porCorreo(correo: string): Promise<T.Usuario | undefined>;
   todos(): Promise<T.Usuario[]>;
   guardar(u: T.Usuario): Promise<void>;
+  /** P6a (HU 008): cambia solo el estatus (1 activo, 0 deshabilitado) y la fecha de última modificación. Las reglas (último administrador, sesiones, bitácora) viven en `administracion`. */
+  cambiarEstatus(idUsuario: number, estatus: 0 | 1, fecha: string): Promise<void>;
+  /** P6a (HU 009): cambia solo el rol y la fecha de última modificación. */
+  cambiarRol(idUsuario: number, rol: T.Rol, fecha: string): Promise<void>;
   /** R5: el alta del usuario y su primera aceptación del aviso son UNA operación (si algo falla no se guarda nada). */
   crearConAceptacion(u: Omit<T.Usuario, "idUsuario">, versionAviso: string, fechaHora: string): Promise<T.Usuario>;
 }
@@ -122,7 +126,32 @@ export interface RepoParametros {
   actualizar(clave: T.ParametroSistema["clave"], valor: string): Promise<void>;
 }
 
+/** Quién ejecuta la acción administrativa y cuándo; se guarda en la bitácora (R24). */
+export type Ejecucion = { idAdministrador: number; fecha: string };
+export type ResultadoDeUsuario = { usuario: T.Usuario; sesionesCerradas: number; /** La acción fue sobre la propia cuenta del administrador (se cerró su propia sesión). */ esLaPropiaCuenta: boolean };
+
+/**
+ * P6a: acciones del Administrador. Cada método es UNA transacción: el cambio y su entrada de bitácora (R24) se guardan juntos o no se guarda nada, y la bitácora solo admite agregar (R15).
+ * Las reglas (R12, R19, R21, motivo obligatorio ≤ 300) se validan DENTRO, para que dos peticiones simultáneas no puedan intercalarse: la segunda ve el estado nuevo y recibe 409.
+ */
+export interface RepoAdministracion {
+  /** HU 018: «deshabilitación» (matriz R12, actor Administrador, motivo obligatorio) + bitácora «deshabilitar caso». 409 si el caso ya no lo permite. */
+  deshabilitarCaso(idCaso: number, e: Ejecucion & { motivo: string }): Promise<{ movimiento: T.MovimientoDeHistorial; estado: EstadoCaso; entrada: T.AccionBitacoraReg }>;
+  /** HU 018: «restauración» al estado previo a la deshabilitación + bitácora «restaurar caso». 409 si el caso no está cerrado por deshabilitación. */
+  restaurarCaso(idCaso: number, e: Ejecucion): Promise<{ movimiento: T.MovimientoDeHistorial; estado: EstadoCaso; entrada: T.AccionBitacoraReg }>;
+  /** HU 037: oculta un avistamiento visible (motivo obligatorio) + bitácora «ocultar avistamiento». 409 si ya está oculto. */
+  ocultarAvistamiento(idAvistamiento: number, e: Ejecucion & { motivo: string }): Promise<{ entrada: T.AccionBitacoraReg }>;
+  /** HU 037: restaura un avistamiento oculto (limpia el motivo, D12) + bitácora «restaurar avistamiento». 409 si ya es visible. */
+  restaurarAvistamiento(idAvistamiento: number, e: Ejecucion): Promise<{ entrada: T.AccionBitacoraReg }>;
+  /** HU 008: deshabilita la cuenta, cierra todas sus sesiones (R19) y registra «deshabilitar usuario». 409 `ULTIMO_ADMINISTRADOR` (R21), `SIN_CAMBIO` o `CONFIRMACION_REQUERIDA` (cuenta propia sin confirmar). */
+  deshabilitarUsuario(idUsuario: number, e: Ejecucion & { confirmarSesionPropia?: boolean }): Promise<ResultadoDeUsuario & { entrada: T.AccionBitacoraReg }>;
+  /** HU 008: habilita la cuenta y registra «habilitar usuario». */
+  habilitarUsuario(idUsuario: number, e: Ejecucion): Promise<ResultadoDeUsuario & { entrada: T.AccionBitacoraReg }>;
+  /** HU 009: cambia el rol (Administrador o Tutor), cierra las sesiones de esa cuenta (R19: el rol se lee del almacén en cada petición, y así también cambia la sesión) y registra «cambiar rol» con «anterior → nuevo». */
+  cambiarRolDeUsuario(idUsuario: number, rol: T.Rol, e: Ejecucion & { confirmarSesionPropia?: boolean }): Promise<ResultadoDeUsuario & { rolAnterior: T.Rol; entrada: T.AccionBitacoraReg }>;
+}
+
 export type Repositorios = {
   usuarios: RepoUsuarios; aceptaciones: RepoAceptaciones; intentos: RepoIntentos; sesiones: RepoSesiones; casos: RepoCasos; historial: RepoHistorial; qr: RepoQr;
-  avistamientos: RepoAvistamientos; notificaciones: RepoNotificaciones; bitacora: RepoBitacora; catalogos: RepoCatalogos; parametros: RepoParametros;
+  avistamientos: RepoAvistamientos; notificaciones: RepoNotificaciones; bitacora: RepoBitacora; catalogos: RepoCatalogos; parametros: RepoParametros; administracion: RepoAdministracion;
 };

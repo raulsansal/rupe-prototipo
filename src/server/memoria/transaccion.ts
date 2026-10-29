@@ -1,21 +1,20 @@
 import type { Almacen } from "./almacen";
 
-const ARREGLOS = ["usuarios", "aceptaciones", "sesiones", "fotografias", "perros", "casos", "historial", "qr", "avistamientos", "avistamientoEstados", "notificaciones", "bitacora"] as const;
+/** Tablas a las que una operación puede AGREGAR filas: si falla, se recortan a su largo anterior. */
+const ARREGLOS = ["usuarios", "aceptaciones", "sesiones", "fotografias", "perros", "casos", "historial", "qr", "avistamientos", "avistamientoEstados", "notificaciones", "bitacora", "alcaldias", "razas", "motivos", "estadosAnimal"] as const;
+/** Tablas cuyas filas EXISTENTES una operación puede cambiar en sitio (rol o estatus de un usuario, cierre de sesiones, parámetros, catálogos, estado de un caso, marcas de un avistamiento…): se restauran completas. */
+const FILAS_MUTABLES = ["usuarios", "sesiones", "parametros", "alcaldias", "razas", "motivos", "estadosAnimal", "casos", "qr", "avistamientos"] as const;
 
 /**
- * Transacción del almacén en memoria: si `fn` lanza, todo lo que alcanzó a agregar se deshace (filas, contadores de id y bytes de fotografías), así que no quedan
- * perros, fotos ni QR huérfanos. Casi todas las operaciones del almacén solo AGREGAN filas, por eso basta recortar los arreglos a su largo anterior; la excepción es la
- * regeneración del QR (R7), que además MUTA `fechaInvalidacion` de la fila vigente, y el alta de un avistamiento, que cambia el estado del caso: las filas de `qr` y de `casos`
- * se restauran también. `fn` es síncrona: en un
- * solo proceso, la comprobación de unicidad y la inserción son atómicas (con MySQL serán UNIQUE y su error de duplicado).
+ * Transacción del almacén en memoria: si `fn` lanza, todo lo que alcanzó a hacer se deshace: las filas agregadas se recortan, los contadores de id vuelven a su valor y los bytes de fotografías
+ * nuevas se descartan, así que no quedan perros, fotos, QR ni entradas de bitácora huérfanos; y las filas EXISTENTES de `FILAS_MUTABLES` se restauran completas (incluidas las claves que la operación
+ * hubiera agregado). `fn` es síncrona: en un solo proceso, la comprobación de unicidad y la inserción son atómicas (con MySQL serán UNIQUE y su error de duplicado).
  */
 export function transaccion<T>(a: Almacen, fn: () => T): T {
   const largos = ARREGLOS.map((k) => a[k].length);
   const ids = { ...a.ids };
   const fotos = new Set(Object.keys(a.contenidosFoto));
-  const qrAntes = a.qr.map((q) => ({ ...q }));
-  const casosAntes = a.casos.map((c) => ({ ...c }));
-  const avistamientosAntes = a.avistamientos.map((v) => ({ ...v }));
+  const antes = FILAS_MUTABLES.map((k) => (a[k] as object[]).map((f) => ({ ...f })));
   try {
     return fn();
   } catch (e) {
@@ -23,12 +22,12 @@ export function transaccion<T>(a: Almacen, fn: () => T): T {
       (a[k] as unknown[]).length = largos[i];
     });
     a.ids = ids;
-    qrAntes.forEach((q, i) => Object.assign(a.qr[i], q));
-    casosAntes.forEach((c, i) => Object.assign(a.casos[i], c));
-    // Las filas de avistamientos que existían se restauran COMPLETAS (también se quitan las marcas que se hubieran agregado: «visto», «relevante», `visible`).
-    avistamientosAntes.forEach((v, i) => {
-      for (const k of Object.keys(a.avistamientos[i])) delete (a.avistamientos[i] as Record<string, unknown>)[k];
-      Object.assign(a.avistamientos[i], v);
+    FILAS_MUTABLES.forEach((k, i) => {
+      const filas = a[k] as Record<string, unknown>[];
+      antes[i].forEach((original, j) => {
+        for (const clave of Object.keys(filas[j])) delete filas[j][clave];
+        Object.assign(filas[j], original);
+      });
     });
     for (const k of Object.keys(a.contenidosFoto)) if (!fotos.has(k)) delete a.contenidosFoto[Number(k)];
     throw e;

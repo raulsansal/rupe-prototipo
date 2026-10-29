@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { BITACORA } from "../../mocks/bitacora";
 import { test } from "node:test";
 import { PATRON_FOLIO } from "../../mocks/tipos";
 import { ALFABETO_FOLIO } from "../dominio/folio";
@@ -48,7 +49,7 @@ test("HU 011, 012 y 013 · caso feliz: caso, perro, foto, historial (2 movimient
   assert.equal(f.tamanoBytes, guardada.bytes.length);
   assert.equal(guardada.tipo, "image/jpeg");
   assert.equal((await verificarResultado(guardada.bytes)).esJpeg, true);
-  assert.equal(almacen.bitacora.length, 25); // R24: la bitácora es solo de acciones administrativas; el registro no escribe en ella
+  assert.equal(almacen.bitacora.length, BITACORA.length + 5); // R24: la bitácora es solo de acciones administrativas; el registro no escribe en ella
 });
 
 test("Seguridad · la guarda va DENTRO del servicio: 401 sin sesión, 403 con el Administrador; no se guarda nada", async () => {

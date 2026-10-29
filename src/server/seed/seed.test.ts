@@ -33,7 +33,7 @@ test("seed · los casos, folios, QR, avistamientos y bitácora del maquetado exi
   assert.equal(almacen.avistamientos.filter((a) => !a.visible).length, AVISTAMIENTOS_MODERACION.filter((a) => !a.visible).length);
   assert.ok(almacen.avistamientos.filter((a) => !a.visible).every((a) => a.motivoModeracion)); // CHECK del diccionario
   assert.ok(almacen.avistamientos.every((a) => almacen.avistamientoEstados.some((e) => e.idAvistamiento === a.idAvistamiento)));
-  assert.equal(almacen.bitacora.length, BITACORA.length);
+  assert.equal(almacen.bitacora.length, BITACORA.length + 5, "las del maqueta más las 5 reactivaciones de catálogo sembradas en P6a");
   assert.deepEqual([almacen.alcaldias.length, almacen.razas.length, almacen.motivos.length, almacen.estadosAnimal.length, almacen.estadosCaso.length, almacen.usuarios.length], [17, 14, 15, 17, 6, 12]);
   assert.deepEqual(almacen.parametros.map((p) => [p.clave, p.valor]), [["version_aviso_privacidad", "1.0"], ["expiracion_token_minutos", "60"], ["tamano_maximo_archivo_mb", "4"]]);
   // Cada perro tiene dueña o dueño con rol Tutor y una fotografía única (R1).

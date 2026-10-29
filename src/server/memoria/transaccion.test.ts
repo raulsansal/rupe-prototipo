@@ -103,3 +103,29 @@ test("Transacción · si algo falla después de marcar un avistamiento (visto, r
   assert.deepEqual([JSON.stringify(nueva), JSON.stringify(vista), Object.keys(vista).sort().join()], antes);
   assert.ok(!("vistoPorTutora" in vista) && !("relevante" in nueva), "no queda ninguna clave de más");
 });
+
+test("Transacción · si falla a mitad, cada tabla de filas mutables (usuarios, sesiones, parámetros, catálogos, casos, QR, avistamientos) vuelve a su contenido de antes, y lo agregado se recorta", () => {
+  const tablas = ["usuarios", "sesiones", "parametros", "alcaldias", "razas", "motivos", "estadosAnimal", "casos", "qr", "avistamientos"] as const;
+  for (const tabla of tablas) {
+    const { almacen } = nuevoContexto();
+    if (tabla === "sesiones") almacen.sesiones.push({ idSesion: 1, idUsuario: 2, tokenHash: "h", fechaInicio: "2026-10-18T12:00:00Z", fechaCierre: null } as never);
+    const filas = almacen[tabla] as unknown as Record<string, unknown>[];
+    assert.ok(filas.length > 0, tabla);
+    const antes = JSON.stringify(filas);
+    const bitacora = almacen.bitacora.length;
+    assert.throws(
+      () =>
+        transaccion(almacen, () => {
+          for (const f of filas) {
+            for (const k of Object.keys(f)) f[k] = typeof f[k] === "number" ? -1 : null; // cambia todos los valores
+            f.claveNueva = "x"; // y agrega una clave
+          }
+          almacen.bitacora.push({ idBitacoraAdmin: 999, tipoAccion: "cambiar rol", idAfectada: "1", fechaHora: "t", idUsuario: 1 } as never);
+          throw new Error("fallo a mitad");
+        }),
+      /fallo a mitad/,
+    );
+    assert.equal(JSON.stringify(almacen[tabla]), antes, `${tabla} no volvió a su contenido anterior`);
+    assert.equal(almacen.bitacora.length, bitacora, `${tabla}: la bitácora agregada no se recortó`);
+  }
+});

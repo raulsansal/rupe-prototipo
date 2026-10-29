@@ -164,6 +164,7 @@ async function main() {
     cwd: raiz,
     stdio: "ignore",
     detached: true, // grupo propio para poder apagar también al proceso hijo
+    env: { ...process.env, RUPE_PERMITIR_REINICIO: "1" }, // para reiniciar los datos (si no, el reinicio falla)
   });
   const apagar = () => {
     try {
@@ -244,7 +245,7 @@ async function main() {
     }
   } finally {
     // Deja limpios los datos (contadores de intentos del bloqueo, versión del aviso, sesiones) para que nada se arrastre a otras corridas.
-    console.log(`Datos ficticios reiniciados al terminar (HTTP ${await reiniciarDatos(base)})`);
+    console.log(`Datos ficticios reiniciados al terminar (HTTP ${await reiniciarDatos(base).catch((e: Error) => `fallo: ${e.message}`)})`);
     await navegador?.close();
     apagar();
   }
