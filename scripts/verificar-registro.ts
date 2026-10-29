@@ -62,6 +62,21 @@ async function medirVistaPrevia(p: Page): Promise<Medida> {
   });
 }
 
+const VISTA_PREVIA = "img[alt='Vista previa de la fotografía']";
+/**
+ * Elige una imagen generada y espera la vista previa NUEVA antes de medir: la reducción en el navegador es asíncrona y, si ya había otra vista previa, medirla de inmediato leería la anterior.
+ * Se guarda el `src` previo y se espera a que cambie y a que la imagen termine de cargar.
+ */
+async function elegirYEsperarVistaPrevia(p: Page, tipo: Parameters<typeof elegirImagenGenerada>[1]): Promise<number> {
+  const previo = await p.evaluate((sel) => document.querySelector<HTMLImageElement>(sel)?.src ?? null, VISTA_PREVIA);
+  const bytes = await elegirImagenGenerada(p, tipo);
+  await p.waitForFunction(([sel, antes]) => {
+    const img = document.querySelector<HTMLImageElement>(sel!);
+    return !!img && img.src !== antes && img.complete && img.naturalWidth > 0;
+  }, [VISTA_PREVIA, previo] as const, { timeout: 20000 });
+  return bytes;
+}
+
 const continuar = (p: Page) => p.getByRole("button", { name: /^(Guardar y continuar|Guardar registro)$/ });
 
 async function pruebas(navegador: Browser) {
@@ -72,10 +87,10 @@ async function pruebas(navegador: Browser) {
   await p.waitForSelector("main h1");
 
   console.log("\n— Reducción de la fotografía en el navegador —");
-  const original = await elegirImagenGenerada(p, "ruido-grande");
+  const original = await elegirYEsperarVistaPrevia(p, "ruido-grande");
   const grande = await medirVistaPrevia(p);
   ver(original > 4 * 1024 * 1024 && grande.bytes < 4 * 1024 * 1024 && grande.tipo === "image/jpeg" && Math.max(grande.ancho, grande.alto) <= 1600, `imagen grande: ${MB(original)} (PNG de 2000×2000) → ${MB(grande.bytes)} (JPEG ${grande.ancho}×${grande.alto}), por debajo del límite de 4 MB`, `imagen grande: ${MB(original)} → ${MB(grande.bytes)} ${grande.tipo} ${grande.ancho}×${grande.alto}`);
-  const origT = await elegirImagenGenerada(p, "transparente");
+  const origT = await elegirYEsperarVistaPrevia(p, "transparente");
   const t = await medirVistaPrevia(p);
   ver(t.tipo === "image/jpeg" && t.esquina.every((c) => c >= 250) && t.centro[0] > 150 && t.centro[1] < 80, `PNG con transparencia: ${MB(origT)} → ${MB(t.bytes)}; la esquina transparente queda BLANCA (rgb ${t.esquina.join(",")}), sin zonas negras, y el centro conserva su color (rgb ${t.centro.join(",")})`, `PNG transparente: esquina ${t.esquina} centro ${t.centro} tipo ${t.tipo}`);
   await p.locator(INPUT).setInputFiles({ name: "corrupta.png", mimeType: "image/png", buffer: Buffer.from("esto no es un PNG, solo lo parece por su extensión") });
@@ -88,7 +103,7 @@ async function pruebas(navegador: Browser) {
   ver(await p.getByText("No pudimos leer esta imagen").isVisible(), "otro archivo que no es imagen (GIF/texto con extensión .png) tampoco se acepta", "aceptó un archivo que no es imagen");
 
   console.log("\n— Registro completo (una sola petición) —");
-  await elegirImagenGenerada(p, "degradado");
+  await elegirYEsperarVistaPrevia(p, "degradado");
   const foto = await medirVistaPrevia(p);
   await continuar(p).click();
   await llenarPaso2(p);
@@ -129,7 +144,7 @@ async function pruebas(navegador: Browser) {
   const p2 = await contexto.newPage();
   await p2.goto(`${base}/tutor/registrar`, { waitUntil: "load" });
   await p2.waitForSelector("main h1");
-  await elegirImagenGenerada(p2, "degradado");
+  await elegirYEsperarVistaPrevia(p2, "degradado");
   await medirVistaPrevia(p2);
   await llenarPaso1(p2, { edad: "3", unidad: "años" });
   await continuar(p2).click();
