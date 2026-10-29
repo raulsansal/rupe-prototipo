@@ -17,3 +17,5 @@ export function matrizQr(url: string): MatrizQr {
 export const urlDelQr = (base: string, token: string) => `${base}/ficha/${token}`;
 /** Enlace que se comparte: lleva el FOLIO (no el token), para que no se invalide al regenerar el QR. */
 export const urlParaCompartir = (base: string, folio: string) => `${base}/ficha/${folio}`;
+/** Enlace público de consulta de ESTATUS (HU 046): lleva el FOLIO, nunca el token ni datos de la persona tutora. */
+export const urlDeEstatus = (base: string, folio: string) => `${base}/estatus/${folio}`;

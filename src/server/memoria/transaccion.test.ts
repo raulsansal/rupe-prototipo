@@ -86,3 +86,20 @@ test("Transacción · si algo falla después de cambiar el estado de un caso, la
   );
   assert.equal(JSON.stringify(almacen.casos), antes);
 });
+
+test("Transacción · si algo falla después de marcar un avistamiento (visto, relevante, visible), la fila se restaura COMPLETA, también las marcas que no tenía (P5)", () => {
+  const { almacen } = nuevoContexto();
+  const nueva = almacen.avistamientos.find((a) => a.idAvistamiento === 201)!; // nueva: vistoPorTutora false
+  const vista = almacen.avistamientos.find((a) => a.idAvistamiento === 101)!; // sin marcas
+  const antes = [JSON.stringify(nueva), JSON.stringify(vista), Object.keys(vista).sort().join()];
+  assert.throws(() =>
+    transaccion(almacen, () => {
+      nueva.vistoPorTutora = true;
+      nueva.relevante = true;
+      vista.vistoPorTutora = false; // una marca que la fila no tenía
+      vista.visible = false;
+      throw new Error("falla a mitad");
+    }), /falla a mitad/);
+  assert.deepEqual([JSON.stringify(nueva), JSON.stringify(vista), Object.keys(vista).sort().join()], antes);
+  assert.ok(!("vistoPorTutora" in vista) && !("relevante" in nueva), "no queda ninguna clave de más");
+});

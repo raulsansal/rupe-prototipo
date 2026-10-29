@@ -117,7 +117,7 @@ export async function registrarAvistamiento(acceso: Acceso, entrada: { datos: un
   const { avistamiento } = await repos.avistamientos.registrarCompleto({
     avistamiento: {
       fechaHoraAvistamiento: instante, direccionAproximada: d.direccion.trim(), coloniaZona: (d.coloniaZona ?? "").trim() || undefined, referenciasDelLugar: (d.referencias ?? "").trim() || undefined,
-      latitud: ubicacion.latitud, longitud: ubicacion.longitud, comentario, fechaHoraEnvio: ahora, visible: true, idAlcaldia: alcaldia.idAlcaldia, idCasoExtravio: caso.idCasoExtravio, ubicacionSimulada: true,
+      latitud: ubicacion.latitud, longitud: ubicacion.longitud, comentario, fechaHoraEnvio: ahora, visible: true, idAlcaldia: alcaldia.idAlcaldia, idCasoExtravio: caso.idCasoExtravio, ubicacionSimulada: true, vistoPorTutora: false,
     },
     fotografia: { referenciaArchivo: "", formato: "JPG", tamanoBytes: foto.bytes.length, fechaCarga: ahora },
     contenidoFotografia: { tipo: "image/jpeg", bytes: foto.bytes },

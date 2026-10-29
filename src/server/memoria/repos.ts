@@ -4,10 +4,31 @@ import type * as T from "../tipos";
 import type { Repositorios } from "../repos";
 import { ConflictoDeUnicidad } from "../repos/errores";
 import { qrPorToken } from "../dominio/qr";
+import { estadoActual, registrarMovimiento } from "../dominio/transiciones";
+import type { EstadoCaso, MovimientoHistorial } from "../../mocks/tipos";
 import { obtenerAlmacen, siguienteId, type Almacen } from "./almacen";
 import { transaccion } from "./transaccion";
 
 const copia = <X,>(x: X): X => structuredClone(x);
+
+/**
+ * R12 sobre el almacén (P5): valida la transición con la matriz, agrega el movimiento (consecutivo = máximo + 1, R4) y actualiza el estado del caso. SÍNCRONA: se usa dentro de
+ * `transaccion`, así que nadie puede intercalarse entre la lectura del historial y la escritura. Lanza 409/422 de la matriz sin dejar nada a medias.
+ */
+function aplicarMovimiento(al: Almacen, idCaso: number, m: { tipo: T.TipoMovimiento; actor: Parameters<typeof registrarMovimiento>[2]; motivo?: string; idUsuario: number | null; fechaHora: string }) {
+  const nombre = (id: number) => al.estadosCaso.find((e) => e.idEstadoCaso === id)!.nombre as EstadoCaso;
+  const idDe = (n: EstadoCaso) => al.estadosCaso.find((e) => e.nombre === n)!.idEstadoCaso;
+  const caso = al.casos.find((c) => c.idCasoExtravio === idCaso);
+  if (!caso) throw new Error("Caso inexistente");
+  const previos = al.historial.filter((x) => x.idCasoExtravio === idCaso).sort((x, y) => x.consecutivo - y.consecutivo);
+  const historial: MovimientoHistorial[] = previos.map((x) => ({ consecutivo: x.consecutivo, fechaHora: x.fechaHora, tipo: x.tipoMovimiento, estado: nombre(x.idEstadoCaso), ...(x.motivo ? { motivo: x.motivo } : {}) }));
+  const nuevo = registrarMovimiento(historial, m.tipo, m.actor, m.fechaHora, m.motivo).at(-1)!; // 409 si la transición no vale, 422 sin motivo
+  const fila: T.MovimientoDeHistorial = { idCasoExtravio: idCaso, consecutivo: nuevo.consecutivo, fechaHora: nuevo.fechaHora, tipoMovimiento: nuevo.tipo, idEstadoCaso: idDe(nuevo.estado), idUsuario: m.idUsuario, ...(nuevo.motivo ? { motivo: nuevo.motivo } : {}) };
+  al.historial.push(fila);
+  caso.idEstadoCaso = fila.idEstadoCaso;
+  caso.fechaUltimaModificacion = nuevo.fechaHora;
+  return { movimiento: fila, estado: nuevo.estado };
+}
 
 export function crearRepositorios(almacen: () => Almacen = obtenerAlmacen): Repositorios {
   const a = almacen;
@@ -108,6 +129,10 @@ export function crearRepositorios(almacen: () => Almacen = obtenerAlmacen): Repo
         a().historial.push(nuevo);
         return copia(nuevo);
       },
+      async registrar(idCaso, m) {
+        const al = a();
+        return copia(transaccion(al, () => aplicarMovimiento(al, idCaso, m)));
+      },
     },
     qr: {
       async activoDe(id) { return copia(a().qr.find((q) => q.idCasoExtravio === id && q.fechaInvalidacion === null)); },
@@ -166,6 +191,28 @@ export function crearRepositorios(almacen: () => Almacen = obtenerAlmacen): Repo
             return { avistamiento: av, notificacion };
           }),
         );
+      },
+      async marcarVisto(id, fechaHora) {
+        const al = a();
+        return copia(
+          transaccion(al, () => {
+            const av = al.avistamientos.find((x) => x.idAvistamiento === id);
+            if (!av) throw new Error("Avistamiento inexistente");
+            const nombre = (idEstado: number) => al.estadosCaso.find((e) => e.idEstadoCaso === idEstado)!.nombre as EstadoCaso;
+            const previos = al.historial.filter((x) => x.idCasoExtravio === av.idCasoExtravio).sort((x, y) => x.consecutivo - y.consecutivo);
+            const estadoAntes = estadoActual(previos.map((x) => ({ consecutivo: x.consecutivo, fechaHora: x.fechaHora, tipo: x.tipoMovimiento, estado: nombre(x.idEstadoCaso) })))!;
+            if (av.vistoPorTutora !== false) return { cambio: false, estado: estadoAntes };
+            av.vistoPorTutora = true;
+            // Solo desde «Avistamiento reportado» la matriz mueve el caso a «En seguimiento» (movimiento automático: sin usuario).
+            if (estadoAntes !== "Avistamiento reportado") return { cambio: true, estado: estadoAntes };
+            const r = aplicarMovimiento(al, av.idCasoExtravio, { tipo: "avistamiento revisado", actor: "automático", idUsuario: null, fechaHora });
+            return { cambio: true, movimiento: r.movimiento, estado: r.estado };
+          }),
+        );
+      },
+      async marcarRelevante(id, relevante) {
+        const x = a().avistamientos.find((v) => v.idAvistamiento === id);
+        if (x) x.relevante = relevante;
       },
       async moderar(id, visible, motivo) {
         const x = a().avistamientos.find((v) => v.idAvistamiento === id);

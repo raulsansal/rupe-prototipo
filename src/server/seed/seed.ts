@@ -158,6 +158,12 @@ export function sembrar(a: Almacen, entorno: Entorno = process.env, { carpetaFot
     v.estadosAnimal.forEach((n) => a.avistamientoEstados.push({ idAvistamiento: v.id, idEstadoAnimal: idPorNombre(a.estadosAnimal, n, (x) => x.idEstadoAnimal, "estado del animal") }));
     a.notificaciones.push({ idNotificacion: siguienteId(a, "notificacion"), tipo: "nuevo avistamiento", canal: "correo", fechaEnvio: v.fechaHora, estadoEnvio: "enviada", idAvistamiento: v.id });
   }
+  // P5 (HU 040): todos los avistamientos sembrados cuentan como vistos, salvo el más reciente VISIBLE de los casos en «Avistamiento reportado» (Luna y Bruno), que quedan NUEVOS.
+  for (const folio of ["RUPE-P3H8WD5N", "RUPE-N8D5GX3W"]) {
+    const idCaso = casoPorFolio(folio).idCasoExtravio;
+    const masReciente = a.avistamientos.filter((x) => x.idCasoExtravio === idCaso && x.visible).sort((x, y) => y.fechaHoraEnvio.localeCompare(x.fechaHoraEnvio) || y.idAvistamiento - x.idAvistamiento)[0];
+    if (masReciente) masReciente.vistoPorTutora = false;
+  }
 
   // ---- Bitácora (la misma de ADM-12); el ID afectado sigue el diccionario: id del caso, o «catalogo:id» ----
   [...BITACORA].sort((x, y) => x.id - y.id).forEach((b) => {

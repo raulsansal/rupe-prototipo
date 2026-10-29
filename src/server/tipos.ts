@@ -36,6 +36,10 @@ export type Avistamiento = {
   visible: boolean; motivoModeracion?: string; idAlcaldia: number; idCasoExtravio: number; idFotografia: number;
   /** SOLO DEL PROTOTIPO (sin columna en el diccionario): la latitud y la longitud salen de la alcaldía elegida, no de un mapa. Se retira cuando haya mapa (HU 031). */
   ubicacionSimulada?: boolean;
+  /** SOLO DEL PROTOTIPO (sin columna en el diccionario, P5): `false` = avistamiento NUEVO para la persona tutora (aún no abre su detalle); ausente o `true` = ya lo vio. Nunca sale por las funciones públicas ni de Administrador. */
+  vistoPorTutora?: boolean;
+  /** SOLO DEL PROTOTIPO (P5): marca «relevante» de la persona tutora dueña, reversible. Ausente = no. Nunca sale por las funciones públicas ni de Administrador. */
+  relevante?: boolean;
 };
 export type AvistamientoEstadoAnimal = { idAvistamiento: number; idEstadoAnimal: number };
 export type Notificacion = {

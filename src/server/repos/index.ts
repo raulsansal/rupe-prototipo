@@ -1,6 +1,8 @@
 // Interfaces de repositorio por entidad. Todas son asíncronas para poder sustituir la implementación en memoria por MySQL sin tocar
 // servicios, pantallas ni rutas. Las operaciones compuestas del diccionario (R4, R6, R7, R24, R35) se expresan como UN método de repositorio.
 import type * as T from "../tipos";
+import type { EstadoCaso } from "../../mocks/tipos";
+import type { Actor } from "../dominio/transiciones";
 
 export interface RepoUsuarios {
   porId(id: number): Promise<T.Usuario | undefined>;
@@ -50,7 +52,13 @@ export interface RepoHistorial {
   deCaso(idCaso: number): Promise<T.MovimientoDeHistorial[]>;
   /** R4: consecutivo = máximo + 1 por caso, asignado dentro del repositorio. Solo inserta (nunca actualiza ni borra). */
   agregar(m: Omit<T.MovimientoDeHistorial, "consecutivo">): Promise<T.MovimientoDeHistorial>;
+  /**
+   * P5, R12: UN movimiento válido del caso en una sola operación atómica: lee el historial, valida la transición con la matriz (409 si no vale, 422 sin motivo), agrega el movimiento y
+   * actualiza el estado del caso. Dos peticiones simultáneas no pueden intercalarse: la segunda ve el estado nuevo y falla con 409 sin duplicar nada. `motivo` ya viene saneado.
+   */
+  registrar(idCaso: number, m: EntradaDeMovimiento): Promise<{ movimiento: T.MovimientoDeHistorial; estado: EstadoCaso }>;
 }
+export type EntradaDeMovimiento = { tipo: T.TipoMovimiento; actor: Actor; motivo?: string; idUsuario: number | null; fechaHora: string };
 export interface RepoQr {
   activoDe(idCaso: number): Promise<T.CodigoQr | undefined>;
   porToken(token: string): Promise<T.CodigoQr | undefined>;
@@ -77,6 +85,13 @@ export interface RepoAvistamientos {
   /** R35: avistamiento, fotografía y estados del animal en una sola operación (la notificación va aparte). */
   crear(a: Omit<T.Avistamiento, "idAvistamiento" | "idFotografia">, fotografia: Omit<T.Fotografia, "idFotografia">, estados: number[]): Promise<T.Avistamiento>;
   moderar(id: number, visible: boolean, motivo?: string): Promise<void>;
+  /**
+   * P5, HU 040: marca el avistamiento como visto por la persona tutora y, si era NUEVO y el caso está en «Avistamiento reportado», registra «avistamiento revisado» (→ En seguimiento), todo
+   * en UNA transacción. `cambio` es false si ya estaba visto (no se duplica nada).
+   */
+  marcarVisto(idAvistamiento: number, fechaHora: string): Promise<{ cambio: boolean; movimiento?: T.MovimientoDeHistorial; estado: EstadoCaso }>;
+  /** P5, HU 040: marca o desmarca «relevante» (idempotente). */
+  marcarRelevante(idAvistamiento: number, relevante: boolean): Promise<void>;
   /** HU 035: fotografía (con sus bytes), avistamiento, estados del animal, movimiento y estado del caso, y notificación en UNA transacción: si algo falla no queda nada. */
   registrarCompleto(alta: AltaDeAvistamiento): Promise<{ avistamiento: T.Avistamiento; notificacion?: T.Notificacion }>;
 }

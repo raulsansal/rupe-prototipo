@@ -15,6 +15,7 @@ export function transaccion<T>(a: Almacen, fn: () => T): T {
   const fotos = new Set(Object.keys(a.contenidosFoto));
   const qrAntes = a.qr.map((q) => ({ ...q }));
   const casosAntes = a.casos.map((c) => ({ ...c }));
+  const avistamientosAntes = a.avistamientos.map((v) => ({ ...v }));
   try {
     return fn();
   } catch (e) {
@@ -24,6 +25,11 @@ export function transaccion<T>(a: Almacen, fn: () => T): T {
     a.ids = ids;
     qrAntes.forEach((q, i) => Object.assign(a.qr[i], q));
     casosAntes.forEach((c, i) => Object.assign(a.casos[i], c));
+    // Las filas de avistamientos que existían se restauran COMPLETAS (también se quitan las marcas que se hubieran agregado: «visto», «relevante», `visible`).
+    avistamientosAntes.forEach((v, i) => {
+      for (const k of Object.keys(a.avistamientos[i])) delete (a.avistamientos[i] as Record<string, unknown>)[k];
+      Object.assign(a.avistamientos[i], v);
+    });
     for (const k of Object.keys(a.contenidosFoto)) if (!fotos.has(k)) delete a.contenidosFoto[Number(k)];
     throw e;
   }

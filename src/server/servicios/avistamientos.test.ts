@@ -51,7 +51,8 @@ test("HU 035 · un reporte válido guarda todo junto: avistamiento anónimo con 
   assert.ok(Number.isFinite(av.latitud) && Number.isFinite(av.longitud));
   assert.deepEqual(almacen.avistamientoEstados.filter((e) => e.idAvistamiento === r.id).map((e) => e.idEstadoAnimal).sort(), [1, 7]);
   // Anonimato: ninguna estructura guarda IP, agente de usuario ni nada de quien reporta.
-  assert.ok(Object.keys(av).every((k) => ["idAvistamiento", "fechaHoraAvistamiento", "direccionAproximada", "coloniaZona", "referenciasDelLugar", "latitud", "longitud", "comentario", "fechaHoraEnvio", "visible", "idAlcaldia", "idCasoExtravio", "idFotografia", "ubicacionSimulada"].includes(k)), Object.keys(av).join());
+  assert.ok(Object.keys(av).every((k) => ["idAvistamiento", "fechaHoraAvistamiento", "direccionAproximada", "coloniaZona", "referenciasDelLugar", "latitud", "longitud", "comentario", "fechaHoraEnvio", "visible", "idAlcaldia", "idCasoExtravio", "idFotografia", "vistoPorTutora", "ubicacionSimulada"].includes(k)), Object.keys(av).join());
+  assert.equal(av.vistoPorTutora, false, "P5: un avistamiento recién reportado es NUEVO para la persona tutora");
   // La foto queda vinculada al avistamiento, re-codificada y servida por la ruta con guarda.
   const foto = almacen.fotografias.find((f) => f.idFotografia === av.idFotografia)!;
   assert.equal(foto.referenciaArchivo, `/api/fotografias/${foto.idFotografia}`);
