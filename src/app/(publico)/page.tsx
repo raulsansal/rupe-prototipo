@@ -53,6 +53,9 @@ export default async function PaginaPrincipal({ searchParams }: PageProps<"/">) 
           Buscar por folio
         </h2>
         <BuscadorFolio />
+        <Link href="/estatus" className="mt-3 inline-flex h-tactil items-center text-small font-semibold underline">
+          ¿Solo quieres saber en qué etapa está un caso? Consultar su estatus
+        </Link>
       </section>
 
       <section id="como-funciona" aria-labelledby="titulo-como-funciona" className={seccion}>

@@ -46,6 +46,7 @@ export interface RepoCasos {
   contenidoDeFotografia(idFotografia: number): Promise<{ tipo: string; bytes: Uint8Array } | undefined>;
   /** Id de la persona usuaria dueña de la fotografía (la del perro o la de un avistamiento de su caso). */
   duenoDeFotografia(idFotografia: number): Promise<number | undefined>;
+  /** Solo cambia el estado del caso: `fecha` se conserva en la firma, pero `fechaUltimaModificacion` es la fecha de EDICIÓN (HU 014) y no se mueve. */
   actualizarEstado(idCaso: number, idEstadoCaso: number, fecha: string): Promise<void>;
 }
 export interface RepoHistorial {

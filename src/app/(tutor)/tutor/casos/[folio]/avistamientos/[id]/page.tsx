@@ -1,7 +1,9 @@
 import { NOTA_UBICACION_SIMULADA } from "@/components/features/avistamiento/datos";
 import type { Metadata } from "next";
 import Link from "next/link";
+import { CasillaRelevante } from "@/components/features/avistamientos/CasillaRelevante";
 import { FotoAvistamiento } from "@/components/features/avistamientos/FotoAvistamiento";
+import { MarcarVisto } from "@/components/features/avistamientos/MarcarVisto";
 import { MapaIlustrativo } from "@/components/features/MapaIlustrativo";
 import { TarjetaDatos } from "@/components/features/TarjetaDatos";
 import { Alerta } from "@/components/ui/Alerta";
@@ -19,7 +21,7 @@ export const metadata: Metadata = { title: "Detalle del avistamiento · RUPE" };
 
 /**
  * TUT-10. Solo la persona tutora dueña ve estos datos, incluidos la dirección aproximada y las referencias (reservadas frente al
- * público). El visitante permanece anónimo: no hay ningún dato suyo. ?foto=visible entrega y revela la fotografía de un «Fallecido».
+ * público). El visitante permanece anónimo: no hay ningún dato suyo. ?foto=visible entrega y revela la fotografía de un «Fallecido». P5: al abrirlo, `MarcarVisto` (cliente) marca el avistamiento nuevo como visto; el servidor NUNCA escribe al renderizar.
  */
 export default async function DetalleAvistamiento({ params, searchParams }: PageProps<"/tutor/casos/[folio]/avistamientos/[id]">) {
   const { folio, id } = await params;
@@ -36,6 +38,7 @@ export default async function DetalleAvistamiento({ params, searchParams }: Page
         <Icono nombre="arrow_back" tamano={20} />
         Regresar al listado
       </Link>
+      <MarcarVisto folio={a.folio} id={a.id} nuevo={a.nuevo} />
       <h1 className="text-h1">Detalle del avistamiento</h1>
       <p className="w-fit rounded-campo border border-border bg-surface px-3 py-2 text-small">
         Folio <span className="font-bold tabular-nums">{a.folio}</span>
@@ -92,6 +95,7 @@ export default async function DetalleAvistamiento({ params, searchParams }: Page
           <p className="mt-1 break-words text-body">{a.comentario}</p>
         </section>
       )}
+      <CasillaRelevante folio={a.folio} id={a.id} relevante={a.relevante} />
       <Alerta tipo="info" titulo="Quien reportó permanece anónimo">
         El reporte no incluye ningún dato de la persona que lo envió.
       </Alerta>

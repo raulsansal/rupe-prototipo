@@ -1,32 +1,25 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
+import { DetalleCasoTutor } from "@/components/features/DetalleCasoTutor";
 import { basePublicaDeCabeceras } from "@/server/config/urlPublica";
 import { ErrorApp } from "@/server/errores";
-import { enlaceParaCompartir } from "@/server/servicios/fichaBusqueda";
-import { DetalleCasoTutor } from "@/components/features/DetalleCasoTutor";
-import type { EstadoCaso } from "@/mocks/tipos";
 import { casoDelTutor } from "@/server/servicios/misRegistros";
+import { enlaceDeEstatus } from "@/server/servicios/seguimiento";
 import { paraPagina } from "@/server/sesion/pagina";
 import { obtenerSesion } from "@/server/sesion/sesion";
 
 export const metadata: Metadata = { title: "Detalle del caso · RUPE" };
 
-/** ?estado=en-curso | localizado | cerrado fuerza la variante de la lámina 2.5 (SOLO maquetado: capturas y pruebas). En curso muestra «En seguimiento», como el ejemplo de la lámina. */
-function estadoVariante(variante: string | undefined): EstadoCaso | undefined {
-  if (variante === "localizado") return "Localizado";
-  if (variante === "cerrado") return "Cerrado";
-  if (variante === "en-curso") return "En seguimiento";
-  return undefined;
-}
-
-/** TUT-05: lee el caso del ALMACÉN con la guarda de dueño dentro del servicio; solo se pasa la vista de su dueña (sin su nombre, correo ni teléfono, y sin el token del QR). */
-export default async function DetalleCaso({ params, searchParams }: PageProps<"/tutor/casos/[folio]">) {
+/**
+ * TUT-05: lee el caso del ALMACÉN con la guarda de dueño dentro del servicio; solo se pasa la vista de su dueña (sin su nombre, correo ni teléfono, y sin el token del QR). Estado e historial
+ * son los reales (P5 retiró ?estado=). «Compartir estatus» lleva el enlace público de ESTATUS por folio (nunca el token): en cualquier estado salvo Cerrado.
+ */
+export default async function DetalleCaso({ params }: PageProps<"/tutor/casos/[folio]">) {
   const { folio } = await params;
-  const { estado } = await searchParams;
-  const caso = await paraPagina(casoDelTutor(await obtenerSesion(), folio, { estadoForzado: estadoVariante(typeof estado === "string" ? estado : undefined) }));
-  // Enlace para compartir: solo con el caso en curso y con la URL pública configurada; si no, la ventana de compartir lo avisa.
-  const enlace = await enlaceParaCompartir(await obtenerSesion(), folio, basePublicaDeCabeceras(await headers())).catch((e) => {
-    if (e instanceof ErrorApp && e.estado === 409) return null;
+  const sesion = await obtenerSesion();
+  const caso = await paraPagina(casoDelTutor(sesion, folio));
+  const enlace = await enlaceDeEstatus(sesion, folio, basePublicaDeCabeceras(await headers())).catch((e) => {
+    if (e instanceof ErrorApp && e.estado === 409) return null; // Cerrado: no se comparte (la pantalla ya no ofrece el botón)
     throw e;
   });
   return <DetalleCasoTutor caso={caso} enlaceCompartir={enlace} />;

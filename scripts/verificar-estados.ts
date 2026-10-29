@@ -2,12 +2,15 @@
 //  · localizar, cerrar, reactivar y cancelar con la matriz R12, el 409 ante repeticiones y peticiones simultáneas (un solo movimiento), el motivo saneado y las guardas (R32);
 //  · el QR (mismo token) antes y después, R13/R33 y la consulta pública de estatus con los 404 idénticos (se comparan HUELLAS de los cuerpos; nunca se imprimen tokens);
 //  · «avistamiento revisado» al abrir un avistamiento nuevo (idempotente) y la marca «relevante».
+//  · la parte de INTERFAZ (navegador real): un GET del detalle NO marca el avistamiento como visto (ni con las cabeceras de prefetch); al abrirlo se marca solo UNA vez; la campana, la insignia «Nuevo»,
+//    «Relevante», los modales con doble clic, el 409 que refresca con el estado real y «Compartir estatus».
 // Imprime la respuesta REAL de cada paso. Opciones: --sin-build · --base=URL (servidor con RUPE_PERMITIR_REINICIO=1).
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import { CASOS_ORIGEN } from "../src/mocks/casos";
 import { JPEG_REAL } from "../src/server/pruebas/imagenes";
-import { fetchComo, reiniciarDatos, type RolPrueba } from "./sesion-pruebas";
+import { chromium, type Browser, type Page } from "playwright";
+import { agregarSesion, fetchComo, reiniciarDatos, type RolPrueba } from "./sesion-pruebas";
 
 const PUERTO = 3139;
 const baseExterna = process.argv.find((a) => a.startsWith("--base="))?.split("=")[1];
@@ -64,6 +67,7 @@ const MIA = "RUPE-J2C6PZ9H"; // Luis (tutor2), En búsqueda
 const SIMBA = "RUPE-F7L3MN6Y"; // Luis, Cerrado por cancelación
 const KIRA = "RUPE-D5W2QK8X"; // Luis, Cerrado por deshabilitación
 const ROCKY = "RUPE-3HN8WD2B"; // Rosa, Cerrado por cierre confirmado
+const BRUNO = "RUPE-N8D5GX3W"; // Rosa, Avistamiento reportado, avistamiento nuevo 302
 
 async function esperarServidor(servidor: ChildProcess) {
   for (let i = 0; i < 120; i++) {
@@ -180,6 +184,108 @@ async function pruebas() {
   ver(!/Rosa|Luis|Hern|Navarro|@example|tutor|token|calle|direcci/i.test(datosPersonales), "ninguna respuesta de estatus lleva datos personales", "el estatus filtra datos personales");
 
   await reiniciarDatos(base);
+  await interfaz();
+  await reiniciarDatos(base);
+}
+
+// ----------------------------------------------------------------------------------------------------------------------------- interfaz
+/** Cuántos avistamientos nuevos dice la campana de una página real de la persona tutora (aria-label «Avistamientos, N nuevos»; sin insignia = 0). */
+const campanaDe = (html: string) => {
+  const m = /aria-label="Avistamientos(?:, (\d+|más de 9) nuevos)?"/.exec(html);
+  return m ? (m[1] ? Number(m[1]) : 0) : -1;
+};
+async function abrirNavegador(): Promise<Browser> {
+  try {
+    return await chromium.launch();
+  } catch {
+    return await chromium.launch({ channel: "chrome" });
+  }
+}
+/** La insignia «Nuevo» de un avistamiento del listado (la Etiqueta con ícono), no la palabra suelta. */
+const insigniaNuevo = (html: string) => /Nuevo<\/span>/.test(html);
+const campanaEnPagina = (p: Page) => p.locator('a[href="/tutor/avistamientos"]').getAttribute("aria-label").then((l) => (l ? (/(\d+) nuevos/.exec(l)?.[1] ? Number(/(\d+) nuevos/.exec(l)![1]) : 0) : -1));
+
+async function interfaz() {
+  console.log("\n— Interfaz: un GET no marca nada; abrir el detalle sí, una sola vez —");
+  await reiniciarDatos(base);
+  const LISTA = `/tutor/casos/${LUNA}/avistamientos`;
+  const DETALLE = `${LISTA}/201`;
+  const [rosa, luis] = [await como("tutor1", "/tutor"), await como("tutor2", "/tutor")];
+  console.log(`  campana en /tutor: Rosa (dueña de Luna y de Bruno) → ${campanaDe(rosa.texto)} · Luis → ${campanaDe(luis.texto)}`);
+  ver(campanaDe(rosa.texto) === 2 && campanaDe(luis.texto) === 0, "campana con el seed: la dueña de Luna y de Bruno ve 2 avistamientos nuevos (201 y 302); la otra cuenta ve 0", `campana: ${campanaDe(rosa.texto)} / ${campanaDe(luis.texto)}`);
+  const antes = await contarEnHistorial("tutor1", LUNA, NOMBRE_ETIQUETA.revisado);
+  const lecturas = [await como("tutor1", DETALLE), await como("tutor1", DETALLE, { redirect: "follow", headers: { RSC: "1", "Next-Router-Prefetch": "1", "Next-Url": DETALLE } }), await como("tutor1", DETALLE, { headers: { Purpose: "prefetch" } }), await como("tutor1", `${DETALLE}?_rsc=abc`, { redirect: "follow", headers: { RSC: "1" } })];
+  const lista = sinComentarios((await como("tutor1", LISTA)).texto);
+  const despues = await contarEnHistorial("tutor1", LUNA, NOMBRE_ETIQUETA.revisado);
+  console.log(`  4 lecturas del detalle del avistamiento nuevo (completa, RSC, prefetch y ?_rsc) → ${lecturas.map((r) => r.estado).join(" ")} · «Avistamiento revisado» ${antes} → ${despues} · el listado sigue con «Nuevo»: ${insigniaNuevo(lista)} · campana ${campanaDe((await como("tutor1", "/tutor")).texto)}`);
+  ver(lecturas.every((r) => r.estado === 200) && despues === antes && insigniaNuevo(lista) && campanaDe((await como("tutor1", "/tutor")).texto) === 2, "un GET del detalle de un avistamiento nuevo (también con las cabeceras de prefetch y RSC) NO lo marca como visto ni mueve el caso: el servidor nunca escribe al renderizar", "una lectura marcó el avistamiento como visto");
+
+  const navegador = await abrirNavegador();
+  try {
+    const contexto = await navegador.newContext({ viewport: { width: 1280, height: 900 } });
+    await agregarSesion(contexto, base, "tutor1");
+    const pagina = await contexto.newPage();
+    const posts: string[] = [];
+    pagina.on("request", (r) => r.method() === "POST" && /\/visto$/.test(r.url()) && posts.push(r.url()));
+    await pagina.goto(`${base}${DETALLE}`, { waitUntil: "load" });
+    await pagina.waitForFunction(() => /1 nuevos/.test(document.querySelector('a[href="/tutor/avistamientos"]')?.getAttribute("aria-label") ?? ""), undefined, { timeout: 15000 }).catch(() => undefined);
+    const campana1 = await campanaEnPagina(pagina);
+    const detalleCaso = sinComentarios((await como("tutor1", `/tutor/casos/${LUNA}`)).texto);
+    const lista2 = sinComentarios((await como("tutor1", LISTA)).texto);
+    console.log(`  al abrir el detalle: POST …/visto enviados ${posts.length} · campana ${campana1} · estatus del caso en su detalle: «En seguimiento» ${detalleCaso.includes("En seguimiento")} · «Avistamiento revisado» ${await contarEnHistorial("tutor1", LUNA, NOMBRE_ETIQUETA.revisado)} · «Nuevo» en el listado ${insigniaNuevo(lista2)}`);
+    ver(posts.length === 1 && campana1 === 1 && detalleCaso.includes("En seguimiento") && (await contarEnHistorial("tutor1", LUNA, NOMBRE_ETIQUETA.revisado)) === 1 && !insigniaNuevo(lista2), "abrir el detalle de un avistamiento nuevo envía UN solo POST «visto»: la campana baja de 2 a 1, el caso pasa a «En seguimiento» (historial «Avistamiento revisado» una vez) y el listado ya no lo muestra «Nuevo»", "abrir el detalle no dejó el estado esperado");
+    posts.length = 0;
+    await pagina.reload({ waitUntil: "load" });
+    await pagina.waitForTimeout(800);
+    ver(posts.length === 0, "volver a abrir un avistamiento YA visto no envía ningún POST", `volver a abrir envió ${posts.length} POST`);
+    const bruno = await como("tutor1", `/tutor/casos/${BRUNO}/avistamientos`);
+    ver(insigniaNuevo(sinComentarios(bruno.texto)), "el avistamiento nuevo de Bruno (302) sigue «Nuevo»: cada uno baja la campana solo al abrirse", "Bruno ya no tiene su avistamiento nuevo");
+
+    // «Marcar como relevante».
+    const casilla = pagina.getByRole("checkbox", { name: /Marcar como relevante/ });
+    const marcar = () => Promise.all([pagina.waitForResponse((r) => /\/relevante$/.test(r.url()) && r.status() === 200), pagina.getByText("Marcar como relevante", { exact: true }).click()]); // la casilla real es sr-only: se pulsa su etiqueta
+    await marcar();
+    const conMarca = sinComentarios((await como("tutor1", LISTA)).texto).includes("Relevante");
+    await pagina.reload({ waitUntil: "load" });
+    const sigue = await casilla.isChecked();
+    await marcar();
+    const sinMarca = !sinComentarios((await como("tutor1", LISTA)).texto).includes("Relevante");
+    console.log(`  «Marcar como relevante»: con la marca el listado dice «Relevante» ${conMarca} · tras recargar la casilla sigue marcada ${sigue} · al desmarcar desaparece ${sinMarca}`);
+    ver(conMarca && sigue && sinMarca, "«Marcar como relevante»: se guarda (el listado muestra «Relevante»), sobrevive a recargar y es reversible", "relevante en la interfaz mal");
+
+    // Doble clic en un modal: una sola petición. Compartir estatus. Y el 409 que refresca con el estado real.
+    await pagina.goto(`${base}/tutor/casos/${COCO}`, { waitUntil: "load" });
+    const peticiones: string[] = [];
+    pagina.on("request", (r) => r.method() === "POST" && /\/estado$/.test(r.url()) && peticiones.push(r.postData() ?? ""));
+    await pagina.getByRole("button", { name: "Compartir estatus" }).click();
+    const comp = pagina.getByRole("dialog", { name: "Compartir estatus" });
+    const enlace = await comp.locator("#enlace-estatus").inputValue();
+    const wa = await comp.getByRole("link", { name: /WhatsApp/ }).getAttribute("href");
+    console.log(`  «Compartir estatus»: enlace termina en /estatus/${COCO}: ${enlace.endsWith(`/estatus/${COCO}`)} · Facebook: ${await comp.getByRole("link", { name: /Facebook/ }).count()} · WhatsApp lleva el enlace: ${decodeURIComponent(wa ?? "").includes(`/estatus/${COCO}`)}`);
+    ver(enlace.endsWith(`/estatus/${COCO}`) && !enlace.includes(tokenSembrado(COCO)) && (await comp.getByRole("link", { name: /Facebook/ }).count()) === 0 && !!wa?.startsWith("https://wa.me/?text=") && decodeURIComponent(wa).includes(`/estatus/${COCO}`) && !/Rosa|Coco|Hern/.test(decodeURIComponent(wa)), "«Compartir estatus»: el enlace es /estatus/<FOLIO> (nunca el token), sin Facebook, y el texto de WhatsApp no lleva datos personales", "compartir estatus mal");
+    await comp.getByRole("button", { name: "Cerrar" }).click();
+    await pagina.getByRole("button", { name: "Marcar como localizado" }).click();
+    await pagina.getByRole("dialog", { name: "¿Marcar el caso como localizado?" }).getByRole("button", { name: "Marcar como localizado" }).dblclick();
+    await pagina.getByText("Localizado", { exact: true }).first().waitFor({ timeout: 15000 });
+    await pagina.waitForTimeout(500);
+    const aviso = await pagina.locator('p[role="status"]').first().innerText();
+    const [mov, est] = [await contarEnHistorial("tutor1", COCO, NOMBRE_ETIQUETA.localizado), await publico(`/api/estatus/${COCO}`)];
+    console.log(`  doble clic en «Marcar como localizado» → ${peticiones.length} petición(es) a /estado · historial «Marcado como localizado» ×${mov} · aviso anunciado: «${aviso}» · estatus público ${JSON.stringify((est.json?.estatus as { estado?: string })?.estado)}`);
+    ver(peticiones.length === 1 && mov === 1 && aviso.includes("Localizado") && (est.json?.estatus as { estado?: string })?.estado === "Localizado", "doble clic en el botón del modal: UNA sola petición, un solo movimiento, aviso anunciado en una región accesible y el estado ya es real (estatus público «Localizado»)", "el doble clic duplicó o no cambió el estado");
+    // 409: la pantalla muestra «Localizado» (Coco); otra petición lo reactiva; al cerrar desde la pantalla vieja el servidor da 409 y se refresca con el estado real.
+    await estado("tutor1", COCO, "reactivar", "Se movió desde otra pestaña");
+    await pagina.getByRole("button", { name: "Cerrar caso" }).click();
+    peticiones.length = 0;
+    await pagina.getByRole("dialog", { name: "¿Cerrar el caso?" }).getByRole("button", { name: "Cerrar caso" }).click();
+    await pagina.getByText("En seguimiento", { exact: true }).first().waitFor({ timeout: 15000 });
+    const aviso409 = await pagina.locator('p[role="status"]').first().innerText();
+    const dialogoAbierto = await pagina.evaluate(() => [...document.querySelectorAll("dialog")].some((d) => d.open));
+    console.log(`  409 desde una pantalla desactualizada: «${aviso409}» · diálogo abierto ${dialogoAbierto} · el caso quedó en «En seguimiento» (estado real)`);
+    ver(/ya había cambiado/.test(aviso409) && !dialogoAbierto && peticiones.length === 1, "ante un 409 («ya cambió») la pantalla refresca con el estado real, avisa y cierra el modal", "el 409 no refrescó con el estado real");
+    await contexto.close();
+  } finally {
+    await navegador.close();
+  }
 }
 
 async function main() {

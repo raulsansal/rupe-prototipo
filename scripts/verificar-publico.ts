@@ -262,6 +262,51 @@ async function pruebas() {
   const listaAv = await comoDuena(`/tutor/casos/${folioConteo}/avistamientos`);
   ver(detalleAv.texto.includes("Ubicación aproximada simulada en el prototipo") && listaAv.texto.includes("Ubicación aproximada simulada en el prototipo"), "las pantallas de la persona tutora (lista y detalle del avistamiento) avisan «Ubicación aproximada simulada en el prototipo» para el avistamiento reportado", "falta la nota de ubicación simulada en las pantallas de la persona tutora");
   ver(detalleAv.estado === 200 && comentarioLeido === "alert(1)Lo vi cerca del parque" && !/<script>alert|&lt;script|&lt;b&gt;|<b>del parque/.test(detalleAv.texto), "el comentario con HTML/script se guardó saneado (R34): la dueña lo lee como texto plano «alert(1)Lo vi cerca del parque», sin etiquetas ni <script> (ni escapadas)", "el comentario no se sanó");
+
+  console.log("\n— Estatus público (HU 038, P5): API y página con las mismas tablas de R33 —");
+  const SITUACIONES_ESTATUS = [
+    { etiqueta: "Activo (En búsqueda)", folio: "RUPE-J2C6PZ9H", api: 200, estado: "En búsqueda" },
+    { etiqueta: "Localizado", folio: "RUPE-B6R2TZ7C", api: 200, estado: "Localizado" },
+    { etiqueta: "Cerrado confirmado", folio: "RUPE-3HN8WD2B", api: 200, estado: "Cerrado" },
+    { etiqueta: "Cancelado", folio: "RUPE-F7L3MN6Y", api: 404, estado: "" },
+    { etiqueta: "Deshabilitado", folio: "RUPE-D5W2QK8X", api: 404, estado: "" },
+  ];
+  const noDisponiblesApi: Resp[] = [];
+  const noDisponiblesPagina: Resp[] = [];
+  for (const sit of SITUACIONES_ESTATUS) {
+    const [api, pagina] = [await anonimo(`/api/estatus/${sit.folio}`), await anonimo(`/estatus/${sit.folio}`)];
+    console.log(`  ${sit.etiqueta.padEnd(22)} API ${resumen(api).padEnd(28)} página ${pagina.estado} #${huellaDe(normaliza(pagina, sit.folio))}`);
+    const textoPagina = pagina.texto.replace(/<!-- -->/g, "");
+    ver(api.estado === sit.api && pagina.estado === sit.api && (sit.api !== 200 || ((api.json?.estatus as { estado?: string })?.estado === sit.estado && textoPagina.includes(sit.estado) && textoPagina.includes("Último cambio"))), `estatus · ${sit.etiqueta}: API ${sit.api} y página ${sit.api}${sit.api === 200 ? ` con «${sit.estado}» y «Último cambio»` : " (404 real)"}`, `estatus · ${sit.etiqueta}: API ${api.estado} / página ${pagina.estado}`);
+    if (sit.api === 404) {
+      noDisponiblesApi.push(api);
+      noDisponiblesPagina.push(pagina);
+    }
+  }
+  const inexistentes = [await anonimo("/api/estatus/RUPE-ZZZZZZZZ"), await anonimo("/api/estatus/rupe-zzzzzzzz")];
+  const paginasInexistentes = [await anonimo("/estatus/RUPE-ZZZZZZZZ"), await anonimo("/estatus/rupe-zzzzzzzz"), await anonimo("/estatus/RUPE-123"), await anonimo("/estatus/mal-formado")];
+  noDisponiblesApi.push(...inexistentes);
+  noDisponiblesPagina.push(...paginasInexistentes);
+  const clavesNormalizar = ["RUPE-F7L3MN6Y", "RUPE-D5W2QK8X", "RUPE-ZZZZZZZZ", "rupe-zzzzzzzz", "RUPE-123", "mal-formado"];
+  const [formato, minuscula] = [await anonimo("/api/estatus/RUPE-123"), await anonimo("/api/estatus/rupe-j2c6pz9h")];
+  console.log(`  inexistente API ${inexistentes.map(resumen).join(" | ")} · formato inválido ${resumen(formato)} · minúsculas válidas ${resumen(minuscula)}`);
+  ver(noDisponiblesApi.every((r) => r.estado === 404) && mismoCuerpo(noDisponiblesApi), `estatus por API: Cancelado, Deshabilitado e inexistente (también en minúsculas): ${noDisponiblesApi.length} respuestas 404 con UN solo cuerpo`, `estatus API 404 distintos: ${noDisponiblesApi.map(resumen).join(" | ")}`);
+  // Con forma de folio (cancelado, deshabilitado, inexistente y minúsculas) los 404 son idénticos byte por byte; un folio mal formado (formato inválido) también da el mismo 404 real y la misma pantalla,
+  // pero su flujo RSC interno ordena distinto el marcador de error (se decide antes de consultar): no revela nada del caso, porque el formato lo conoce cualquiera.
+  const conForma = noDisponiblesPagina.slice(0, 6 - 2);
+  const malFormadas = noDisponiblesPagina.slice(4);
+  const visible = (r: Resp) => r.texto.includes("Folio no encontrado") && r.texto.includes("No hay un caso consultable con ese folio");
+  ver(conForma.length === 4 && conForma.every((r) => r.estado === 404 && visible(r)) && new Set(conForma.map((r) => normaliza(r, ...clavesNormalizar))).size === 1, `estatus por página: cancelado, deshabilitado, inexistente y minúsculas (${conForma.length}) dan el MISMO 404 real «Folio no encontrado» (cuerpo idéntico tras normalizar el folio de la URL)`, `las páginas de estatus no disponibles difieren o no son 404: ${conForma.map((r) => `${r.estado}/${visible(r)}/#${huellaDe(normaliza(r, ...clavesNormalizar))}`).join(" ")}`);
+  ver(malFormadas.length === 2 && malFormadas.every((r) => r.estado === 404 && visible(r)) && new Set(malFormadas.map((r) => normaliza(r, ...clavesNormalizar))).size === 1, "estatus por página: un folio mal formado (corto o sin formato) da el mismo 404 real y la misma pantalla «Folio no encontrado»", "las páginas de estatus con folio mal formado no dan el 404 esperado");
+  ver(formato.estado === 400 && formato.json?.error?.codigo === "FOLIO_INVALIDO" && minuscula.estado === 200 && (minuscula.json?.estatus as { folio?: string })?.folio === "RUPE-J2C6PZ9H", "estatus: formato inválido 400 FOLIO_INVALIDO; el folio en minúsculas se acepta (R26)", `estatus formato/minúsculas: ${resumen(formato)} / ${resumen(minuscula)}`);
+  const folioEstatus = await crearCaso();
+  const tokenEstatus = (await urlDelQrActual(folioEstatus))?.split("/ficha/")[1] ?? "";
+  const [apiNuevo, paginaNuevo, buscador] = [await anonimo(`/api/estatus/${folioEstatus}`), await anonimo(`/estatus/${folioEstatus}`), await anonimo("/estatus")];
+  const todoEstatus = [apiNuevo, paginaNuevo, buscador, ...noDisponiblesPagina].map((r) => r.texto).join("\n");
+  const señuelos = [SEN.calle, SEN.ref, SEN.desc, "Senuelo", "Hernández", "Rosa", "rosa.", "@example", "Mancha blanca"].filter((x) => todoEstatus.includes(x));
+  console.log(`  caso nuevo con señuelos: API ${apiNuevo.estado}, página ${paginaNuevo.estado}, buscador ${buscador.estado} · señuelos hallados: ${señuelos.length ? señuelos.join(", ") : "ninguno"} · token en alguna respuesta: ${tokenEstatus && todoEstatus.includes(tokenEstatus) ? "SÍ" : "no"}`);
+  ver(apiNuevo.estado === 200 && paginaNuevo.estado === 200 && buscador.estado === 200 && señuelos.length === 0 && !!tokenEstatus && !todoEstatus.includes(tokenEstatus), "ninguna respuesta de estatus (API, página, buscador y 404) contiene datos personales, del perro, de las circunstancias ni el token del QR", `fuga en estatus: ${señuelos.join(",")}`);
+  ver(/<meta name="robots" content="noindex/.test(paginaNuevo.texto) && /<meta name="robots" content="noindex/.test(buscador.texto) && paginaNuevo.cabeceras.get("cache-control") !== null, "las páginas de estatus llevan noindex", "las páginas de estatus no llevan noindex");
   await reiniciarDatos(base);
 }
 

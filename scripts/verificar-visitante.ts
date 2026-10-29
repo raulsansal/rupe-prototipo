@@ -671,6 +671,36 @@ async function opcionNoDisponible(navegador: Browser) {
   }
 }
 
+
+// ---------- (i) HU 038: consulta pública del estatus ----------
+async function estatusPublico(navegador: Browser) {
+  const { contexto, pagina } = await nuevaPagina(navegador);
+  await irA(pagina, "/");
+  const enlaceEstatus = pagina.getByRole("link", { name: /Consultar su estatus/ });
+  ver((await enlaceEstatus.getAttribute("href")) === "/estatus", "PUB-01: la sección «Buscar por folio» enlaza a /estatus", "PUB-01: sin enlace a /estatus");
+  await enlaceEstatus.click();
+  await pagina.waitForURL("**/estatus");
+  ver((await pagina.getByRole("heading", { level: 1, name: "Consultar estatus de un caso" }).isVisible()) && (await pagina.getByRole("button", { name: "Consultar folio" }).isVisible()) && (await pagina.getByRole("button", { name: "Limpiar" }).isVisible()), "/estatus: buscador público con «Consultar folio» y «Limpiar»", "/estatus: faltan el título o los botones");
+  const campo = pagina.getByRole("textbox", { name: "Folio" });
+  await pagina.getByRole("button", { name: "Consultar folio" }).click();
+  ver((await campo.getAttribute("aria-invalid")) === "true" && (await textoDescrito(campo)).includes("Escribe el folio"), "/estatus: vacío → error asociado con aria-describedby", "/estatus: sin error al enviar vacío");
+  await campo.fill("RUPE-OOOO1111");
+  await pagina.getByRole("button", { name: "Consultar folio" }).click();
+  ver((await textoDescrito(campo)).includes("formato RUPE-XXXXXXXX") && new URL(pagina.url()).pathname === "/estatus", "/estatus: folio con formato inválido → error de formato y no navega", "/estatus: aceptó un folio inválido");
+  await campo.fill(" rupe-h4tq7v2m ");
+  await pagina.getByRole("button", { name: "Consultar folio" }).click();
+  await pagina.waitForURL(`**/estatus/RUPE-H4TQ7V2M`);
+  const texto = await pagina.locator("main").innerText();
+  ver((await pagina.getByRole("heading", { level: 1, name: "Estatus del caso" }).isVisible()) && texto.includes("RUPE-H4TQ7V2M") && /En búsqueda/.test(texto) && /Último cambio/.test(texto) && !/Rosa|Hern|@example|Mestizo|Max\b/.test(texto), "/estatus/<folio>: muestra solo el folio, el estatus «En búsqueda» y «Último cambio»", `/estatus/<folio>: ${texto.slice(0, 160)}`);
+  const meta = await pagina.locator('meta[name="robots"]').getAttribute("content");
+  ver(/noindex/.test(meta ?? ""), "/estatus/<folio>: noindex", "/estatus/<folio>: sin noindex");
+  const noEncontrado = await pagina.goto(`${base}/estatus/${FOLIO_INEXISTENTE}`, { waitUntil: "load" });
+  ver(noEncontrado?.status() === 404 && (await pagina.getByRole("heading", { level: 1, name: "Folio no encontrado" }).isVisible()) && (await pagina.getByRole("link", { name: "Consultar otro folio" }).getAttribute("href")) === "/estatus", "/estatus/<folio inexistente>: 404 real con «Folio no encontrado» y «Consultar otro folio»", "/estatus/<inexistente>: no es 404 o falta la pantalla");
+  const rCerrado = await pagina.goto(`${base}/estatus/RUPE-3HN8WD2B`, { waitUntil: "load" });
+  ver(rCerrado?.status() === 200 && /Cerrado/.test(await pagina.locator("main").innerText()), "/estatus/<folio>: un caso cerrado por cierre confirmado (Rocky) se muestra «Cerrado»", `/estatus de un cierre confirmado: ${rCerrado?.status()}`);
+  await contexto.close();
+}
+
 // ---------- (e) desbordes y áreas táctiles ----------
 async function geometria(navegador: Browser) {
   const rutas = [
@@ -680,6 +710,10 @@ async function geometria(navegador: Browser) {
     `${FICHA}?estado=no-disponible`,
     `${FICHA}/avistamiento/enviado`,
     `/ficha/${FOLIO_INEXISTENTE}`,
+    "/estatus",
+    `/estatus/${FOLIO_EN_CURSO}`,
+    "/estatus/RUPE-3HN8WD2B",
+    `/estatus/${FOLIO_INEXISTENTE}`,
     ...[1, 2, 3, 4, 5, 6].map((n) => `${AVISTAMIENTO}?paso=${n}&datos=ejemplo`),
     ...["vacio", "combinadas", "fallecido"].map((c) => `${AVISTAMIENTO}?caso=${c}`),
     "/ruta-que-no-existe",
@@ -722,7 +756,7 @@ async function sinReservadosDeAvistamientos() {
 
 // ---------- enlaces internos sin 404 ----------
 async function enlacesInternos(navegador: Browser) {
-  const pantallas = ["/", "/registro", "/acceso", FICHA, `${FICHA}?estado=localizado`, `${FICHA}?estado=no-disponible`, `${AVISTAMIENTO}?paso=1`, `${AVISTAMIENTO}?paso=3`, `${AVISTAMIENTO}?paso=6&datos=ejemplo`, `${FICHA}/avistamiento/enviado`, "/ruta-que-no-existe", "/dev/transversales/error"];
+  const pantallas = ["/", "/estatus", `/estatus/${FOLIO_EN_CURSO}`, "/registro", "/acceso", FICHA, `${FICHA}?estado=localizado`, `${FICHA}?estado=no-disponible`, `${AVISTAMIENTO}?paso=1`, `${AVISTAMIENTO}?paso=3`, `${AVISTAMIENTO}?paso=6&datos=ejemplo`, `${FICHA}/avistamiento/enviado`, "/ruta-que-no-existe", "/dev/transversales/error"];
   const { contexto, pagina } = await nuevaPagina(navegador, { ancho: 1280 });
   const vistos = new Map<string, string>();
   for (const ruta of pantallas) {
@@ -846,6 +880,7 @@ async function main() {
     await seccion("transversales", () => transversales(nav));
     await seccion("avistamientos sin reservados", () => sinReservadosDeAvistamientos());
     await seccion("enlaces internos", () => enlacesInternos(nav));
+    await seccion("estatus público", () => estatusPublico(nav));
     await seccion("geometría", () => geometria(nav));
     await seccion("recorrido de opciones", () => recorridoDeOpciones(nav));
     await seccion("comentario con correo", () => comentarioConCorreo(nav));

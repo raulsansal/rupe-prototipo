@@ -6,6 +6,7 @@ import { AHORA, nuevoContexto } from "../pruebas/auxiliares";
 import { jpeg } from "../pruebas/imagenes";
 import type { SesionActual } from "../sesion/guardas";
 import { registrarAvistamiento } from "./avistamientos";
+import { abrirAvistamiento } from "./seguimiento";
 import { cambiarEstadoDelCaso, cancelarCaso, cerrarCaso, marcarLocalizado, MENSAJE_YA_CAMBIO, reactivarCaso, type AccionDeEstado } from "./cambioDeEstado";
 import { consultarEstatusPorFolio, consultarFichaPorFolio, consultarFichaPorToken } from "./fichas";
 import { casoDelTutor, listarCasosDelTutor } from "./misRegistros";
@@ -32,7 +33,7 @@ const MOTIVO = "Lo encontré en casa de una vecina.";
 
 /** Estado actual de un caso sembrado según el almacén. */
 const estadoDe = async (ctx: ReturnType<typeof nuevoContexto>["ctx"], folio: string): Promise<EstadoCaso> => {
-  const c = await casoDelTutor(ROSA, folio, {}, ctx).catch(() => casoDelTutor(LUIS, folio, {}, ctx));
+  const c = await casoDelTutor(ROSA, folio, ctx).catch(() => casoDelTutor(LUIS, folio, ctx));
   return c.estado;
 };
 const movimientos = (almacen: ReturnType<typeof nuevoContexto>["almacen"], folio: string) => {
@@ -270,4 +271,20 @@ test("Asignación masiva · una acción con campos de más (estado, idUsuario, t
   const r = await cambiarEstadoDelCaso(ROSA, MAX, ataque, ctx);
   const ult = movimientos(almacen, MAX).at(-1)!;
   assert.deepEqual([r.estado, ult.tipoMovimiento, ult.idUsuario, ult.fechaHora, ult.consecutivo], ["Localizado", "localización", 2, AHORA.toISOString(), 3]);
+});
+
+test("HU 014 · `fechaUltimaModificacion` es la fecha de EDICIÓN: ningún cambio de estado (localizar, cerrar, reactivar, cancelar, avistamiento recibido o revisado) la mueve; su fecha vive en el historial", async () => {
+  const { ctx, almacen } = nuevoContexto(undefined, () => new Date("2026-10-20T15:00:00Z"));
+  const fecha = (f: string) => almacen.casos.find((c) => c.folio === f)!.fechaUltimaModificacion;
+  const antes = Object.fromEntries([MAX, TOBY, LUNA, COCO].map((f) => [f, fecha(f)]));
+  await marcarLocalizado(ROSA, MAX, ctx);
+  await reactivarCaso(ROSA, MAX, MOTIVO, ctx);
+  await registrarAvistamiento({ canal: "folio", folio: MAX }, { datos: datos(), foto: FOTO }, ctx); // «avistamiento recibido»
+  await marcarLocalizado(ROSA, MAX, ctx);
+  await cerrarCaso(ROSA, MAX, ctx);
+  await reactivarCaso(ROSA, TOBY, MOTIVO, ctx);
+  await cancelarCaso(ROSA, COCO, MOTIVO, ctx);
+  await abrirAvistamiento(ROSA, LUNA, "201", ctx); // «avistamiento revisado»
+  for (const f of [MAX, TOBY, LUNA, COCO]) assert.equal(fecha(f), antes[f], `${f}: la fecha de edición no cambia`);
+  assert.equal(movimientos(almacen, MAX).at(-1)!.fechaHora, "2026-10-20T15:00:00.000Z", "el cambio sí queda fechado en el historial");
 });

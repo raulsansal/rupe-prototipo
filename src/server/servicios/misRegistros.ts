@@ -2,7 +2,6 @@ import "server-only";
 // «Mis registros» (P2b): las pantallas de la persona tutora leen el ALMACÉN, no los mocks. Cada servicio aplica por sí mismo la guarda de sesión, rol Tutor y dueño
 // (R32): el dueño sale SIEMPRE de la sesión; un caso ajeno, uno inexistente y un folio mal formado responden exactamente lo mismo (404). El almacén guarda ids; aquí se
 // resuelven a los NOMBRES del catálogo (fuente de verdad) y se arman los tipos de mocks/tipos.ts que ya esperan los componentes.
-import { construirHistorial } from "../../mocks/casos";
 import { esFallecido } from "../../mocks/avistamientos";
 import { PATRON_FOLIO, type Alcaldia, type CasoTutor, type EstadoCaso, type FichaPublica, type FichaTutor, type MovimientoHistorial } from "../../mocks/tipos";
 import { normalizarFolio } from "../dominio/folio";
@@ -77,21 +76,18 @@ export async function listarCasosDelTutor(sesion: SesionActual | undefined, ctx:
 }
 
 /**
- * Detalle del caso (TUT-05): la vista de la persona tutora dueña, sin su nombre, correo ni teléfono y sin el token del QR. `estadoForzado` es SOLO de las variantes del
- * maquetado (?estado=… para capturas y pruebas): sintetiza el historial como antes; sin él, el historial es el real.
+ * Detalle del caso (TUT-05): la vista de la persona tutora dueña, sin su nombre, correo ni teléfono y sin el token del QR. Estado e historial son SIEMPRE los reales (P5 retiró la variante
+ * `?estado=` del maquetado: las acciones de la pantalla ya cambian el almacén).
  */
-export async function casoDelTutor(sesion: SesionActual | undefined, folio: string, opciones: { estadoForzado?: EstadoCaso } = {}, ctx: Contexto = contextoPorDefecto()): Promise<CasoTutor> {
+export async function casoDelTutor(sesion: SesionActual | undefined, folio: string, ctx: Contexto = contextoPorDefecto()): Promise<CasoTutor> {
   const c = await casoPropio(sesion, folio, ctx);
-  const { perro, caso, nombres } = c;
-  const forzado = opciones.estadoForzado && opciones.estadoForzado !== c.estado ? opciones.estadoForzado : undefined;
-  const estado = forzado ?? c.estado;
-  const historial = forzado ? construirHistorial(forzado, caso.fechaRegistro) : c.historial;
+  const { perro, caso, nombres, estado, historial } = c;
   return {
     nombre: perro.nombre, sexo: perro.sexo, edadValor: perro.edadValor, edadUnidad: perro.edadUnidad, tamano: perro.tamano, color: perro.color, caracteristicasDistintivas: perro.caracteristicasDistintivas,
     razaEspecificada: perro.razaEspecificada, raza: nombres.raza, fotografiaUrl: c.foto?.referenciaArchivo ?? "",
     folio: caso.folio as CasoTutor["folio"], fechaExtravio: caso.fechaExtravio, momentoDelDia: caso.momentoDelDia, coloniaZona: caso.coloniaZona, direccionAproximada: caso.direccionAproximada,
     referenciasDelLugar: caso.referenciasDelLugar, descripcionCircunstancias: caso.descripcionCircunstancias, alcaldia: nombres.alcaldia, motivo: nombres.motivo, estado,
-    fechaCambioEstado: forzado ? undefined : fechaDeLocalizacion(c), fechaRegistro: caso.fechaRegistro, historial,
+    fechaCambioEstado: fechaDeLocalizacion(c), fechaRegistro: caso.fechaRegistro, historial,
   };
 }
 

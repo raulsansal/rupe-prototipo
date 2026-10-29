@@ -18,10 +18,12 @@ type PanelProps = {
   icono?: NombreIcono;
   /** Contenido extra bajo la descripción (p. ej. un campo de motivo). */
   children?: ReactNode;
+  /** El botón de confirmar muestra el progreso y no responde mientras la acción se envía (evita el doble envío). */
+  cargando?: boolean;
 };
 
 /** Contenido del diálogo (también se muestra suelto en la galería). Botón destructivo a la derecha. */
-export function PanelDialogo({ idTitulo, idDescripcion, titulo, descripcion, textoConfirmar, textoCancelar = "Volver", onConfirmar, onCancelar, variante = "destructivo", icono = "warning", children }: PanelProps) {
+export function PanelDialogo({ idTitulo, idDescripcion, titulo, descripcion, textoConfirmar, textoCancelar = "Volver", onConfirmar, onCancelar, variante = "destructivo", icono = "warning", children, cargando }: PanelProps) {
   return (
     <div className="flex w-full max-w-sm flex-col gap-3 rounded-tarjeta bg-surface-raised p-6 text-text">
       <span className={variante === "destructivo" ? "flex size-10 items-center justify-center rounded-full bg-danger-bg text-danger" : "flex size-10 items-center justify-center rounded-full bg-primary-soft text-primary"}>
@@ -38,7 +40,7 @@ export function PanelDialogo({ idTitulo, idDescripcion, titulo, descripcion, tex
         <Boton variante="secundario" onClick={onCancelar} autoFocus>
           {textoCancelar}
         </Boton>
-        <Boton variante={variante} onClick={onConfirmar}>
+        <Boton variante={variante} onClick={onConfirmar} cargando={cargando}>
           {textoConfirmar}
         </Boton>
       </div>

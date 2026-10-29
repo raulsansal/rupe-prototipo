@@ -9,8 +9,9 @@ import { FotoPerro } from "@/components/ui/FotoPerro";
 import { Icono } from "@/components/ui/Icono";
 import { Plegable } from "@/components/ui/Plegable";
 import { Toast } from "@/components/ui/Toast";
-import { fechaLocalISO, formatearFechaHora } from "@/lib/formato";
-import { FiltroFechas, SIN_FILTRO, type Filtro } from "./FiltroFechas";
+import { Etiqueta } from "@/components/ui/Etiqueta";
+import { formatearFechaHora } from "@/lib/formato";
+import { FiltrosAvistamientos } from "./FiltrosAvistamientos";
 import { NOTA_UBICACION_SIMULADA } from "../avistamiento/datos";
 import { SelectorVista } from "./SelectorVista";
 
@@ -25,6 +26,10 @@ export type ItemAvistamiento = {
   fallecido: boolean;
   /** Ubicación estimada por el Prototipo (sin mapa real): se avisa en la tarjeta. */
   ubicacionSimulada?: boolean;
+  /** P5 (HU 040): aún no abre su detalle. */
+  nuevo?: boolean;
+  /** P5 (HU 040): la persona tutora lo marcó como relevante. */
+  relevante?: boolean;
 };
 
 type Props = {
@@ -33,23 +38,26 @@ type Props = {
   fotografiaPerro: string;
   /** Texto alternativo de la foto del perro, armado con los datos del caso (nombre, sexo, raza, tamaño, color). */
   altPerro?: string;
-  /** Fecha de registro del caso, AAAA-MM-DD. */
+  /** Fecha de registro del caso, AAAA-MM-DD (día de la Ciudad de México). */
   registro: string;
+  /** Avistamientos YA filtrados por el servidor (HU 041) y su total sin filtrar. */
   items: ItemAvistamiento[];
+  total: number;
+  /** Filtros tal como llegaron en la URL, sus errores (calculados en el servidor) y el catálogo de alcaldías. */
+  valores: { desde: string; hasta: string; alcaldia: string };
+  errores: { desde?: string; hasta?: string; alcaldia?: string };
+  alcaldias: { id: number; nombre: string }[];
   filtrosAbiertos?: boolean;
 };
 
-/** TUT-08: avistamientos del caso (lista), con filtros por fecha y alcaldía (HU 039 y 041). */
-export function ListaAvistamientos({ folio, nombrePerro, altPerro, fotografiaPerro, registro, items, filtrosAbiertos = false }: Props) {
+/** TUT-08: avistamientos del caso (lista), con filtros por fecha y alcaldía en la URL, validados en el servidor (HU 039 y 041). */
+export function ListaAvistamientos({ folio, nombrePerro, altPerro, fotografiaPerro, registro, items, total, valores, errores, alcaldias, filtrosAbiertos = false }: Props) {
   const router = useRouter();
-  const [filtro, setFiltro] = useState<Filtro>(SIN_FILTRO);
   const [aviso, setAviso] = useState<string>();
 
-  const visibles = items.filter((a) => {
-    const dia = fechaLocalISO(a.fechaHora);
-    return (!filtro.desde || dia >= filtro.desde) && (!filtro.hasta || dia <= filtro.hasta) && (!filtro.alcaldia || a.alcaldia === filtro.alcaldia);
-  });
-  const hayFiltro = filtro.desde || filtro.hasta || filtro.alcaldia;
+  const visibles = items;
+  const hayFiltro = Boolean(valores.desde || valores.hasta || valores.alcaldia);
+  const hayErrores = Object.keys(errores).length > 0;
 
   return (
     <div className="flex flex-col gap-4">
@@ -73,12 +81,12 @@ export function ListaAvistamientos({ folio, nombrePerro, altPerro, fotografiaPer
       <p className="w-fit rounded-campo border border-border bg-surface px-3 py-2 text-small">
         Folio <span className="font-bold tabular-nums">{folio}</span>
       </p>
-      <SelectorVista folio={folio} activa="lista" mapaDeshabilitado={items.length === 0} />
-      <Plegable nivel={2} titulo="Filtros" defaultAbierto={filtrosAbiertos}>
-        <FiltroFechas prefijoId="filtro-lista" desdeMinimo={registro} aplicado={filtro} onAplicar={setFiltro} />
+      <SelectorVista folio={folio} activa="lista" mapaDeshabilitado={total === 0} />
+      <Plegable nivel={2} titulo="Filtros" defaultAbierto={filtrosAbiertos || hayFiltro || hayErrores}>
+        <FiltrosAvistamientos base={`/tutor/casos/${folio}/avistamientos`} desdeMinimo={registro} valores={valores} errores={errores} alcaldias={alcaldias} />
       </Plegable>
 
-      {items.length === 0 ? (
+      {total === 0 ? (
         <section aria-labelledby="sin-avistamientos" className="flex flex-col items-center gap-3 rounded-tarjeta border border-border bg-surface p-4 text-center">
           <div className="relative aspect-[4/3] w-full overflow-hidden rounded-campo border border-border bg-disabled-bg">
             <Image src={fotografiaPerro} alt={altPerro ?? `Fotografía de ${nombrePerro}`} unoptimized={fotografiaPerro.startsWith("/api/")} fill sizes="(min-width: 768px) 640px, 100vw" className="object-cover" priority />
@@ -90,7 +98,7 @@ export function ListaAvistamientos({ folio, nombrePerro, altPerro, fotografiaPer
       ) : (
         <section aria-label="Lista de avistamientos" className="flex flex-col gap-3">
           <p aria-live="polite" className="text-small text-text-muted">
-            {visibles.length === items.length ? `${items.length} ${items.length === 1 ? "avistamiento" : "avistamientos"}, el más reciente primero.` : `${visibles.length} de ${items.length} avistamientos con los filtros aplicados.`}
+            {visibles.length === total ? `${total} ${total === 1 ? "avistamiento" : "avistamientos"}, el más reciente recibido primero.` : `${visibles.length} de ${total} avistamientos con los filtros aplicados.`}
           </p>
           {visibles.length === 0 ? (
             <p className="rounded-tarjeta border-2 border-dashed border-border p-6 text-center text-small text-text-muted">{hayFiltro ? "Ningún avistamiento coincide con los filtros." : "Sin avistamientos."}</p>
@@ -111,6 +119,22 @@ export function ListaAvistamientos({ folio, nombrePerro, altPerro, fotografiaPer
                         <h2 id={`av-${a.id}`} className="text-h3 font-semibold">
                           {formatearFechaHora(a.fechaHora)}
                         </h2>
+                        {(a.nuevo || a.relevante) && (
+                          <p className="flex flex-wrap gap-2">
+                            {a.nuevo && (
+                              <Etiqueta tono="nuevo">
+                                <Icono nombre="notifications" tamano={16} className="mr-1" />
+                                Nuevo
+                              </Etiqueta>
+                            )}
+                            {a.relevante && (
+                              <Etiqueta>
+                                <Icono nombre="check_circle" tamano={16} className="mr-1" />
+                                Relevante
+                              </Etiqueta>
+                            )}
+                          </p>
+                        )}
                         <p className="text-small">{[a.alcaldia, a.coloniaZona].filter(Boolean).join(" · ")}</p>
                         {a.ubicacionSimulada && <p className="text-caption text-text-muted">{NOTA_UBICACION_SIMULADA}</p>}
                         <p className="text-small text-text-muted">{a.fallecido ? "Aviso: avistamiento con estado «Fallecido». Abre el detalle para más información." : a.estados.join(", ")}</p>

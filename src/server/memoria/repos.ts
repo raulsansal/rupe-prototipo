@@ -25,8 +25,7 @@ function aplicarMovimiento(al: Almacen, idCaso: number, m: { tipo: T.TipoMovimie
   const nuevo = registrarMovimiento(historial, m.tipo, m.actor, m.fechaHora, m.motivo).at(-1)!; // 409 si la transición no vale, 422 sin motivo
   const fila: T.MovimientoDeHistorial = { idCasoExtravio: idCaso, consecutivo: nuevo.consecutivo, fechaHora: nuevo.fechaHora, tipoMovimiento: nuevo.tipo, idEstadoCaso: idDe(nuevo.estado), idUsuario: m.idUsuario, ...(nuevo.motivo ? { motivo: nuevo.motivo } : {}) };
   al.historial.push(fila);
-  caso.idEstadoCaso = fila.idEstadoCaso;
-  caso.fechaUltimaModificacion = nuevo.fechaHora;
+  caso.idEstadoCaso = fila.idEstadoCaso; // `fechaUltimaModificacion` es la fecha de EDICIÓN (HU 014): un cambio de estado no la mueve; su fecha vive en el historial
   return { movimiento: fila, estado: nuevo.estado };
 }
 
@@ -118,7 +117,8 @@ export function crearRepositorios(almacen: () => Almacen = obtenerAlmacen): Repo
       },
       async actualizarEstado(idCaso, idEstadoCaso, fecha) {
         const c = a().casos.find((x) => x.idCasoExtravio === idCaso);
-        if (c) { c.idEstadoCaso = idEstadoCaso; c.fechaUltimaModificacion = fecha; }
+        void fecha; // la fecha del cambio de estado está en el historial; `fechaUltimaModificacion` solo la mueven el alta y la edición (HU 014)
+        if (c) c.idEstadoCaso = idEstadoCaso;
       },
     },
     historial: {
@@ -180,8 +180,7 @@ export function crearRepositorios(almacen: () => Almacen = obtenerAlmacen): Repo
               const previos = al.historial.filter((m) => m.idCasoExtravio === av.idCasoExtravio);
               al.historial.push({ idCasoExtravio: av.idCasoExtravio, consecutivo: previos.reduce((mx, x) => Math.max(mx, x.consecutivo), 0) + 1, fechaHora: alta.movimiento.fechaHora, tipoMovimiento: alta.movimiento.tipoMovimiento, idEstadoCaso: alta.movimiento.idEstadoCaso, idUsuario: null });
               const caso = al.casos.find((c) => c.idCasoExtravio === av.idCasoExtravio)!;
-              caso.idEstadoCaso = alta.movimiento.idEstadoCaso;
-              caso.fechaUltimaModificacion = alta.movimiento.fechaHora;
+              caso.idEstadoCaso = alta.movimiento.idEstadoCaso; // recibir un avistamiento no edita el caso (HU 014): `fechaUltimaModificacion` no cambia
             }
             let notificacion: T.Notificacion | undefined;
             if (alta.notificacion) {

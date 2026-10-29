@@ -51,7 +51,7 @@ test("HU 040 · abrir el avistamiento NUEVO de Luna: queda visto y el caso pasa 
   assert.deepEqual(r, { id: 201, marcado: true, estado: "En seguimiento", cambioDeEstado: true });
   const ult = movs(almacen, LUNA).at(-1)!;
   assert.deepEqual([ult.tipoMovimiento, ult.idUsuario, ult.fechaHora, ult.consecutivo], ["avistamiento revisado", null, AHORA.toISOString(), antes + 1]);
-  assert.equal((await casoDelTutor(ROSA, LUNA, {}, ctx)).estado, "En seguimiento");
+  assert.equal((await casoDelTutor(ROSA, LUNA, ctx)).estado, "En seguimiento");
   assert.equal(almacen.avistamientos.find((a) => a.idAvistamiento === 201)!.vistoPorTutora, true);
 });
 
@@ -86,7 +86,7 @@ test("HU 040 · con dos avistamientos nuevos, el primero que se abre mueve el ca
 test("R12 · un avistamiento nuevo recibido con el caso «En seguimiento» lo devuelve a «Avistamiento reportado» y queda NUEVO; al abrirlo vuelve a «En seguimiento»", async () => {
   const { ctx } = nuevoContexto();
   const r = await registrarAvistamiento({ canal: "folio", folio: NALA }, { datos: datos(), foto: FOTO }, ctx);
-  assert.equal((await casoDelTutor(ROSA, NALA, {}, ctx)).estado, "Avistamiento reportado");
+  assert.equal((await casoDelTutor(ROSA, NALA, ctx)).estado, "Avistamiento reportado");
   assert.equal((await avistamientoDelCaso(ROSA, NALA, String(r.id), ctx)).nuevo, true);
   assert.equal((await abrirAvistamiento(ROSA, NALA, String(r.id), ctx)).estado, "En seguimiento");
   assert.equal((await avistamientoDelCaso(ROSA, NALA, String(r.id), ctx)).nuevo, false);
@@ -99,7 +99,7 @@ test("HU 040 · con el caso Localizado o Cerrado, abrir un avistamiento nuevo so
   const r = await abrirAvistamiento(ROSA, LUNA, "201", ctx);
   assert.deepEqual([r.marcado, r.cambioDeEstado, r.estado, movs(almacen, LUNA).length], [true, false, "Localizado", n]);
   await cerrarCaso(ROSA, LUNA, ctx);
-  assert.equal((await casoDelTutor(ROSA, LUNA, {}, ctx)).estado, "Cerrado");
+  assert.equal((await casoDelTutor(ROSA, LUNA, ctx)).estado, "Cerrado");
 });
 
 test("Atomicidad · si falla el movimiento al abrir, el avistamiento NO queda marcado como visto (se restaura la fila completa)", async () => {
@@ -112,7 +112,7 @@ test("Atomicidad · si falla el movimiento al abrir, el avistamiento NO queda ma
   almacen.estadosCaso.splice(0, almacen.estadosCaso.length, ...catalogo);
   assert.equal(fila.vistoPorTutora, false, "la marca se deshizo");
   assert.equal(movs(almacen, LUNA).length, n);
-  assert.equal((await casoDelTutor(ROSA, LUNA, {}, ctx)).estado, "Avistamiento reportado");
+  assert.equal((await casoDelTutor(ROSA, LUNA, ctx)).estado, "Avistamiento reportado");
   assert.equal((await abrirAvistamiento(ROSA, LUNA, "201", ctx)).cambioDeEstado, true, "y luego funciona normal");
 });
 

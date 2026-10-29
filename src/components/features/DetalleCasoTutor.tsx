@@ -3,7 +3,8 @@
 import { altDeFoto } from "@/lib/altDeFoto";
 import Image from "next/image";
 import Link from "next/link";
-import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 import { AreaTexto } from "@/components/ui/AreaTexto";
 import { Alerta } from "@/components/ui/Alerta";
 import { Boton } from "@/components/ui/Boton";
@@ -13,7 +14,7 @@ import { DialogoConfirmacion } from "@/components/ui/DialogoConfirmacion";
 import { Icono } from "@/components/ui/Icono";
 import { Toast } from "@/components/ui/Toast";
 import { cx } from "@/lib/clases";
-import { esCasoActivo, type CasoTutor, type EstadoCaso, type MovimientoHistorial, type TipoMovimiento } from "@/mocks/tipos";
+import { esCasoActivo, type CasoTutor } from "@/mocks/tipos";
 import { DatosDelExtravio, DatosDelPerro, DatosReservados } from "./DatosCaso";
 import { HistorialEstados } from "./HistorialEstados";
 import { ModalCompartir } from "./ModalCompartir";
@@ -30,7 +31,7 @@ type Confirmacion = {
   icono: "warning" | "check_circle";
   /** Pide un motivo obligatorio (HU 017 y 043). */
   motivo?: boolean;
-  nuevo: { estado: EstadoCaso; tipo: TipoMovimiento };
+  /** Aviso (accesible) cuando el servidor confirma el cambio. */
   aviso: string;
 };
 
@@ -41,7 +42,6 @@ const CONFIRMACIONES: Record<Exclude<Accion, "compartir">, Confirmacion> = {
     textoConfirmar: "Marcar como localizado",
     variante: "primario",
     icono: "check_circle",
-    nuevo: { estado: "Localizado", tipo: "localización" },
     aviso: "El caso quedó como Localizado",
   },
   cerrar: {
@@ -50,7 +50,6 @@ const CONFIRMACIONES: Record<Exclude<Accion, "compartir">, Confirmacion> = {
     textoConfirmar: "Cerrar caso",
     variante: "destructivo",
     icono: "warning",
-    nuevo: { estado: "Cerrado", tipo: "cierre confirmado" },
     aviso: "El caso quedó cerrado",
   },
   cancelar: {
@@ -60,7 +59,6 @@ const CONFIRMACIONES: Record<Exclude<Accion, "compartir">, Confirmacion> = {
     variante: "destructivo",
     icono: "warning",
     motivo: true,
-    nuevo: { estado: "Cerrado", tipo: "cancelación" },
     aviso: "El registro fue cancelado",
   },
   reactivar: {
@@ -70,7 +68,6 @@ const CONFIRMACIONES: Record<Exclude<Accion, "compartir">, Confirmacion> = {
     variante: "primario",
     icono: "check_circle",
     motivo: true,
-    nuevo: { estado: "En seguimiento", tipo: "reactivación" },
     aviso: "El caso se reactivó: ahora está En seguimiento",
   },
 };
@@ -78,13 +75,17 @@ const CONFIRMACIONES: Record<Exclude<Accion, "compartir">, Confirmacion> = {
 const enlaceBoton = clasesBoton({ variante: "secundario", className: "text-center" });
 
 /**
- * TUT-05: detalle del caso para la persona tutora dueña. Las acciones cambian con el estado; las definitivas piden
- * confirmación. Los cambios de estado solo viven en esta pantalla (maqueta): al recargar vuelve al estado de origen.
- * Aquí no se muestran avistamientos: esas pantallas (y la regla de «Ver fotografía» de HU 040) son de otro bloque.
+ * TUT-05: detalle del caso para la persona tutora dueña. Las acciones cambian con el estado; las definitivas piden confirmación y llaman a POST /api/casos/[folio]/estado (P5): el estado
+ * y el historial vienen SIEMPRE del servidor (`router.refresh()` tras cada cambio; si otra petición ya lo cambió, el 409 también refresca con el estado real).
  */
-export function DetalleCasoTutor({ caso, enlaceCompartir }: { caso: CasoTutor; /** Enlace público para compartir (<base>/ficha/<FOLIO>), calculado en el servidor; null si falta RUPE_URL_PUBLICA. */ enlaceCompartir: string | null }) {
-  const [estado, setEstado] = useState<EstadoCaso>(caso.estado);
-  const [historial, setHistorial] = useState<MovimientoHistorial[]>(caso.historial);
+export function DetalleCasoTutor({ caso, enlaceCompartir }: { caso: CasoTutor; /** Enlace público de ESTATUS (<base>/estatus/<FOLIO>, por folio), calculado en el servidor; null si falta RUPE_URL_PUBLICA. */ enlaceCompartir: string | null }) {
+  const router = useRouter();
+  const { estado, historial } = caso;
+  const enviando = useRef(false);
+  /** Tras un cambio real, el botón que abrió el diálogo ya no existe: cuando llegan los datos nuevos del servidor el foco va al encabezado del caso. */
+  const enfocarTrasCambio = useRef(false);
+  const [cargando, setCargando] = useState(false);
+  const [errorEnvio, setErrorEnvio] = useState<string>();
   const [accion, setAccion] = useState<Accion | null>(null);
   // El diálogo de confirmación queda montado (cerrado) para que el foco regrese al botón que lo abrió.
   const [ultimaConfirmacion, setUltimaConfirmacion] = useState<keyof typeof CONFIRMACIONES>("localizar");
@@ -105,20 +106,56 @@ export function DetalleCasoTutor({ caso, enlaceCompartir }: { caso: CasoTutor; /
     setAccion(null);
     setMotivo("");
     setErrorMotivo(undefined);
+    setErrorEnvio(undefined);
   }
 
-  function confirmar() {
+  /** Termina la acción con el estado REAL del servidor: cierra el diálogo, refresca y manda el foco al encabezado (el botón que abrió el diálogo puede ya no existir). */
+  function terminar(mensaje: string) {
+    setAviso(mensaje);
+    cerrarDialogo();
+    enfocarTrasCambio.current = true;
+    router.refresh();
+    setTimeout(() => {
+      if (enfocarTrasCambio.current) {
+        enfocarTrasCambio.current = false;
+        document.getElementById("detalle-folio")?.focus(); // respaldo si el servidor respondió con el mismo estado
+      }
+    }, 1500);
+  }
+
+  // El foco va al encabezado cuando LLEGAN los datos nuevos (después de que el diálogo nativo devolvió el foco a un botón que quizá ya no existe).
+  useEffect(() => {
+    if (!enfocarTrasCambio.current) return;
+    enfocarTrasCambio.current = false;
+    document.getElementById("detalle-folio")?.focus();
+  }, [estado, historial.length]);
+
+  async function confirmar() {
+    if (enviando.current) return; // doble clic o Enter repetido: una sola petición
     if (confirmacion.motivo && !motivo.trim()) {
       setErrorMotivo("Escribe el motivo para continuar.");
       return document.getElementById("motivo-accion")?.focus();
     }
-    const { estado: nuevo, tipo } = confirmacion.nuevo;
-    setHistorial((h) => [...h, { consecutivo: h.length + 1, fechaHora: new Date().toISOString(), tipo, estado: nuevo, motivo: confirmacion.motivo ? motivo.trim() : undefined }]);
-    setEstado(nuevo);
-    setAviso(confirmacion.aviso);
-    cerrarDialogo();
-    // El botón que abrió el diálogo ya no existe con el estado nuevo: el foco va al encabezado del caso.
-    setTimeout(() => document.getElementById("detalle-folio")?.focus(), 0);
+    enviando.current = true;
+    setCargando(true);
+    setErrorEnvio(undefined);
+    try {
+      const r = await fetch(`/api/casos/${folio}/estado`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ accion: ultimaConfirmacion, ...(confirmacion.motivo ? { motivo: motivo.trim() } : {}) }) });
+      const j = (await r.json().catch(() => ({}))) as { error?: { codigo?: string; mensaje?: string } };
+      if (r.ok) return terminar(confirmacion.aviso);
+      if (r.status === 409) return terminar("El caso ya había cambiado. Se actualizó la pantalla con su estado actual."); // «ya cambió»: se muestra el estado real
+      if (r.status === 422) {
+        setErrorMotivo(j.error?.codigo === "MOTIVO_OBLIGATORIO" ? "Escribe el motivo para continuar." : (j.error?.mensaje ?? "Revisa el motivo."));
+        return document.getElementById("motivo-accion")?.focus();
+      }
+      if (r.status === 401 || r.status === 403 || r.status === 404) return router.refresh(); // la sesión o el caso ya no valen: la página vuelve a validarlos
+      setErrorEnvio("No se pudo completar la acción. Inténtalo de nuevo.");
+    } catch {
+      setErrorEnvio("No se pudo completar la acción. Revisa tu conexión e inténtalo de nuevo.");
+    } finally {
+      enviando.current = false;
+      setCargando(false);
+    }
   }
 
   const acciones = (
@@ -241,7 +278,7 @@ export function DetalleCasoTutor({ caso, enlaceCompartir }: { caso: CasoTutor; /
         </div>
       </div>
 
-      <ModalCompartir abierto={accion === "compartir"} onCerrar={cerrarDialogo} folio={folio} nombre={caso.nombre} enlace={enlaceCompartir} />
+      <ModalCompartir abierto={accion === "compartir"} onCerrar={cerrarDialogo} folio={folio} enlace={enlaceCompartir} modo="estatus" />
       <DialogoConfirmacion
           abierto={accion !== null && accion !== "compartir"}
           onCerrar={cerrarDialogo}
@@ -251,6 +288,7 @@ export function DetalleCasoTutor({ caso, enlaceCompartir }: { caso: CasoTutor; /
           variante={confirmacion.variante}
           icono={confirmacion.icono}
           onConfirmar={confirmar}
+          cargando={cargando}
         >
           {confirmacion.motivo && (
             <AreaTexto
@@ -267,8 +305,21 @@ export function DetalleCasoTutor({ caso, enlaceCompartir }: { caso: CasoTutor; /
               error={errorMotivo}
             />
           )}
+          {errorEnvio && (
+            <Alerta tipo="peligro" titulo="No se completó la acción">
+              {errorEnvio}
+            </Alerta>
+          )}
         </DialogoConfirmacion>
-      {aviso && <Toast mensaje={aviso} onCerrar={() => setAviso(undefined)} />}
+      {/* El aviso se ANUNCIA desde una región ya montada (los lectores de pantalla no siempre leen una que nace con el texto); el Toast visible queda fuera del árbol accesible. */}
+      <p role="status" aria-live="polite" className="sr-only">
+        {aviso ?? ""}
+      </p>
+      {aviso && (
+        <div aria-hidden="true">
+          <Toast mensaje={aviso} onCerrar={() => setAviso(undefined)} />
+        </div>
+      )}
     </div>
   );
 }

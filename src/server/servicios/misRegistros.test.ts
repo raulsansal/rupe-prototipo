@@ -44,7 +44,7 @@ test("Mis registros · el caso recién registrado aparece primero y solo para su
 test("Guarda · sin sesión 401 y Administrador 403 en todos los servicios de la persona tutora", async () => {
   const { ctx } = nuevoContexto();
   const llamadas: ((s: SesionActual | undefined) => Promise<unknown>)[] = [
-    (s) => listarCasosDelTutor(s, ctx), (s) => casoDelTutor(s, MAX, {}, ctx), (s) => fichaDelTutor(s, MAX, ctx), (s) => exigirCasoPropio(s, MAX, ctx),
+    (s) => listarCasosDelTutor(s, ctx), (s) => casoDelTutor(s, MAX, ctx), (s) => fichaDelTutor(s, MAX, ctx), (s) => exigirCasoPropio(s, MAX, ctx),
     (s) => avistamientosDelCaso(s, NALA, ctx), (s) => avistamientoDelCaso(s, NALA, "101", ctx), (s) => puntosDelMapa(s, NALA, ctx),
   ];
   for (const f of llamadas) {
@@ -56,7 +56,7 @@ test("Guarda · sin sesión 401 y Administrador 403 en todos los servicios de la
 test("Aislamiento · Luis con folios de Rosa y Rosa con folios de Luis dan el MISMO 404 que un folio inexistente o mal formado, byte por byte y en cabeceras", async () => {
   const { ctx } = nuevoContexto();
   const servicios: [string, (s: SesionActual, f: string) => Promise<unknown>][] = [
-    ["caso", (s, f) => casoDelTutor(s, f, {}, ctx)], ["ficha", (s, f) => fichaDelTutor(s, f, ctx)], ["propio", (s, f) => exigirCasoPropio(s, f, ctx)],
+    ["caso", (s, f) => casoDelTutor(s, f, ctx)], ["ficha", (s, f) => fichaDelTutor(s, f, ctx)], ["propio", (s, f) => exigirCasoPropio(s, f, ctx)],
     ["avistamientos", (s, f) => avistamientosDelCaso(s, f, ctx)], ["avistamiento", (s, f) => avistamientoDelCaso(s, f, "101", ctx)], ["mapa", (s, f) => puntosDelMapa(s, f, ctx)],
   ];
   for (const [nombre, f] of servicios) {
@@ -72,20 +72,12 @@ test("Aislamiento · Luis con folios de Rosa y Rosa con folios de Luis dan el MI
 
 test("Detalle · nombres del catálogo, historial real y nada de la persona tutora ni del token", async () => {
   const { ctx } = nuevoContexto();
-  const caso = await casoDelTutor(ROSA, MAX, {}, ctx);
+  const caso = await casoDelTutor(ROSA, MAX, ctx);
   assert.equal(caso.raza, "Mestizo/No identificada");
   assert.ok(caso.historial.length >= 2);
   const json = JSON.stringify(caso);
   assert.equal(json.includes("Rosa Hernández"), false);
   assert.equal(json.toLowerCase().includes("token"), false);
-});
-
-test("Variante ?estado= · sintetiza el historial sobre el caso real", async () => {
-  const { ctx } = nuevoContexto();
-  const real = await casoDelTutor(ROSA, MAX, {}, ctx);
-  const cerrado = await casoDelTutor(ROSA, MAX, { estadoForzado: "Cerrado" }, ctx);
-  assert.equal(cerrado.estado, "Cerrado");
-  assert.equal(cerrado.folio, real.folio);
 });
 
 test("Avistamientos · solo los visibles, por fecha descendente, y «Fallecido» sin foto ni estados", async () => {
@@ -112,7 +104,7 @@ const NUEVO = {
 test("Aislamiento completo · las 7 pantallas (6 servicios) con TODOS los folios de la otra persona, uno inexistente y uno mal formado: mismo 404, byte por byte y en cabeceras", async () => {
   const { ctx } = nuevoContexto();
   const servicios: [string, (s: SesionActual, f: string) => Promise<unknown>][] = [
-    ["detalle", (s, f) => casoDelTutor(s, f, {}, ctx)], ["ficha", (s, f) => fichaDelTutor(s, f, ctx)], ["mapa", (s, f) => puntosDelMapa(s, f, ctx)],
+    ["detalle", (s, f) => casoDelTutor(s, f, ctx)], ["ficha", (s, f) => fichaDelTutor(s, f, ctx)], ["mapa", (s, f) => puntosDelMapa(s, f, ctx)],
     ["editar y notificaciones", (s, f) => exigirCasoPropio(s, f, ctx)], ["avistamientos", (s, f) => avistamientosDelCaso(s, f, ctx)], ["avistamiento", (s, f) => avistamientoDelCaso(s, f, "101", ctx)],
   ];
   const pares: [SesionActual, string[]][] = [[LUIS, DE_ROSA], [ROSA, DE_LUIS]];
@@ -132,7 +124,7 @@ test("Aislamiento completo · las 7 pantallas (6 servicios) con TODOS los folios
 
 test("Guarda · sin sesión 401 y Administrador 403 en cada servicio, y un rol distinto de Tutor nunca llega a leer datos", async () => {
   const { ctx } = nuevoContexto();
-  for (const f of [(s?: SesionActual) => listarCasosDelTutor(s, ctx), (s?: SesionActual) => casoDelTutor(s, DE_ROSA[0], {}, ctx), (s?: SesionActual) => puntosDelMapa(s, DE_ROSA[3], ctx)]) {
+  for (const f of [(s?: SesionActual) => listarCasosDelTutor(s, ctx), (s?: SesionActual) => casoDelTutor(s, DE_ROSA[0], ctx), (s?: SesionActual) => puntosDelMapa(s, DE_ROSA[3], ctx)]) {
     assert.deepEqual([(await falla(f(undefined)))?.estado, (await falla(f(ADMIN)))?.estado], [401, 403]);
   }
 });
@@ -165,7 +157,7 @@ test("fechaCambioEstado · solo los casos «Localizado» la traen, y es la fecha
   assert.ok(localizados.length >= 1);
   for (const c of lista) assert.equal(c.fechaCambioEstado !== undefined, c.estado === "Localizado", c.folio);
   for (const c of localizados) {
-    const detalle = await casoDelTutor(ROSA, c.folio, {}, ctx);
+    const detalle = await casoDelTutor(ROSA, c.folio, ctx);
     assert.equal(c.fechaCambioEstado, detalle.historial[detalle.historial.length - 1].fechaHora);
   }
   const ficha = await fichaDelTutor(ROSA, localizados[0].folio, ctx);
@@ -179,19 +171,19 @@ test("Nombres de catálogo · raza, alcaldía y motivo salen del catálogo (o la
   assert.equal(por["RUPE-P3H8WD5N"].raza, "Labrador Retriever");
   assert.equal(por["RUPE-B6R2TZ7C"].raza, "Chihuahua (Chihuahueño)");
   assert.equal(por["RUPE-3HN8WD2B"].raza, "Schnauzer Miniatura");
-  const detalle = await casoDelTutor(ROSA, "RUPE-K7M4XQ9T", {}, ctx);
+  const detalle = await casoDelTutor(ROSA, "RUPE-K7M4XQ9T", ctx);
   assert.ok(detalle.alcaldia.length > 0 && detalle.motivo.length > 0);
 });
 
 test("Historial · es el real del caso, con el motivo de la cancelación o deshabilitación (Lola) y consecutivos ordenados", async () => {
   const { ctx } = nuevoContexto();
-  const lola = await casoDelTutor(ROSA, "RUPE-C2J9RK6Z", {}, ctx);
+  const lola = await casoDelTutor(ROSA, "RUPE-C2J9RK6Z", ctx);
   assert.ok(lola.historial.length >= 2);
   assert.ok(lola.historial.some((m) => typeof m.motivo === "string" && m.motivo.length > 0), "algún movimiento trae su motivo");
   const fechas = lola.historial.map((m) => m.fechaHora);
   assert.deepEqual(fechas, [...fechas].sort());
   const nuevo = await registrarExtravio(ROSA, NUEVO, ctx);
-  assert.deepEqual((await casoDelTutor(ROSA, nuevo.folio, {}, ctx)).historial.map((m) => m.estado), ["Extraviado", "En búsqueda"]);
+  assert.deepEqual((await casoDelTutor(ROSA, nuevo.folio, ctx)).historial.map((m) => m.estado), ["Extraviado", "En búsqueda"]);
 });
 
 test("Avistamientos · Nala sin el oculto 105, Bruno sin el 303, orden por fecha descendente; «Fallecido» (102) sin estados ni foto; el oculto da 404", async () => {
@@ -211,24 +203,12 @@ test("Avistamientos · Nala sin el oculto 105, Bruno sin el 303, orden por fecha
   assert.deepEqual(mapa.puntos.map((p) => p.id), [101, 103, 104, 102]); // más antiguo primero
 });
 
-test("Variantes ?estado= · cada una se sintetiza sobre el caso real sin tocar el almacén", async () => {
-  const { ctx, almacen } = nuevoContexto();
-  const antes = JSON.stringify(almacen.historial);
-  for (const estado of ["En búsqueda", "Localizado", "Cerrado"] as const) {
-    const d = await casoDelTutor(ROSA, "RUPE-K7M4XQ9T", { estadoForzado: estado }, ctx);
-    assert.equal(d.estado, estado);
-    assert.equal(d.historial[d.historial.length - 1].estado, estado);
-    assert.equal(d.raza, "Mestizo/No identificada"); // los datos siguen siendo los reales
-  }
-  assert.equal(JSON.stringify(almacen.historial), antes);
-});
-
 test("Detalle y ficha · nunca llevan datos de la persona tutora, su correo ni el token del QR", async () => {
   const { ctx, almacen } = nuevoContexto();
   const rosa = almacen.usuarios.find((u) => u.idUsuario === 2)!;
   const token = almacen.qr[0].tokenPublico;
   for (const folio of DE_ROSA) {
-    const todo = JSON.stringify([await casoDelTutor(ROSA, folio, {}, ctx), await fichaDelTutor(ROSA, folio, ctx), await avistamientosDelCaso(ROSA, folio, ctx)]);
+    const todo = JSON.stringify([await casoDelTutor(ROSA, folio, ctx), await fichaDelTutor(ROSA, folio, ctx), await avistamientosDelCaso(ROSA, folio, ctx)]);
     for (const v of [rosa.nombreCompleto, rosa.correo, rosa.telefono, token].filter(Boolean) as string[]) assert.equal(todo.includes(v), false, `${folio} filtra un dato reservado`);
   }
 });

@@ -392,32 +392,42 @@ async function visibles(p: Page) {
   return out;
 }
 
+// P5: el detalle usa casos REALES de cada estado (Max «En búsqueda», Nala «En seguimiento», Toby y Lola «Localizado», Rocky «Cerrado») y las acciones llaman al servidor: cada cambio se comprueba
+// recargando la página y consultando el estatus público.
+const NALA = FOLIO_CON_AVISTAMIENTOS; // En seguimiento
+const TOBY = "RUPE-B6R2TZ7C"; // Localizado
+const LOLA = "RUPE-C2J9RK6Z"; // Localizado
+const ROCKY = "RUPE-3HN8WD2B"; // Cerrado por cierre confirmado
+const estatusPublico = async (folio: string) => ((await (await fetch(`${base}/api/estatus/${folio}`)).json().catch(() => ({}))) as { estatus?: { estado?: string } }).estatus?.estado;
+const textoDeMain = (p: Page) => p.locator("main").innerText();
+
 async function detalle(navegador: Browser) {
   const esperado: Record<string, string[]> = {
     "en-curso": ["Ver ficha de búsqueda", "Ver avistamientos", "Ver mapa", "Editar registro", "Notificaciones del caso", "Compartir estatus", "Marcar como localizado", "Cancelar registro"],
     localizado: ["Ver avistamientos", "Ver mapa", "Compartir estatus", "Reactivar caso", "Cerrar caso"],
     cerrado: ["Ver avistamientos", "Ver mapa"],
   };
-  for (const [v, acciones] of Object.entries(esperado)) {
+  for (const [v, folio, estadoReal] of [["en-curso", FOLIO_EN_CURSO, "En búsqueda"], ["en-curso", NALA, "En seguimiento"], ["localizado", TOBY, "Localizado"], ["cerrado", ROCKY, "Cerrado"]] as const) {
     const { contexto, pagina } = await nuevaPagina(navegador);
-    await irA(pagina, `${CASO}?estado=${v}`);
+    await irA(pagina, `/tutor/casos/${folio}`);
     const real = await visibles(pagina);
-    ver(JSON.stringify(real) === JSON.stringify(acciones), `TUT-05 ?estado=${v}: acciones ${acciones.join(", ")}`, `TUT-05 ?estado=${v}: acciones ${real.join(", ")}; se esperaba ${acciones.join(", ")}`);
+    ver(JSON.stringify(real) === JSON.stringify(esperado[v]), `TUT-05 ${folio} (${estadoReal}): acciones ${esperado[v].join(", ")}`, `TUT-05 ${folio} (${estadoReal}): acciones ${real.join(", ")}; se esperaba ${esperado[v].join(", ")}`);
+    ver((await pagina.getByRole("heading", { level: 1 }).innerText()) === folio && (await textoDeMain(pagina)).includes(estadoReal), `TUT-05 ${folio}: folio y estado «${estadoReal}» reales en el encabezado`, `TUT-05 ${folio}: encabezado incorrecto`);
     const secciones = await pagina.evaluate(() => ["datos-perro", "datos-extravio", "datos-reservados"].map((id) => { const s = document.querySelector(`section[aria-labelledby=${id}]`)!; return [s.textContent!.slice(0, 60), getComputedStyle(s).borderStyle]; }));
     ver(secciones[2][1] === "dashed" && secciones[1][1] === "solid" && /públicos en la ficha/.test(secciones[1][0]) && /no aparecen en la ficha/.test(secciones[2][0]), "TUT-05: datos públicos y reservados en tarjetas separadas (la reservada con borde discontinuo y título)", "TUT-05: públicos y reservados no se distinguen");
     await contexto.close();
   }
 
-  // Confirmaciones y cambios de estado.
+  // Localizar y cerrar (Max, En búsqueda).
   let { contexto, pagina } = await nuevaPagina(navegador);
-  await irA(pagina, `${CASO}?estado=en-curso`);
-  ver((await pagina.getByRole("heading", { level: 1 }).innerText()) === FOLIO_EN_CURSO && (await pagina.locator("main").innerText()).includes("En seguimiento"), "TUT-05 ?estado=en-curso: folio y estado «En seguimiento»", "TUT-05 en-curso: encabezado incorrecto");
+  await irA(pagina, CASO);
+  ver((await textoDeMain(pagina)).includes("En búsqueda") && (await visibles(pagina)).includes("Marcar como localizado"), "TUT-05: Max (real) abre «En búsqueda» con «Marcar como localizado»", "TUT-05: Max no abrió «En búsqueda»");
   const abrir = boton(pagina, "Marcar como localizado");
   await abrir.click();
   let dlg = pagina.getByRole("dialog", { name: "¿Marcar el caso como localizado?" });
   ver(await dlg.isVisible(), "«Marcar como localizado» pide confirmación (modal)", "«Marcar como localizado» no pidió confirmación");
   await pagina.keyboard.press("Escape");
-  ver(!(await dialogoAbierto(pagina)) && (await pagina.locator("main").innerText()).includes("En seguimiento") && (await foco(pagina)) === "Marcar como localizado", "Escape cierra la confirmación sin cambiar el estado y devuelve el foco al botón", "Escape: cambió el estado o no devolvió el foco");
+  ver(!(await dialogoAbierto(pagina)) && (await textoDeMain(pagina)).includes("En búsqueda") && (await foco(pagina)) === "Marcar como localizado" && (await estatusPublico(FOLIO_EN_CURSO)) === "En búsqueda", "Escape cierra la confirmación sin cambiar el estado (tampoco en el servidor) y devuelve el foco al botón", "Escape: cambió el estado o no devolvió el foco");
   await abrir.click();
   await pagina.mouse.click(4, 4);
   ver(!(await dialogoAbierto(pagina)) && (await foco(pagina)) === "Marcar como localizado", "clic fuera cierra la confirmación y devuelve el foco", "clic fuera: no cerró o no devolvió el foco");
@@ -425,52 +435,71 @@ async function detalle(navegador: Browser) {
   await boton(dlg, "Volver").click();
   ver(!(await dialogoAbierto(pagina)) && (await foco(pagina)) === "Marcar como localizado", "«Volver» cierra la confirmación y devuelve el foco", "«Volver»: no cerró o no devolvió el foco");
   await abrir.click();
+  const trampa = await pagina.evaluate(() => {
+    const d = document.querySelector("dialog[open]") as HTMLDialogElement;
+    return { n: d.querySelectorAll("button, a[href], textarea, input").length, dentroInicial: d.contains(document.activeElement) };
+  });
+  const recorridos: boolean[] = [];
+  for (let i = 0; i < trampa.n + 2; i++) {
+    await pagina.keyboard.press("Tab");
+    recorridos.push(await pagina.evaluate(() => document.activeElement === document.body || !!document.activeElement?.closest("dialog[open]"))); // el foco nunca llega a lo que está detrás (es inerte)
+  }
+  ver(trampa.dentroInicial && recorridos.every(Boolean), "trampa de foco: con el modal abierto, Tab nunca sale del diálogo", "trampa de foco: el foco salió del modal");
   await boton(dlg, "Marcar como localizado").click();
-  ver(!(await dialogoAbierto(pagina)) && (await pagina.locator("main").innerText()).includes("Localizado") && JSON.stringify(await visibles(pagina)) === JSON.stringify(esperado.localizado) && (await pagina.getByText("Marcado como localizado").isVisible()), "al confirmar, el caso queda «Localizado», cambian las acciones y el historial suma el movimiento", "confirmar «Marcar como localizado» no cambió el estado");
-  ver((await pagina.getByRole("heading", { level: 1 }).evaluate((e) => e === document.activeElement)), "tras confirmar, el foco va al encabezado del caso", "tras confirmar, el foco se perdió");
-
+  await pagina.waitForFunction(() => /Localizado/.test(document.querySelector("main")?.innerText ?? ""), undefined, { timeout: 15000 });
+  await pagina.getByText("Marcado como localizado").first().waitFor({ timeout: 15000 });
+  ver(!(await dialogoAbierto(pagina)) && JSON.stringify(await visibles(pagina)) === JSON.stringify(esperado.localizado) && (await estatusPublico(FOLIO_EN_CURSO)) === "Localizado", "confirmar «Marcar como localizado»: cambia el estado REAL (acciones de Localizado, «Marcado como localizado» en el historial y estatus público «Localizado»)", "confirmar «Marcar como localizado» no cambió el estado real");
+  ver(await pagina.getByRole("heading", { level: 1 }).evaluate((e) => e === document.activeElement), "tras confirmar, el foco va al encabezado del caso", "tras confirmar, el foco se perdió");
+  ver((await pagina.locator('p[role="status"]').first().innerText()).includes("Localizado"), "el cambio se anuncia en una región accesible (role=\"status\")", "el cambio no se anunció");
+  await pagina.reload({ waitUntil: "load" });
+  ver((await textoDeMain(pagina)).includes("Localizado") && JSON.stringify(await visibles(pagina)) === JSON.stringify(esperado.localizado), "al recargar el caso sigue «Localizado» (ya no vive solo en la pantalla)", "al recargar el caso volvió a otro estado");
   // Cerrar caso: definitivo.
   await boton(pagina, "Cerrar caso").click();
   dlg = pagina.getByRole("dialog", { name: "¿Cerrar el caso?" });
   ver((await dlg.isVisible()) && /definitivo/.test(await dlg.innerText()), "«Cerrar caso» pide confirmación y advierte que el cierre es definitivo", "«Cerrar caso» sin advertencia de cierre definitivo");
   await boton(dlg, "Cerrar caso").click();
-  ver(JSON.stringify(await visibles(pagina)) === JSON.stringify(esperado.cerrado) && (await pagina.getByText("El cierre es definitivo", { exact: false }).first().isVisible()), "al confirmar, el caso queda «Cerrado» y ya no hay forma de reactivarlo ni cerrarlo", "el cierre dejó acciones disponibles");
+  await pagina.getByText("Cierre confirmado").first().waitFor({ timeout: 15000 });
+  ver(JSON.stringify(await visibles(pagina)) === JSON.stringify(esperado.cerrado) && (await pagina.getByText("El cierre es definitivo", { exact: false }).first().isVisible()) && (await estatusPublico(FOLIO_EN_CURSO)) === "Cerrado", "al confirmar, el caso queda «Cerrado» (real) y ya no hay forma de reactivarlo; el estatus público dice «Cerrado»", "el cierre dejó acciones disponibles o no cambió el estado real");
   await contexto.close();
 
-  // Reactivar con motivo obligatorio.
+  // Reactivar con motivo obligatorio (Toby, Localizado) y luego cancelar el registro.
   ({ contexto, pagina } = await nuevaPagina(navegador));
-  await irA(pagina, `${CASO}?estado=localizado`);
+  await irA(pagina, `/tutor/casos/${TOBY}`);
   await boton(pagina, "Reactivar caso").click();
   dlg = pagina.getByRole("dialog", { name: "¿Reactivar el caso?" });
   await boton(dlg, "Reactivar caso").click();
   const motivo = dlg.getByLabel(/^Motivo/);
-  ver((await dialogoAbierto(pagina)) && (await motivo.getAttribute("aria-invalid")) === "true" && /Escribe el motivo/.test(await textoDescrito(motivo)) && (await motivo.evaluate((e) => e === document.activeElement)), "«Reactivar caso» sin motivo no se confirma y el error queda asociado (aria-describedby)", "«Reactivar caso»: aceptó un motivo vacío");
+  ver((await dialogoAbierto(pagina)) && (await motivo.getAttribute("aria-invalid")) === "true" && /Escribe el motivo/.test(await textoDescrito(motivo)) && (await motivo.evaluate((e) => e === document.activeElement)) && (await estatusPublico(TOBY)) === "Localizado", "«Reactivar caso» sin motivo: error asociado, foco en el campo y el caso sigue «Localizado» en el servidor", "«Reactivar caso» aceptó un motivo vacío");
   await motivo.fill("Lo marqué por error.");
   await boton(dlg, "Reactivar caso").click();
-  ver(JSON.stringify(await visibles(pagina)) === JSON.stringify(esperado["en-curso"]) && (await pagina.locator("main").innerText()).includes("En seguimiento") && (await pagina.getByText("Motivo: Lo marqué por error.").isVisible()), "con motivo, el caso vuelve a «En seguimiento», recupera sus acciones y el motivo queda en el historial", "reactivar con motivo falló");
+  await pagina.getByText("Motivo: Lo marqué por error.").waitFor({ timeout: 15000 });
+  ver(JSON.stringify(await visibles(pagina)) === JSON.stringify(esperado["en-curso"]) && (await textoDeMain(pagina)).includes("En seguimiento") && (await estatusPublico(TOBY)) === "En seguimiento", "con motivo, el caso vuelve a «En seguimiento» (real), el motivo queda en el historial y el estatus público lo refleja", "reactivar con motivo no cambió el estado real");
   // Cancelar el registro.
   await boton(pagina, "Cancelar registro").click();
   dlg = pagina.getByRole("dialog", { name: "¿Cancelar el registro?" });
   await boton(dlg, "Cancelar registro").click();
-  ver((await dialogoAbierto(pagina)) && (await dlg.getByLabel(/^Motivo/).getAttribute("aria-invalid")) === "true", "«Cancelar registro» exige el motivo (HU 017)", "«Cancelar registro» aceptó un motivo vacío");
+  ver((await dialogoAbierto(pagina)) && (await dlg.getByLabel(/^Motivo/).getAttribute("aria-invalid")) === "true" && (await estatusPublico(TOBY)) === "En seguimiento", "«Cancelar registro» exige el motivo (HU 017) y no cambia nada en el servidor", "«Cancelar registro» aceptó un motivo vacío");
   await dlg.getByLabel(/^Motivo/).fill("Lo registré por error.");
   await boton(dlg, "Cancelar registro").click();
-  ver(JSON.stringify(await visibles(pagina)) === JSON.stringify(esperado.cerrado) && (await pagina.getByText("Registro cancelado").isVisible()) && (await pagina.getByText("Motivo: Lo registré por error.").isVisible()), "al cancelar, el caso queda «Cerrado» (solo consulta) y el historial registra la cancelación con su motivo", "cancelar el registro falló");
+  await pagina.getByText("Registro cancelado").first().waitFor({ timeout: 15000 });
+  const fichaPublica = await fetch(`${base}/api/fichas/${TOBY}`);
+  ver(JSON.stringify(await visibles(pagina)) === JSON.stringify(esperado.cerrado) && (await pagina.getByText("Motivo: Lo registré por error.").isVisible()) && (await estatusPublico(TOBY)) === undefined && fichaPublica.status === 404, "al cancelar, el caso queda «Cerrado» (real) con «Registro cancelado» y su motivo; el estatus público y la ficha dan 404", "la cancelación no dejó el caso cerrado o sigue consultable");
   await contexto.close();
 
-  // Compartir estatus (MOD-07).
-  ({ contexto, pagina } = await nuevaPagina(navegador));
-  await irA(pagina, `${CASO}?estado=en-curso`);
-  await boton(pagina, "Compartir estatus").click();
-  const comp = pagina.getByRole("dialog", { name: "Compartir ficha" });
-  const wa = await enlace(comp, /WhatsApp/).getAttribute("href");
-  const fb = await enlace(comp, /Facebook/).getAttribute("href");
-  ver(!!wa?.startsWith("https://wa.me/?text=") && decodeURIComponent(wa).includes(`/ficha/${FOLIO_EN_CURSO}`) && !!fb?.includes("sharer") && (await enlace(comp, /WhatsApp/).getAttribute("target")) === "_blank", "MOD-07 desde TUT-05: WhatsApp y Facebook apuntan a la ficha pública (/ficha/folio) en pestaña nueva", `MOD-07: ${wa} ${fb}`);
-  await boton(comp, "Copiar enlace").click();
-  ver(((await pagina.evaluate(() => navigator.clipboard.readText())) as string).endsWith(`/ficha/${FOLIO_EN_CURSO}`) && (await comp.getByRole("status").getByText("Enlace copiado").isVisible()), "MOD-07: «Copiar enlace» copia el enlace público y lo anuncia", "MOD-07: no copió el enlace");
-  await boton(comp, "Cerrar").click();
-  ver(!(await dialogoAbierto(pagina)) && (await foco(pagina)) === "Compartir estatus", "MOD-07: «Cerrar» cierra y devuelve el foco a «Compartir estatus»", "MOD-07: no devolvió el foco");
-  await contexto.close();
+  // Compartir estatus (MOD-07): enlace público de ESTATUS por folio, también en Localizado, sin Facebook y sin botón en Cerrado.
+  for (const folio of [NALA, LOLA]) {
+    ({ contexto, pagina } = await nuevaPagina(navegador));
+    await irA(pagina, `/tutor/casos/${folio}`);
+    await boton(pagina, "Compartir estatus").click();
+    const comp = pagina.getByRole("dialog", { name: "Compartir estatus" });
+    const wa = await enlace(comp, /WhatsApp/).getAttribute("href");
+    ver(!!wa?.startsWith("https://wa.me/?text=") && decodeURIComponent(wa).includes(`/estatus/${folio}`) && !decodeURIComponent(wa).includes("/ficha/") && (await enlace(comp, /Facebook/).count()) === 0 && (await enlace(comp, /WhatsApp/).getAttribute("target")) === "_blank", `MOD-07 desde TUT-05 (${folio}): WhatsApp con el enlace /estatus/<folio> y SIN Facebook`, `MOD-07 ${folio}: WhatsApp o Facebook incorrectos`);
+    await boton(comp, "Copiar enlace").click();
+    ver(((await pagina.evaluate(() => navigator.clipboard.readText())) as string).endsWith(`/estatus/${folio}`) && (await comp.getByRole("status").getByText("Enlace copiado").isVisible()), `MOD-07: «Copiar enlace» copia el enlace público de estatus de ${folio}`, `MOD-07 ${folio}: no copió el enlace de estatus`);
+    await boton(comp, "Cerrar").click();
+    ver(!(await dialogoAbierto(pagina)) && (await foco(pagina)) === "Compartir estatus", "MOD-07: «Cerrar» cierra y devuelve el foco a «Compartir estatus»", "MOD-07: no devolvió el foco");
+    await contexto.close();
+  }
 }
 
 /**
@@ -655,9 +684,40 @@ async function modalesFicha(navegador: Browser) {
   await c2.contexto.close();
 }
 
+// ---------- HU 038: consultar folio (la misma consulta pública, dentro de la plantilla de la persona tutora) ----------
+async function consultarFolio(navegador: Browser) {
+  const { contexto, pagina } = await nuevaPagina(navegador);
+  await irA(pagina, "/tutor/consultar-folio");
+  const texto = await textoDeMain(pagina);
+  ver((await pagina.getByRole("heading", { level: 1, name: "Consultar folio" }).isVisible()) && !/Esta pantalla se construye en un bloque posterior/.test(texto) && (await pagina.locator("header").count()) >= 1 && (await boton(pagina, "Consultar folio").isVisible()) && (await boton(pagina, "Limpiar").isVisible()), "HU 038 /tutor/consultar-folio: pantalla real con «Consultar folio» y «Limpiar», dentro de la plantilla de la tutora (ya no es pantalla pendiente)", "consultar-folio sigue pendiente o sin sus botones");
+  const campo = pagina.getByRole("textbox", { name: "Folio" });
+  await boton(pagina, "Consultar folio").click();
+  ver((await campo.getAttribute("aria-invalid")) === "true" && /Escribe el folio/.test(await textoDescrito(campo)), "consultar folio vacío: error asociado al campo", "consultar folio vacío sin error");
+  await campo.fill("RUPE-OOOO1111");
+  await boton(pagina, "Consultar folio").click();
+  ver(/formato RUPE-XXXXXXXX/.test(await textoDescrito(campo)) && !new URL(pagina.url()).searchParams.get("folio"), "folio con formato inválido (O, 1): error de formato y no consulta", "aceptó un folio inválido");
+  await campo.fill(" rupe-k7m4xq9t ");
+  await Promise.all([pagina.waitForURL(/folio=RUPE-K7M4XQ9T/), boton(pagina, "Consultar folio").click()]);
+  const r = await textoDeMain(pagina);
+  ver(/Estatus del caso/.test(r) && /En búsqueda/.test(r) && /Último cambio/.test(r) && /\d{1,2} \w+\.? 20\d\d, \d\d:\d\d/.test(r) && !/Rosa|Hern|@example|Mestizo|Max\b/.test(r), "un folio válido (en minúsculas y con espacios) muestra solo el estatus «En búsqueda» y «Último cambio» en hora de la Ciudad de México, sin datos personales ni del perro", `estatus mal: ${r.slice(0, 200)}`);
+  const encabezadoRepetido = await pagina.getByRole("heading", { level: 1 }).count();
+  ver(encabezadoRepetido === 1, "la pantalla tiene un solo h1 (el resultado va como h2)", `h1: ${encabezadoRepetido}`);
+  await boton(pagina, "Limpiar").click();
+  ver((await campo.inputValue()) === "" && (await campo.evaluate((e) => e === document.activeElement)), "«Limpiar» vacía el campo y deja el foco en él", "Limpiar no vació o no dio el foco");
+  const mensajes: string[] = [];
+  for (const folio of ["RUPE-F7L3MN6Y", "RUPE-D5W2QK8X", "RUPE-ZZZZZZZZ"]) {
+    await irA(pagina, `/tutor/consultar-folio?folio=${folio}`);
+    mensajes.push((await textoDeMain(pagina)).replace(folio, "FOLIO"));
+  }
+  ver(mensajes.every((m) => /Folio no encontrado/.test(m) && m === mensajes[0]), "cancelado (Simba), deshabilitado (Kira) e inexistente: el MISMO «Folio no encontrado» (R33), sin pistas de que existieron", "los folios no disponibles se distinguen");
+  await irA(pagina, `/tutor/consultar-folio?folio=${ROCKY}`);
+  ver(/Cerrado/.test(await textoDeMain(pagina)), "un caso cerrado por cierre confirmado se muestra «Cerrado»", "el caso cerrado no se mostró");
+  await contexto.close();
+}
+
 // ---------- enlaces internos sin 404 ----------
 async function enlacesInternos(navegador: Browser) {
-  const pantallas = ["/acceso", "/acceso?estado=aviso-actualizado", "/registro", `/tutor/casos/${FOLIO_CON_AVISTAMIENTOS}/avistamientos`, `/tutor/casos/${FOLIO_CON_AVISTAMIENTOS}/mapa?ruta=visible`, `/tutor/casos/${FOLIO_CON_AVISTAMIENTOS}/avistamientos/101`, `/tutor/casos/${FOLIO_CON_AVISTAMIENTOS}/avistamientos/102`, `${CASO}/avistamientos`, "/dev/transversales/sesion-expirada", "/tutor", "/tutor?estado=vacio", `${CASO}/creado`, `${CASO}?estado=en-curso`, `${CASO}?estado=localizado`, `${CASO}?estado=cerrado`, `${CASO}/ficha`];
+  const pantallas = ["/acceso", "/acceso?estado=aviso-actualizado", "/registro", `/tutor/casos/${FOLIO_CON_AVISTAMIENTOS}/avistamientos`, `/tutor/casos/${FOLIO_CON_AVISTAMIENTOS}/mapa?ruta=visible`, `/tutor/casos/${FOLIO_CON_AVISTAMIENTOS}/avistamientos/101`, `/tutor/casos/${FOLIO_CON_AVISTAMIENTOS}/avistamientos/102`, `${CASO}/avistamientos`, "/dev/transversales/sesion-expirada", "/tutor", "/tutor?estado=vacio", `${CASO}/creado`, CASO, `/tutor/casos/${TOBY}`, `/tutor/casos/${ROCKY}`, `/tutor/casos/${FOLIO_CON_AVISTAMIENTOS}`, "/tutor/consultar-folio", `/tutor/consultar-folio?folio=${FOLIO_EN_CURSO}`, `${CASO}/ficha`];
   const { contexto, pagina } = await nuevaPagina(navegador, 1280);
   const vistos = new Map<string, string>();
   for (const ruta of pantallas) {
@@ -681,7 +741,7 @@ async function enlacesInternos(navegador: Browser) {
   ver(malos.length === 0, `enlaces internos de ACC-01, TUT-01, TUT-04, TUT-05 y TUT-07: ${vistos.size} rutas distintas, ninguna responde 404`, `enlaces rotos: ${malos.join(" | ")}`);
   // Las pantallas pendientes dicen lo que son y ofrecen volver.
   const p = await nuevaPagina(navegador);
-  for (const [ruta, volver, destino] of [["/recuperar-contrasena", "Volver a iniciar sesión", "/acceso"], [`${CASO}/editar`, "Regresar al detalle del caso", CASO], [`${CASO}/notificaciones`, "Regresar al detalle del caso", CASO], ["/tutor/consultar-folio", "Ir a mis registros", "/tutor"], ["/tutor/avistamientos", "Ir a mis registros", "/tutor"]] as const) {
+  for (const [ruta, volver, destino] of [["/recuperar-contrasena", "Volver a iniciar sesión", "/acceso"], [`${CASO}/editar`, "Regresar al detalle del caso", CASO], [`${CASO}/notificaciones`, "Regresar al detalle del caso", CASO], ["/tutor/avistamientos", "Ir a mis registros", "/tutor"]] as const) {
     const r = await p.pagina.goto(`${base}${ruta}`, { waitUntil: "load" });
     const t = await p.pagina.locator("main").innerText();
     ver(r?.status() === 200 && /Esta pantalla se construye en un bloque posterior/.test(t) && (await enlace(p.pagina, volver).getAttribute("href")) === destino, `${ruta}: PantallaPendiente con «${volver}»`, `${ruta}: HTTP ${r?.status()} o sin mensaje de pantalla pendiente`);
@@ -715,7 +775,7 @@ async function rotulosDeDatos(navegador: Browser) {
     for (const tema of ["light", "dark"] as const) {
       const { contexto, pagina } = await nuevaPagina(navegador, ancho);
       await pagina.addInitScript(([k, v]) => localStorage.setItem(k, v), [CLAVE_TEMA, tema]);
-      await irA(pagina, `${CASO}?estado=en-curso`);
+      await irA(pagina, CASO);
       const r = await medirRotulos(pagina);
       ver(r.total >= 15 && r.malos.length === 0, `TUT-05 ${ancho}px (${tema === "light" ? "claro" : "oscuro"}): ${r.total} rótulos de las tarjetas de datos caben en su columna, con al menos 8 px antes del valor`, `TUT-05 ${ancho}px (${tema}): rótulos desbordados → ${r.malos.join(" | ")}`);
       await contexto.close();
@@ -727,7 +787,7 @@ async function rotulosDeDatos(navegador: Browser) {
 async function detalleEscritorio(navegador: Browser) {
   for (const ancho of [1024, 1280, 1440]) {
     const { contexto, pagina } = await nuevaPagina(navegador, ancho);
-    await irA(pagina, `${CASO}?estado=en-curso`);
+    await irA(pagina, CASO);
     const g = await pagina.evaluate(() => {
       const sels: [string, string][] = [["foto", "[data-foto-caso]"], ["perro", "section[aria-labelledby=datos-perro]"], ["extravio", "section[aria-labelledby=datos-extravio]"], ["reservados", "section[aria-labelledby=datos-reservados]"], ["acciones", "section[aria-labelledby=acciones-titulo]"], ["historial", "section[aria-labelledby=historial-titulo]"]];
       const cajas = Object.fromEntries(
@@ -750,7 +810,7 @@ async function detalleEscritorio(navegador: Browser) {
   }
   // Móvil: sin cambios (orden: foto, acciones, datos, historial al final).
   const { contexto, pagina } = await nuevaPagina(navegador, 390);
-  await irA(pagina, `${CASO}?estado=en-curso`);
+  await irA(pagina, CASO);
   const y = await pagina.evaluate(() => ["[data-foto-caso]", "section[aria-labelledby=acciones-titulo]", "section[aria-labelledby=datos-perro]", "section[aria-labelledby=datos-extravio]", "section[aria-labelledby=datos-reservados]", "section[aria-labelledby=historial-titulo]"].map((s) => document.querySelector(s)!.getBoundingClientRect().top));
   ver(y.every((v, i) => i === 0 || v > y[i - 1]), "TUT-05 390px: el orden en móvil no cambia (foto, acciones, datos del perro, extravío, reservados, historial)", `TUT-05 390px: orden ${y.map(Math.round).join(",")}`);
   await contexto.close();
@@ -849,30 +909,48 @@ async function avistamientos(navegador: Browser) {
   const html = await (await fetchComo(base, "tutor1", `${CON_AV}/avistamientos`)).text();
   ver(!html.includes(FOTO_SENSIBLE) && !AVISTAMIENTOS.some((a) => a.direccionAproximada && html.includes(a.direccionAproximada)), "TUT-08: el HTML no contiene la fotografía del «Fallecido» ni la dirección aproximada de ningún avistamiento", "TUT-08: el HTML trae la foto sensible o direcciones reservadas");
   ver((await pagina.getByRole("link", { name: "Mapa", exact: true }).getAttribute("href")) === `${CON_AV}/mapa`, "TUT-08: el selector «Mapa» lleva a TUT-09", "TUT-08: «Mapa» no enlaza a TUT-09");
-  // Filtros.
+  // Filtros (P5: parámetros en la URL, validados y aplicados por el SERVIDOR; funcionan con un formulario GET).
   const filtros = pagina.getByRole("button", { name: "Filtros", exact: true });
+  const parametros = () => new URL(pagina.url()).searchParams;
   ver((await filtros.getAttribute("aria-expanded")) === "false" && !(await pagina.getByLabel("Desde").isVisible()), "TUT-08: los filtros empiezan plegados", "TUT-08: los filtros empiezan desplegados");
   await filtros.click();
   await pagina.getByLabel("Desde").fill("2026-10-03");
-  await boton(pagina, "Aplicar filtros").click();
-  ver(/anterior al registro del caso/.test(await textoDescrito(pagina.getByLabel("Desde"))) && (await tarjetas.count()) === 4, "TUT-08: una fecha anterior al registro del caso se rechaza (HU 041)", "TUT-08: aceptó una fecha anterior al registro");
+  await Promise.all([pagina.waitForURL(/desde=2026-10-03/), boton(pagina, "Aplicar filtros").click()]);
+  ver(parametros().get("desde") === "2026-10-03" && /anterior a la fecha de registro del caso/.test(await textoDescrito(pagina.getByLabel("Desde"))) && (await tarjetas.count()) === 4, "TUT-08: una fecha anterior al registro del caso se rechaza en el SERVIDOR (HU 041), el parámetro queda en la URL y el listado no se filtra", "TUT-08: aceptó una fecha anterior al registro");
   await pagina.getByLabel("Desde").fill("2026-10-07");
-  await boton(pagina, "Aplicar filtros").click();
-  ver((await tarjetas.count()) === 2 && /2 de 4 avistamientos/.test(await pagina.locator("main").innerText()), "TUT-08: «Desde» 7 oct deja 2 de 4 avistamientos", "TUT-08: el filtro «Desde» no filtró");
+  await Promise.all([pagina.waitForURL(/desde=2026-10-07/), boton(pagina, "Aplicar filtros").click()]);
+  ver((await tarjetas.count()) === 2 && /2 de 4 avistamientos/.test(await pagina.locator("main").innerText()) && (await pagina.getByLabel("Desde").inputValue()) === "2026-10-07", "TUT-08: «Desde» 7 oct deja 2 de 4 avistamientos (el formulario conserva el valor)", "TUT-08: el filtro «Desde» no filtró");
   await pagina.getByLabel("Hasta").fill("2026-10-07");
-  await boton(pagina, "Aplicar filtros").click();
-  ver((await tarjetas.count()) === 1, "TUT-08: «Desde» y «Hasta» combinados dejan 1", "TUT-08: el rango no filtró");
+  await Promise.all([pagina.waitForURL(/hasta=2026-10-07/), boton(pagina, "Aplicar filtros").click()]);
+  ver((await tarjetas.count()) === 1 && parametros().get("hasta") === "2026-10-07", "TUT-08: «Desde» y «Hasta» combinados dejan 1 y quedan en la URL", "TUT-08: el rango no filtró");
   await pagina.getByLabel("Hasta").fill("2026-10-06");
-  await boton(pagina, "Aplicar filtros").click();
-  ver(/no puede ser anterior a «Desde»/.test(await textoDescrito(pagina.getByLabel("Hasta"))), "TUT-08: «Hasta» anterior a «Desde» se rechaza", "TUT-08: aceptó un rango invertido");
-  await boton(pagina, "Limpiar filtros").click();
-  await pagina.getByLabel("Alcaldía o zona").selectOption("Iztacalco");
-  await boton(pagina, "Aplicar filtros").click();
+  await Promise.all([pagina.waitForURL(/hasta=2026-10-06/), boton(pagina, "Aplicar filtros").click()]);
+  ver(/no puede ser anterior a la inicial/.test(await textoDescrito(pagina.getByLabel("Hasta"))), "TUT-08: «Hasta» anterior a «Desde» se rechaza en el servidor", "TUT-08: aceptó un rango invertido");
+  await Promise.all([pagina.waitForURL((u) => !u.search), enlace(pagina, "Limpiar filtros").click()]);
+  ver((await tarjetas.count()) === 4 && parametros().toString() === "", "TUT-08: «Limpiar filtros» vuelve al listado sin parámetros y restaura los 4 avistamientos", "TUT-08: Limpiar no restauró");
+  if ((await filtros.getAttribute("aria-expanded")) === "false") await filtros.click(); // la navegación del cliente conserva el panel abierto
+  const opcionesAlcaldia = await pagina.getByLabel("Alcaldía o zona").locator("option").allTextContents();
+  ver(opcionesAlcaldia.length === 18 && opcionesAlcaldia.includes("Fuera de la Ciudad de México") && opcionesAlcaldia.includes("Todas"), "TUT-08: el filtro de alcaldía ofrece las 16 del catálogo, «Fuera de la Ciudad de México» y «Todas»", `TUT-08: opciones ${opcionesAlcaldia.length}`);
+  await pagina.getByLabel("Alcaldía o zona").selectOption({ label: "Iztacalco" });
+  await Promise.all([pagina.waitForURL(/alcaldia=\d+/), boton(pagina, "Aplicar filtros").click()]);
   ver((await tarjetas.count()) === 0 && /Ningún avistamiento coincide con los filtros/.test(await pagina.locator("main").innerText()), "TUT-08: una alcaldía sin avistamientos muestra «Ningún avistamiento coincide con los filtros»", "TUT-08: el filtro por alcaldía no funcionó");
-  await boton(pagina, "Limpiar filtros").click();
-  ver((await tarjetas.count()) === 4, "TUT-08: «Limpiar filtros» restaura los 4 avistamientos", "TUT-08: Limpiar no restauró");
+  await pagina.getByLabel("Alcaldía o zona").selectOption({ label: "Iztapalapa" });
+  await Promise.all([pagina.waitForURL(/alcaldia=\d+/), boton(pagina, "Aplicar filtros").click()]);
+  ver((await tarjetas.count()) === 4, "TUT-08: la alcaldía de los avistamientos (Iztapalapa) los deja todos", "TUT-08: Iztapalapa no dejó los 4");
+  await pagina.getByLabel("Alcaldía o zona").selectOption({ label: "Fuera de la Ciudad de México" });
+  await Promise.all([pagina.waitForURL(/alcaldia=17/), boton(pagina, "Aplicar filtros").click()]);
+  ver((await tarjetas.count()) === 0 && (await pagina.getByLabel("Alcaldía o zona").inputValue()) === "17", "TUT-08: «Fuera de la Ciudad de México» es un filtro válido (hoy sin avistamientos)", "TUT-08: «Fuera de la Ciudad de México» no filtró");
+  // Un parámetro manipulado en la URL se valida igual: cada campo malo muestra su error y no se aplica (el listado sale completo).
+  await irA(pagina, `${CON_AV}/avistamientos?desde=2026-02-30&hasta=abc&alcaldia=99`);
+  const errores = await Promise.all(["Desde", "Hasta", "Alcaldía o zona"].map((e) => textoDescrito(pagina.getByLabel(e))));
+  ver(errores.every((e) => e.length > 0) && (await tarjetas.count()) === 4, "TUT-08: parámetros manipulados en la URL (fecha imposible, texto, alcaldía fuera del catálogo): error por campo y listado completo", `TUT-08: errores ${JSON.stringify(errores)}`);
   await boton(pagina, "Actualizar listado").click();
   ver(await pagina.getByRole("status").getByText("Listado actualizado").waitFor({ timeout: 3000 }).then(() => true, () => false), "TUT-08: «Actualizar listado» lo anuncia (role=\"status\")", "TUT-08: Actualizar listado no respondió");
+  // Insignias «Nuevo» y «Relevante» (texto más ícono, no solo color): Bruno tiene su avistamiento 302 nuevo.
+  await irA(pagina, `/tutor/casos/RUPE-N8D5GX3W/avistamientos`);
+  const nuevo302 = pagina.locator("article:has(a[href$='/avistamientos/302'])");
+  const viejo301 = pagina.locator("article:has(a[href$='/avistamientos/301'])");
+  ver(/Nuevo/.test(await nuevo302.innerText()) && (await nuevo302.locator("span:has-text('Nuevo') svg").count()) === 1 && !/Nuevo/.test(await viejo301.innerText()), "TUT-08: el avistamiento nuevo lleva la insignia «Nuevo» con texto e ícono y los vistos no", "TUT-08: insignia «Nuevo» mal");
   await irA(pagina, `${CON_AV}/avistamientos?filtros=abiertos`);
   ver((await pagina.getByRole("button", { name: "Filtros", exact: true }).getAttribute("aria-expanded")) === "true" && (await pagina.getByLabel("Desde").isVisible()), "TUT-08 ?filtros=abiertos: filtros desplegados", "TUT-08 ?filtros=abiertos: no desplegó");
   await contexto.close();
@@ -1041,9 +1119,13 @@ async function geometria(navegador: Browser) {
     "/tutor/registrar?raza=otra",
     "/tutor/registrar?paso=2",
     `${CASO}/creado`,
-    `${CASO}?estado=en-curso`,
-    `${CASO}?estado=localizado`,
-    `${CASO}?estado=cerrado`,
+    CASO,
+    `/tutor/casos/${TOBY}`,
+    `/tutor/casos/${ROCKY}`,
+    `/tutor/casos/${FOLIO_CON_AVISTAMIENTOS}`,
+    "/tutor/consultar-folio",
+    `/tutor/consultar-folio?folio=${FOLIO_EN_CURSO}`,
+    `/tutor/consultar-folio?folio=RUPE-ZZZZZZZZ`,
     `${CASO}/ficha`,
     `${CASO}/ficha?modal=visor`,
     `${CASO}/ficha?modal=visor&hoja=media-carta`,
@@ -1113,22 +1195,36 @@ async function main() {
     // Datos limpios: «Mis registros» lee el almacén real y los casos creados por una corrida anterior (p. ej. «Canela») cambiarían sus conteos.
     await reiniciarDatos(base);
     navegador = await abrirNavegador();
-    await acceso(navegador);
-    await registroCuenta(navegador);
-    await misRegistros(navegador); // debe ir ANTES de registro: el caso que crea registro aparecería en la lista
-    await registro(navegador);
-    await salidaRegistro(navegador);
-    await enlacesInternos(navegador);
-    await avistamientos(navegador);
-    await transversalesSesion(navegador);
-    await creado(navegador);
-    await detalle(navegador);
-    await detalleEscritorio(navegador);
-    await rotulosDeDatos(navegador);
-    await fugas(navegador);
-    await modalesFicha(navegador);
-    await geometria(navegador);
-    await consola(navegador);
+    const nav = navegador;
+    const solo = process.argv.find((x) => x.startsWith("--solo="))?.split("=")[1];
+    // Cada sección corre aislada: si una se interrumpe se cuenta como falla y las demás siguen. Las que CAMBIAN datos (acciones reales del caso) parten de datos reiniciados.
+    const seccion = async (nombre: string, f: () => Promise<void>, { reiniciar = false }: { reiniciar?: boolean } = {}) => {
+      if (solo && !nombre.includes(solo)) return;
+      try {
+        if (reiniciar) await reiniciarDatos(base);
+        await f();
+      } catch (e) {
+        fallos++;
+        console.log(`✗ la sección «${nombre}» se interrumpió: ${String(e).split("\n")[0]} ${String((e as Error).stack).split("\n").find((l) => l.includes("verificar-tutor.ts")) ?? ""}`);
+      }
+    };
+    await seccion("acceso", () => acceso(nav));
+    await seccion("registroCuenta", () => registroCuenta(nav));
+    await seccion("misRegistros", () => misRegistros(nav)); // debe ir ANTES de registro: el caso que crea registro aparecería en la lista
+    await seccion("registro", () => registro(nav));
+    await seccion("salidaRegistro", () => salidaRegistro(nav));
+    await seccion("consultarFolio", () => consultarFolio(nav), { reiniciar: true });
+    await seccion("enlacesInternos", () => enlacesInternos(nav), { reiniciar: true });
+    await seccion("avistamientos", () => avistamientos(nav), { reiniciar: true });
+    await seccion("transversalesSesion", () => transversalesSesion(nav));
+    await seccion("creado", () => creado(nav));
+    await seccion("detalle", () => detalle(nav), { reiniciar: true });
+    await seccion("detalleEscritorio", () => detalleEscritorio(nav), { reiniciar: true });
+    await seccion("rotulosDeDatos", () => rotulosDeDatos(nav));
+    await seccion("fugas", () => fugas(nav));
+    await seccion("modalesFicha", () => modalesFicha(nav));
+    await seccion("geometria", () => geometria(nav), { reiniciar: true });
+    await seccion("consola", () => consola(nav));
   } finally {
     await navegador?.close();
     apagar();

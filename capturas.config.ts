@@ -97,9 +97,10 @@ RUTAS.push(
   { ruta: "/tutor/registrar?raza=otra", archivo: "tutor-registrar-raza-otra" },
   { ruta: "/tutor/registrar?paso=2", archivo: "tutor-registrar-paso-2", anchos: M },
   { ruta: `${CASO}/creado`, archivo: "tutor-caso-creado", anchos: M },
-  { ruta: `${CASO}?estado=en-curso`, archivo: "tutor-caso-en-curso" },
-  { ruta: `${CASO}?estado=localizado`, archivo: "tutor-caso-localizado", anchos: M },
-  { ruta: `${CASO}?estado=cerrado`, archivo: "tutor-caso-cerrado", anchos: M },
+  // P5: el detalle usa casos REALES de cada estado (se retiró ?estado=): Max «En búsqueda», Toby «Localizado» y Rocky «Cerrado».
+  { ruta: CASO, archivo: "tutor-caso-en-curso" },
+  { ruta: "/tutor/casos/RUPE-B6R2TZ7C", archivo: "tutor-caso-localizado", anchos: M },
+  { ruta: "/tutor/casos/RUPE-3HN8WD2B", archivo: "tutor-caso-cerrado", anchos: M },
   { ruta: `${CASO}/ficha`, archivo: "tutor-ficha" },
   { ruta: `${CASO}/ficha?modal=visor`, archivo: "tutor-ficha-visor-carta", anchos: M, ventana: true },
   { ruta: `${CASO}/ficha?modal=visor&hoja=media-carta`, archivo: "tutor-ficha-visor-media-carta", anchos: M, ventana: true },
@@ -125,6 +126,35 @@ RUTAS.push(
   { ruta: `${CON_AV}/avistamientos/101`, archivo: "tutor-avistamiento-detalle", anchos: M },
   { ruta: `${CON_AV}/avistamientos/102`, archivo: "tutor-avistamiento-fallecido-oculta", anchos: M },
   { ruta: `${CON_AV}/avistamientos/102?foto=visible`, archivo: "tutor-avistamiento-fallecido-mostrada", anchos: M },
+);
+// P5 · seguimiento de la persona tutora y estatus público. Los casos y avistamientos son los sembrados; las capturas con modal se abren con una interacción real. Se capturan ANTES de abrir el detalle de
+// un avistamiento nuevo (abrirlo lo marca como visto) y el almacén se reinicia al terminar.
+const PEND = (nombre: string) => ({ name: nombre, exact: true });
+const abrirModal = (boton: string) => async (p: Page) => {
+  await p.getByRole("button", PEND(boton)).click();
+  await p.getByRole("dialog").waitFor();
+};
+RUTAS.push(
+  { ruta: "/estatus", archivo: "estatus-buscador", rol: null, anchos: M },
+  { ruta: "/estatus", archivo: "estatus-formato-invalido", rol: null, anchos: [390], preparar: async (p) => { await p.getByRole("textbox", { name: "Folio" }).fill("RUPE-OOOO1111"); await p.getByRole("button", { name: "Consultar folio" }).click(); await p.getByText("formato RUPE-XXXXXXXX").first().waitFor(); } },
+  { ruta: `/estatus/${FOLIO_EN_CURSO}`, archivo: "estatus-activo", rol: null, anchos: M },
+  { ruta: "/estatus/RUPE-B6R2TZ7C", archivo: "estatus-localizado", rol: null, anchos: [390] },
+  { ruta: "/estatus/RUPE-3HN8WD2B", archivo: "estatus-cerrado", rol: null, anchos: [390] },
+  { ruta: "/estatus/RUPE-ZZZZZZZZ", archivo: "estatus-no-encontrado", rol: null, anchos: [390] },
+  { ruta: "/tutor/consultar-folio", archivo: "tutor-consultar-folio", anchos: M },
+  { ruta: `/tutor/consultar-folio?folio=${FOLIO_EN_CURSO}`, archivo: "tutor-consultar-folio-resultado", anchos: [390] },
+  { ruta: "/tutor", archivo: "tutor-campana-con-contador", anchos: [390] },
+  { ruta: `${CASO}`, archivo: "tutor-caso-modal-localizar", anchos: [390], ventana: true, preparar: abrirModal("Marcar como localizado") },
+  { ruta: `${CASO}`, archivo: "tutor-caso-modal-cancelar", anchos: [390], ventana: true, preparar: abrirModal("Cancelar registro") },
+  { ruta: `${CASO}`, archivo: "tutor-caso-compartir-estatus", anchos: [390], ventana: true, preparar: abrirModal("Compartir estatus") },
+  { ruta: "/tutor/casos/RUPE-B6R2TZ7C", archivo: "tutor-caso-modal-cerrar", anchos: [390], ventana: true, preparar: abrirModal("Cerrar caso") },
+  { ruta: "/tutor/casos/RUPE-B6R2TZ7C", archivo: "tutor-caso-modal-reactivar-error", anchos: [390], ventana: true, preparar: async (p) => { await abrirModal("Reactivar caso")(p); await p.getByRole("dialog").getByRole("button", { name: "Reactivar caso" }).click(); await p.getByText("Escribe el motivo para continuar.").waitFor(); } },
+  { ruta: "/tutor/casos/RUPE-C2J9RK6Z", archivo: "tutor-caso-localizado-compartir-estatus", anchos: [390], ventana: true, preparar: abrirModal("Compartir estatus") },
+  { ruta: `${CON_AV}/avistamientos?desde=2026-10-06&hasta=2026-10-07&alcaldia=9`, archivo: "tutor-avistamientos-filtros-aplicados", anchos: [390] },
+  { ruta: `${CON_AV}/avistamientos?desde=2026-10-03&hasta=abc&alcaldia=99`, archivo: "tutor-avistamientos-filtros-error", anchos: [390] },
+  { ruta: "/tutor/casos/RUPE-N8D5GX3W/avistamientos", archivo: "tutor-avistamientos-nuevo", anchos: M },
+  { ruta: "/tutor/casos/RUPE-N8D5GX3W/avistamientos", archivo: "tutor-avistamientos-relevante", anchos: [390], preparar: async (p) => { await p.evaluate(() => fetch("/api/casos/RUPE-N8D5GX3W/avistamientos/301/relevante", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ relevante: true }) })); await p.reload({ waitUntil: "load" }); } },
+  { ruta: "/tutor/casos/RUPE-P3H8WD5N/avistamientos/201", archivo: "tutor-avistamiento-nuevo-detalle", anchos: [390] },
 );
 // Bloque 5a · Administrador: tablero (ADM-01) y usuarios (ADM-03 y MOD-10). Los modales se capturan como pantalla de teléfono.
 RUTAS.push(
