@@ -3,6 +3,7 @@ import "server-only";
 import type * as T from "../tipos";
 import type { Repositorios } from "../repos";
 import { ConflictoDeUnicidad } from "../repos/errores";
+import { qrPorToken } from "../dominio/qr";
 import { obtenerAlmacen, siguienteId, type Almacen } from "./almacen";
 import { transaccion } from "./transaccion";
 
@@ -110,7 +111,7 @@ export function crearRepositorios(almacen: () => Almacen = obtenerAlmacen): Repo
     },
     qr: {
       async activoDe(id) { return copia(a().qr.find((q) => q.idCasoExtravio === id && q.fechaInvalidacion === null)); },
-      async porToken(token) { return copia(a().qr.find((q) => q.tokenPublico === token)); }, // sensible a mayúsculas (E6)
+      async porToken(token) { return copia(qrPorToken(a().qr, token)); }, // tiempo constante y sensible a mayúsculas (E6)
       async deCaso(id) { return copia(a().qr.filter((q) => q.idCasoExtravio === id)); },
       /** R7: invalida el QR vigente y crea el nuevo en UNA transacción (si algo falla no queda el caso sin QR activo ni dos activos). */
       async regenerar(id, tokenNuevo, fecha) {
@@ -138,6 +139,33 @@ export function crearRepositorios(almacen: () => Almacen = obtenerAlmacen): Repo
         al.fotografias.push(f); al.avistamientos.push(nuevo);
         estados.forEach((e) => al.avistamientoEstados.push({ idAvistamiento: nuevo.idAvistamiento, idEstadoAnimal: e }));
         return copia(nuevo);
+      },
+      async registrarCompleto(alta) {
+        const al = a();
+        return copia(
+          transaccion(al, () => {
+            const foto: T.Fotografia = { ...alta.fotografia, idFotografia: siguienteId(al, "fotografia") };
+            foto.referenciaArchivo = `/api/fotografias/${foto.idFotografia}`; // ruta con guarda; la foto se vincula al ID del avistamiento, nunca a una persona visitante
+            al.contenidosFoto[foto.idFotografia] = { tipo: alta.contenidoFotografia.tipo, bytes: Uint8Array.from(alta.contenidoFotografia.bytes) };
+            al.fotografias.push(foto);
+            const av: T.Avistamiento = { ...alta.avistamiento, idAvistamiento: siguienteId(al, "avistamiento"), idFotografia: foto.idFotografia };
+            al.avistamientos.push(av);
+            alta.estados.forEach((e) => al.avistamientoEstados.push({ idAvistamiento: av.idAvistamiento, idEstadoAnimal: e }));
+            if (alta.movimiento) {
+              const previos = al.historial.filter((m) => m.idCasoExtravio === av.idCasoExtravio);
+              al.historial.push({ idCasoExtravio: av.idCasoExtravio, consecutivo: previos.reduce((mx, x) => Math.max(mx, x.consecutivo), 0) + 1, fechaHora: alta.movimiento.fechaHora, tipoMovimiento: alta.movimiento.tipoMovimiento, idEstadoCaso: alta.movimiento.idEstadoCaso, idUsuario: null });
+              const caso = al.casos.find((c) => c.idCasoExtravio === av.idCasoExtravio)!;
+              caso.idEstadoCaso = alta.movimiento.idEstadoCaso;
+              caso.fechaUltimaModificacion = alta.movimiento.fechaHora;
+            }
+            let notificacion: T.Notificacion | undefined;
+            if (alta.notificacion) {
+              notificacion = { ...alta.notificacion, idNotificacion: siguienteId(al, "notificacion"), idAvistamiento: av.idAvistamiento };
+              al.notificaciones.push(notificacion);
+            }
+            return { avistamiento: av, notificacion };
+          }),
+        );
       },
       async moderar(id, visible, motivo) {
         const x = a().avistamientos.find((v) => v.idAvistamiento === id);

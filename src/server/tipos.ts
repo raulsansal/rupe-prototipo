@@ -34,9 +34,15 @@ export type Avistamiento = {
   idAvistamiento: number; fechaHoraAvistamiento: string; direccionAproximada?: string; coloniaZona?: string; referenciasDelLugar?: string;
   latitud: number; longitud: number; precisionGps?: number; comentario?: string; fechaHoraEnvio: string;
   visible: boolean; motivoModeracion?: string; idAlcaldia: number; idCasoExtravio: number; idFotografia: number;
+  /** SOLO DEL PROTOTIPO (sin columna en el diccionario): la latitud y la longitud salen de la alcaldía elegida, no de un mapa. Se retira cuando haya mapa (HU 031). */
+  ubicacionSimulada?: boolean;
 };
 export type AvistamientoEstadoAnimal = { idAvistamiento: number; idEstadoAnimal: number };
-export type Notificacion = { idNotificacion: number; tipo: "nuevo avistamiento"; canal: "correo"; fechaEnvio: string; estadoEnvio: "enviada" | "fallida"; idAvistamiento: number };
+export type Notificacion = {
+  idNotificacion: number; tipo: "nuevo avistamiento"; canal: "correo"; fechaEnvio: string; estadoEnvio: "enviada" | "fallida"; idAvistamiento: number;
+  /** SOLO DEL PROTOTIPO (sin columna): el asunto y el cuerpo que se habrían enviado, para las pruebas. Ninguna ruta lo expone. */
+  mensajeSimulado?: { asunto: string; cuerpo: string[] };
+};
 export type AccionBitacoraReg = { idBitacoraAdmin: number; tipoAccion: TipoAccion; idAfectada: string; motivo?: string; detalle?: string; fechaHora: string; idUsuario: number };
 
 // Catálogos

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ALFABETO_TOKEN, LONGITUD_TOKEN, esTokenValido, generarTokenQr, planRegeneracion, qrActivo, qrVigentePorToken, type RegistroQr } from "./qr";
+import { ALFABETO_TOKEN, LONGITUD_TOKEN, esTokenValido, generarTokenQr, igualesEnTiempoConstante, planRegeneracion, qrActivo, qrPorToken, qrVigentePorToken, type RegistroQr } from "./qr";
 
 test("R27 · el token tiene 32 caracteres base62 y no se repite en 5000 generaciones", () => {
   const vistos = new Set<string>();
@@ -67,4 +67,21 @@ test("R27 · vigencia: solo el token del QR activo es vigente; el invalidado y e
   assert.equal(qrVigentePorToken(qrs, "zq9".padEnd(32, "y")), undefined, "E6: distingue mayúsculas");
   assert.equal(qrVigentePorToken(qrs, "no-existe"), undefined);
   assert.ok(qrs[0].fechaInvalidacion! >= qrs[0].fechaGeneracion, "invalidación ≥ generación");
+});
+
+test("R27 · la búsqueda por token recorre TODOS los códigos (tiempo constante: sin cortar en la primera coincidencia) y distingue mayúsculas", () => {
+  let lecturas = 0;
+  const tokens = ["A".repeat(32), "B".repeat(32), "C".repeat(32), "D".repeat(32)];
+  const qrs = tokens.map((t, i) => ({ idCodigoQr: i, idCasoExtravio: 1, fechaGeneracion: "x", fechaInvalidacion: i === 3 ? null : "y", get tokenPublico() { lecturas++; return t; } }));
+  for (const [buscado, esperado] of [[tokens[0], 0], [tokens[3], 3], ["a".repeat(32), undefined], ["Z".repeat(32), undefined]] as const) {
+    lecturas = 0;
+    assert.equal(qrPorToken(qrs, buscado)?.idCodigoQr, esperado);
+    assert.equal(lecturas, qrs.length, `se comparó con ${lecturas} de ${qrs.length} códigos`);
+  }
+  lecturas = 0;
+  for (const malo of ["", "corto", "A".repeat(31), "A".repeat(33), `${"A".repeat(31)}-`, `${"A".repeat(31)} `, `${"A".repeat(30)}ñ1`, undefined as unknown as string, 5 as unknown as string]) assert.equal(qrPorToken(qrs, malo), undefined);
+  assert.equal(lecturas, 0, "un formato inválido ni siquiera se compara");
+  assert.equal(igualesEnTiempoConstante("abc", "abc"), true);
+  assert.equal(igualesEnTiempoConstante("abc", "abd"), false);
+  assert.equal(igualesEnTiempoConstante("abc", "abcd"), false);
 });

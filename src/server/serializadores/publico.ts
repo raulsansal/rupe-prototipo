@@ -7,17 +7,18 @@ import type { CasoExtravio, Fotografia, Perro } from "../tipos";
 export const CAMPOS_FICHA_PUBLICA = ["nombre", "sexo", "raza", "edadValor", "edadUnidad", "tamano", "color", "caracteristicasDistintivas", "fotografiaUrl", "fechaExtravio", "alcaldia", "coloniaZona", "folio", "estado"] as const satisfies readonly (keyof FichaPublica)[];
 export const CAMPOS_CONSULTA_ESTATUS = ["folio", "estado", "fechaCambioEstado"] as const;
 export const CAMPOS_CONFIRMACION_AVISTAMIENTO = ["folio", "fechaHoraEnvio"] as const;
+export const CAMPOS_CONFIRMACION_REPORTE = ["id", "folio", "fechaHoraEnvio"] as const;
 
 export type NombresDeCatalogo = { raza: string; alcaldia: FichaPublica["alcaldia"]; estado: FichaPublica["estado"] };
 
-/** Las fotos subidas por la persona tutora se sirven por una ruta con guarda de dueño: no son públicas hasta que P3/P4 las publiquen con su propia ruta. */
+/** Las fotos subidas se guardan tras una ruta con guarda de dueño (/api/fotografias/<id>): la ficha pública NUNCA expone esa ruta; usa la ruta pública de la foto del caso (HU 024, P4). */
 const esFotoPrivada = (ref: string) => ref.startsWith("/api/fotografias/");
 
 /** Ficha pública: solo columnas P. Con la raza «Otra» se muestra la raza especificada (también P). */
 export function aFichaPublica(caso: CasoExtravio, perro: Perro, foto: Fotografia, nombres: NombresDeCatalogo): FichaPublica {
   const ficha: FichaPublica = {
     nombre: perro.nombre, sexo: perro.sexo, raza: perro.razaEspecificada ?? nombres.raza, edadValor: perro.edadValor, edadUnidad: perro.edadUnidad, tamano: perro.tamano, color: perro.color,
-    fotografiaUrl: esFotoPrivada(foto.referenciaArchivo) ? "" : foto.referenciaArchivo, fechaExtravio: caso.fechaExtravio, alcaldia: nombres.alcaldia, coloniaZona: caso.coloniaZona, folio: caso.folio as Folio, estado: nombres.estado,
+    fotografiaUrl: esFotoPrivada(foto.referenciaArchivo) ? `/api/fichas/${caso.folio}/fotografia` : foto.referenciaArchivo, fechaExtravio: caso.fechaExtravio, alcaldia: nombres.alcaldia, coloniaZona: caso.coloniaZona, folio: caso.folio as Folio, estado: nombres.estado,
   };
   if (perro.caracteristicasDistintivas) ficha.caracteristicasDistintivas = perro.caracteristicasDistintivas;
   return ficha;
@@ -28,3 +29,6 @@ export const aConsultaEstatus = (folio: string, estado: FichaPublica["estado"], 
 
 /** Lo único que recibe quien reporta un avistamiento: el folio y cuándo se recibió. Todas las columnas del avistamiento son reservadas. */
 export const aConfirmacionAvistamiento = (folio: string, fechaHoraEnvio: string) => ({ folio, fechaHoraEnvio });
+
+/** Confirmación de un reporte (HU 035): el ID del avistamiento, el folio y cuándo se recibió. Nunca el token, la ubicación ni nada de la persona tutora. */
+export const aConfirmacionDeReporte = (id: number, folio: string, fechaHoraEnvio: string) => ({ id, folio, fechaHoraEnvio });

@@ -282,6 +282,11 @@ async function pruebas() {
   ver(invalido.estado === 422 && campos === "alcaldia,fecha,foto,nombre" && json.status === 400, "POST /api/casos inválido: 422 con errores por campo (nombre, alcaldía, fecha futura y foto que no es JPG/PNG por sus bytes); sin multipart: 400", invalido, `un cuerpo JSON en vez de multipart → HTTP ${json.status}`);
   const ficha = await peticion("GET", `/api/fichas/${folioNuevo}`);
   ver(ficha.estado === 200 && !/Calle Reservada|tarde|Rosa|Hern|api\/fotografias/i.test(ficha.texto), "la ficha pública del caso nuevo: 200 y sin calle, momento, datos de la persona ni la ruta de la foto", ficha);
+  const fotoPublica = await peticion("GET", `/api/fichas/${folioNuevo}/fotografia`);
+  const fotoPrivada = (JSON.parse(ficha.texto) as { ficha: { fotografiaUrl?: string } }).ficha;
+  const idDeFoto = /\/api\/fotografias\/(\d+)/.exec(conf.texto)?.[1] ?? "0";
+  const fotoPrivadaSinSesion = await peticion("GET", `/api/fotografias/${idDeFoto}`);
+  ver(fotoPrivada.fotografiaUrl === `/api/fichas/${folioNuevo}/fotografia` && fotoPublica.estado === 200 && fotoPublica.cabeceras.get("content-type") === "image/jpeg" && fotoPrivadaSinSesion.estado === 401, "P4 · la ficha pública apunta a la ruta pública de la foto del perro (200 image/jpeg sin sesión) y la ruta privada /api/fotografias/<id> sigue dando 401 sin sesión", fotoPublica, `ficha ${fotoPrivada.fotografiaUrl} · privada sin sesión ${fotoPrivadaSinSesion.estado}`);
 
   console.log("\n— P1: casos que faltaban —");
   const diego = USUARIOS_INICIALES.find((u) => u.id === 7)!; // cuenta del seed sin contraseña: se bloquea sin tocar las reales

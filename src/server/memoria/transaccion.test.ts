@@ -72,3 +72,17 @@ test("Transacción · si algo falla después de invalidar el QR vigente, la fila
   assert.equal(JSON.stringify(almacen.qr), antes);
   assert.equal(almacen.qr.filter((q) => q.idCasoExtravio === 1 && q.fechaInvalidacion === null).length, 1);
 });
+
+test("Transacción · si algo falla después de cambiar el estado de un caso, la fila del caso se RESTAURA", () => {
+  const { almacen } = nuevoContexto();
+  const antes = JSON.stringify(almacen.casos);
+  const caso = almacen.casos[0];
+  assert.throws(() =>
+    transaccion(almacen, () => {
+      caso.idEstadoCaso = 99;
+      caso.fechaUltimaModificacion = "2030-01-01T00:00:00Z";
+      throw new Error("falla a mitad");
+    }),
+  );
+  assert.equal(JSON.stringify(almacen.casos), antes);
+});

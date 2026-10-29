@@ -1,3 +1,4 @@
+import { NOTA_UBICACION_SIMULADA } from "@/components/features/avistamiento/datos";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { FotoAvistamiento } from "@/components/features/avistamientos/FotoAvistamiento";
@@ -52,6 +53,7 @@ export default async function DetalleAvistamiento({ params, searchParams }: Page
         ]}
       />
       <MapaIlustrativo etiqueta="Mapa ilustrativo con el punto del avistamiento" punto={{ latitud: a.latitud, longitud: a.longitud }} />
+      {a.ubicacionSimulada && <p className="text-small text-text-muted">{NOTA_UBICACION_SIMULADA}.</p>}
       {CATEGORIAS_ESTADO_ANIMAL.map((c) => {
         const elegidos = grupos[c.id];
         if (c.id === 3 && fallecido)

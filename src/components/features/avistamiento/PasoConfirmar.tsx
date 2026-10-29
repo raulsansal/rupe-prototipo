@@ -3,11 +3,12 @@ import { Alerta } from "@/components/ui/Alerta";
 import { nombresElegidos } from "@/lib/estadoAnimal";
 import { formatearFechaCorta } from "@/lib/formato";
 import type { FichaPublica } from "@/mocks/tipos";
-import { alcaldiaDelPunto, formatoCoordenada, NOMBRE_FORMA, type DatosAvistamiento } from "./datos";
+import { NOTA_UBICACION_SIMULADA, type DatosAvistamiento } from "./datos";
 
 type Props = {
   ficha: Pick<FichaPublica, "folio" | "nombre">;
   datos: DatosAvistamiento;
+  alcaldias: { id: number; nombre: string }[];
 };
 
 function Fila({ etiqueta, children }: { etiqueta: string; children: React.ReactNode }) {
@@ -19,10 +20,10 @@ function Fila({ etiqueta, children }: { etiqueta: string; children: React.ReactN
   );
 }
 
-/** Paso 6 (PUB-05.6): resumen de lo capturado antes de enviar; al enviar se muestra PUB-06. */
-export function PasoConfirmar({ ficha, datos }: Props) {
+/** Paso 6 (PUB-05.6): resumen de lo capturado antes de enviar; al enviar se muestra PUB-06 con el ID del reporte. */
+export function PasoConfirmar({ ficha, datos, alcaldias }: Props) {
   const estados = nombresElegidos(datos.estados);
-  const alcaldia = alcaldiaDelPunto(datos);
+  const alcaldia = alcaldias.find((a) => String(a.id) === datos.alcaldiaElegida)?.nombre;
   return (
     <div className="flex flex-col gap-4">
       <section aria-labelledby="resumen-titulo" className="rounded-tarjeta border border-border bg-surface p-4">
@@ -45,20 +46,14 @@ export function PasoConfirmar({ ficha, datos }: Props) {
           </dl>
         </div>
         <dl className="mt-3 flex flex-col gap-2 text-small">
-          <Fila etiqueta="Ubicación">{NOMBRE_FORMA[datos.forma]}</Fila>
-          {datos.direccion && datos.forma === "direccion" && <Fila etiqueta="Dirección aproximada">{datos.direccion}</Fila>}
-          <Fila etiqueta="Alcaldía">{alcaldia ?? "Sin confirmar"}</Fila>
-          {datos.punto && (
-            <Fila etiqueta="Punto confirmado">
-              {formatoCoordenada(datos.punto.latitud)}, {formatoCoordenada(datos.punto.longitud)}
-              {datos.forma === "gps" && datos.precisionGps !== undefined && ` (± ${datos.precisionGps} m)`}
-            </Fila>
-          )}
+          <Fila etiqueta="Dirección aproximada">{datos.direccion || "Sin capturar"}</Fila>
+          <Fila etiqueta="Alcaldía">{alcaldia ?? "Sin elegir"}</Fila>
           {datos.colonia && <Fila etiqueta="Colonia o zona">{datos.colonia}</Fila>}
           {datos.referencias && <Fila etiqueta="Referencias">{datos.referencias}</Fila>}
           <Fila etiqueta="Estado del animal">{estados.length ? estados.join(", ") : "Sin capturar"}</Fila>
           <Fila etiqueta="Comentario">{datos.comentario || "Sin comentario"}</Fila>
         </dl>
+        <p className="mt-3 text-caption text-text-muted">{NOTA_UBICACION_SIMULADA}.</p>
       </section>
       <Alerta tipo="info" titulo="Qué pasa al enviar">
         Tras el envío, la persona tutora recibe un aviso con tu reporte. Tus datos personales no se piden ni se guardan.

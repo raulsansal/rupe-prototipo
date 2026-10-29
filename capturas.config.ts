@@ -3,7 +3,7 @@ import { botonContinuar, capturarRegistroCompleto, ENTRADA_FOTO, registrarPorLaI
 import { credencial, fijarVersionAviso } from "./scripts/sesion-pruebas";
 import { USUARIOS_INICIALES } from "./src/mocks/usuarios";
 import { FOLIO_CON_AVISTAMIENTOS, FOLIO_UN_AVISTAMIENTO } from "./src/mocks/avistamientos";
-import { FOLIO_EN_CURSO } from "./src/mocks/casos";
+import { CASOS_ORIGEN, FOLIO_EN_CURSO } from "./src/mocks/casos";
 import { FOLIO_MODERACION_ACTIVO, FOLIO_MODERACION_CANCELADO, FOLIO_MODERACION_DESHABILITADO } from "./src/mocks/moderacion";
 
 // Configuración del script `npm run capturas`.
@@ -22,6 +22,22 @@ export type Captura = {
   preparar?: (pagina: Page, contexto: { base: string }) => Promise<void>;
 };
 
+/** Desde el paso 4 de una variante: completa fecha, hora, foto y ubicación y envía el reporte (la captura del rechazo intercepta la respuesta: el seed del Prototipo deja el catálogo activo). */
+async function enviarReporteCompleto(p: Page) {
+  const boton = p.getByRole("button", { name: /^(Continuar|Enviar reporte)$/ });
+  const paso = (n: number) => p.locator(`[data-paso="${n}"]`);
+  await paso(4).locator("input[type=date]").fill("2026-10-18");
+  await paso(4).locator("input[type=time]").fill("10:30");
+  for (let i = 0; i < 3; i++) await boton.click(); // 5, 6 y «Enviar»: sin foto ni ubicación regresa al paso 2
+  await paso(2).locator("input[type=file]:not([capture])").setInputFiles({ name: "avistamiento.png", mimeType: "image/png", buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64") });
+  await paso(2).getByAltText("Vista previa de la fotografía").waitFor();
+  await boton.click();
+  await p.getByLabel(/Dirección aproximada/).fill("Av. Insurgentes y Chilpancingo");
+  await p.getByLabel(/Alcaldía/).selectOption({ label: "Cuauhtémoc" });
+  for (let i = 0; i < 4; i++) await boton.click();
+  await paso(4).getByText("Una de las opciones elegidas ya no está disponible. Revisa tus selecciones.").first().waitFor();
+}
+
 export const RUTAS: Captura[] = [
   { ruta: "/dev/fundaciones" },
   { ruta: "/dev/componentes", secciones: ["botones", "chips", "formularios", "navegacion", "retroalimentacion", "graficas"] },
@@ -34,6 +50,8 @@ export const RUTAS: Captura[] = [
 ];
 const FICHA = `/ficha/${FOLIO_EN_CURSO}`;
 const AVISTAMIENTO = `${FICHA}/avistamiento`;
+const TOKEN_MAX = CASOS_ORIGEN.find((c) => c.folio === FOLIO_EN_CURSO)!.tokenPublico;
+const FOLIO_LOCALIZADO = CASOS_ORIGEN.find((c) => c.estado === "Localizado")!.folio;
 const M = [390]; // solo móvil: variantes de pantalla
 
 // Bloque 3 · Visitante y transversales. A 1280 px solo PUB-01, PUB-03 (A), PUB-05 (paso 1 y 4) y las transversales.
@@ -43,6 +61,13 @@ RUTAS.push(
   { ruta: `${FICHA}?estado=localizado`, archivo: "ficha-b-localizado", anchos: M },
   { ruta: `${FICHA}?estado=no-disponible`, archivo: "ficha-c-no-disponible", anchos: M },
   { ruta: `${AVISTAMIENTO}/enviado`, archivo: "avistamiento-enviado", anchos: M },
+  // P4: la ficha real por folio y por QR (la clave de 32 caracteres), el QR no vigente, un caso Localizado real y el reporte con su ID.
+  { ruta: FICHA, archivo: "ficha-por-folio", anchos: M },
+  { ruta: `/ficha/${TOKEN_MAX}`, archivo: "ficha-por-qr", anchos: M },
+  { ruta: `/ficha/${"x".repeat(32)}`, archivo: "ficha-qr-no-vigente", anchos: M },
+  { ruta: `/ficha/${FOLIO_LOCALIZADO}`, archivo: "ficha-localizado-real", anchos: M },
+  { ruta: `/ficha/${FOLIO_LOCALIZADO}/avistamiento`, archivo: "avistamiento-no-disponible", anchos: M },
+  { ruta: `${AVISTAMIENTO}/enviado?id=504`, archivo: "avistamiento-enviado-con-id", anchos: M },
   { ruta: `${AVISTAMIENTO}?paso=1`, archivo: "avistamiento-paso-1" },
   { ruta: `${AVISTAMIENTO}?paso=2`, archivo: "avistamiento-paso-2" },
   { ruta: `${AVISTAMIENTO}?paso=2&datos=ejemplo`, archivo: "avistamiento-paso-2-con-foto" },
@@ -50,7 +75,10 @@ RUTAS.push(
   { ruta: `${AVISTAMIENTO}?paso=4`, archivo: "avistamiento-paso-4" },
   { ruta: `${AVISTAMIENTO}?paso=5&datos=ejemplo`, archivo: "avistamiento-paso-5", anchos: M },
   { ruta: `${AVISTAMIENTO}?paso=6&datos=ejemplo`, archivo: "avistamiento-paso-6", anchos: M },
-  ...["direccion", "mapa", "gps", "denegado"].map((u): Captura => ({ ruta: `${AVISTAMIENTO}?ubicacion=${u}`, archivo: `avistamiento-ubicacion-${u}`, anchos: M })),
+  // Paso 5: con «Libre» (placeholder normal), con «Resguardado» (invitación a dejar un correo y nota) y el rechazo de una opción que ya no está disponible.
+  { ruta: `${AVISTAMIENTO}?paso=5&caso=libre`, archivo: "avistamiento-comentario-libre", anchos: [390] },
+  { ruta: `${AVISTAMIENTO}?paso=5&caso=combinadas`, archivo: "avistamiento-comentario-resguardado", anchos: [390] },
+  { ruta: `${AVISTAMIENTO}?caso=no-disponible`, archivo: "avistamiento-opcion-no-disponible", anchos: [390], preparar: async (p) => { await p.route("**/api/avistamientos", (r) => r.fulfill({ status: 422, contentType: "application/json", body: JSON.stringify({ error: { codigo: "VALIDACION", mensaje: "Revisa los campos marcados.", campos: { estadosAnimal: "Una de las opciones elegidas ya no está disponible. Revisa tus selecciones." } } }) })); await enviarReporteCompleto(p); } },
   ...["vacio", "combinadas", "fallecido"].map((c): Captura => ({ ruta: `${AVISTAMIENTO}?caso=${c}`, archivo: `avistamiento-estado-animal-${c}`, anchos: M })),
   { ruta: "/ruta-que-no-existe", archivo: "tra-01-no-encontrada" },
   { ruta: "/dev/transversales/error", archivo: "tra-04-error" },

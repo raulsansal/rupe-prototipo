@@ -72,7 +72,12 @@ export async function fotografiaDelCaso(sesion: SesionActual | undefined, idFoto
   exigirRol(sesion);
   const [dueno, contenido] = [await ctx.repos.casos.duenoDeFotografia(idFotografia), await ctx.repos.casos.contenidoDeFotografia(idFotografia)];
   if (dueno === undefined || !contenido) throw noEncontrado();
-  exigirAccesoAlCaso(sesion, dueno, "consultar");
+  const persona = exigirAccesoAlCaso(sesion, dueno, "consultar");
+  // La foto de un avistamiento OCULTO por moderación no la ve la persona tutora (solo el Administrador, en consulta): mismo 404 que si no existiera.
+  if (persona.rol === "Tutor") {
+    const avistamiento = (await ctx.repos.avistamientos.todos()).find((a) => a.idFotografia === idFotografia);
+    if (avistamiento && !avistamiento.visible) throw noEncontrado();
+  }
   return contenido;
 }
 

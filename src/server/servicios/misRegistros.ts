@@ -101,6 +101,8 @@ export async function exigirCasoPropio(sesion: SesionActual | undefined, folio: 
 export type AvistamientoDelCaso = {
   id: number; fechaHora: string; alcaldia: string; coloniaZona?: string; direccionAproximada?: string; referencias?: string; latitud: number; longitud: number;
   estadosAnimal: string[]; comentario?: string; fotografiaUrl: string; fallecido: boolean;
+  /** La ubicación es una ESTIMACIÓN simulada del Prototipo (sin mapa): las pantallas lo avisan. */
+  ubicacionSimulada: boolean;
 };
 
 /** Avistamientos VISIBLES del caso (los ocultos por moderación no salen), por fecha del avistamiento descendente (HU 039). Hoy solo los sembrados: los reales son de P4. */
@@ -115,7 +117,7 @@ async function visiblesDelCaso(c: Cargado, ctx: Contexto): Promise<AvistamientoD
     lista.push({
       id: a.idAvistamiento, fechaHora: a.fechaHoraAvistamiento, alcaldia: alcaldias.find((x) => x.idAlcaldia === a.idAlcaldia)?.nombre ?? "", coloniaZona: a.coloniaZona, direccionAproximada: a.direccionAproximada,
       referencias: a.referenciasDelLugar, latitud: a.latitud, longitud: a.longitud, estadosAnimal, comentario: a.comentario, fotografiaUrl: (await repos.casos.fotografia(a.idFotografia))?.referenciaArchivo ?? "",
-      fallecido: esFallecido({ estadosAnimal }),
+      fallecido: esFallecido({ estadosAnimal }), ubicacionSimulada: a.ubicacionSimulada === true,
     });
   }
   return lista.sort((x, y) => y.fechaHora.localeCompare(x.fechaHora) || y.id - x.id);
@@ -129,7 +131,7 @@ export type ListaDeAvistamientos = {
 /** TUT-08: un avistamiento «Fallecido» llega a la lista sin fotografía ni estados (solo el aviso sobrio, HU 039). */
 export async function avistamientosDelCaso(sesion: SesionActual | undefined, folio: string, ctx: Contexto = contextoPorDefecto()): Promise<ListaDeAvistamientos> {
   const c = await casoPropio(sesion, folio, ctx);
-  const items = (await visiblesDelCaso(c, ctx)).map((a) => ({ id: a.id, fechaHora: a.fechaHora, alcaldia: a.alcaldia, coloniaZona: a.coloniaZona, estados: a.fallecido ? [] : a.estadosAnimal, fotografiaUrl: a.fallecido ? undefined : a.fotografiaUrl, fallecido: a.fallecido }));
+  const items = (await visiblesDelCaso(c, ctx)).map((a) => ({ id: a.id, fechaHora: a.fechaHora, alcaldia: a.alcaldia, coloniaZona: a.coloniaZona, ubicacionSimulada: a.ubicacionSimulada, estados: a.fallecido ? [] : a.estadosAnimal, fotografiaUrl: a.fallecido ? undefined : a.fotografiaUrl, fallecido: a.fallecido }));
   return { folio: c.caso.folio, nombrePerro: c.perro.nombre, fotografiaPerro: c.foto?.referenciaArchivo ?? "", registro: c.caso.fechaRegistro, sexo: c.perro.sexo, raza: c.perro.razaEspecificada ?? c.nombres.raza, tamano: c.perro.tamano, color: c.perro.color, items };
 }
 
@@ -144,6 +146,6 @@ export async function avistamientoDelCaso(sesion: SesionActual | undefined, foli
 /** TUT-09: marcadores en orden cronológico (el más antiguo primero), que numera los puntos y traza la ruta. */
 export async function puntosDelMapa(sesion: SesionActual | undefined, folio: string, ctx: Contexto = contextoPorDefecto()) {
   const c = await casoPropio(sesion, folio, ctx);
-  const puntos = [...(await visiblesDelCaso(c, ctx))].reverse().map(({ id, fechaHora, alcaldia, coloniaZona, latitud, longitud }) => ({ id, fechaHora, alcaldia, coloniaZona, latitud, longitud }));
+  const puntos = [...(await visiblesDelCaso(c, ctx))].reverse().map(({ id, fechaHora, alcaldia, coloniaZona, latitud, longitud, ubicacionSimulada }) => ({ id, fechaHora, alcaldia, coloniaZona, latitud, longitud, ubicacionSimulada }));
   return { folio: c.caso.folio, registro: c.caso.fechaRegistro, puntos };
 }

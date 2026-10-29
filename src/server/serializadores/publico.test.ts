@@ -3,8 +3,10 @@ import { test } from "node:test";
 import { CASOS_ORIGEN } from "../../mocks/casos";
 import { USUARIOS_INICIALES } from "../../mocks/usuarios";
 import { nuevoContexto } from "../pruebas/auxiliares";
-import { consultarEstatusPorFolio, consultarFichaPorFolio, registrarAvistamiento } from "../servicios/fichas";
-import { CAMPOS_CONFIRMACION_AVISTAMIENTO, CAMPOS_CONSULTA_ESTATUS, CAMPOS_FICHA_PUBLICA } from "./publico";
+import { consultarEstatusPorFolio, consultarFichaPorFolio } from "../servicios/fichas";
+import { registrarAvistamiento } from "../servicios/avistamientos";
+import { jpeg } from "../pruebas/imagenes";
+import { CAMPOS_CONFIRMACION_REPORTE, CAMPOS_CONSULTA_ESTATUS, CAMPOS_FICHA_PUBLICA } from "./publico";
 
 const { ctx, almacen } = nuevoContexto();
 
@@ -40,8 +42,8 @@ test("D6 · ninguna columna reservada ni dato de la persona tutora aparece en la
       textos.push(JSON.stringify(e));
     }
   }
-  const conf = await registrarAvistamiento({ canal: "folio", folio: "RUPE-K7M4XQ9T" }, { fechaHoraAvistamiento: "2026-10-18T10:00:00Z", latitud: 19.43, longitud: -99.13, idAlcaldia: 6, estadosAnimal: [1, 7], fotografia: { formato: "JPG", tamanoBytes: 50_000, referenciaArchivo: "/mocks/x.svg" } }, ctx);
-  assert.deepEqual(Object.keys(conf), [...CAMPOS_CONFIRMACION_AVISTAMIENTO]);
+  const conf = await registrarAvistamiento({ canal: "folio", folio: "RUPE-K7M4XQ9T" }, { datos: { fecha: "2026-10-17", hora: "10:00", direccion: "Calle de prueba 1", idAlcaldia: 6, estadosAnimal: [1, 7] }, foto: { bytes: jpeg(), tipoDeclarado: "image/jpeg" } }, ctx);
+  assert.deepEqual(Object.keys(conf), [...CAMPOS_CONFIRMACION_REPORTE]);
   textos.push(JSON.stringify(conf));
   const todo = textos.join("\n");
   for (const c of almacen.casos) for (const secreto of reservadosDe(c.idCasoExtravio)) assert.ok(!todo.includes(secreto), `se filtró «${secreto.slice(0, 20)}»`);

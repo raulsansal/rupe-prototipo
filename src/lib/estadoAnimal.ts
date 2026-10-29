@@ -4,6 +4,14 @@ import { CATEGORIAS_ESTADO_ANIMAL, ESTADOS_ANIMAL, ID_CATEGORIA_CONDUCTA, ID_EST
 /** Estados elegidos por categoría: ids de la categoría (varios en «Integridad», uno o ninguno en las demás). */
 export type SeleccionEstadoAnimal = Record<number, number[]>;
 
+/** Mensaje (sin identificadores internos) cuando llega una opción desactivada o inexistente del catálogo; lo usan el servidor y la pantalla. */
+export const MENSAJE_OPCION_NO_DISPONIBLE = "Una de las opciones elegidas ya no está disponible. Revisa tus selecciones.";
+
+/** «Contención y ubicación» (categoría 2): ids de «Resguardado / En custodia temporal», «En clínica o veterinaria» y «En albergue / Centro de control». Se identifican por id, no por texto. */
+export const IDS_BAJO_RESGUARDO: readonly number[] = [8, 9, 10];
+/** El animal está bajo resguardo de quien reporta: depende SOLO de la categoría «Contención y ubicación» (también con «Fallecido» en Integridad). */
+export const bajoResguardo = (s: SeleccionEstadoAnimal) => (s[2] ?? []).some((id) => IDS_BAJO_RESGUARDO.includes(id));
+
 export const SELECCION_VACIA: SeleccionEstadoAnimal = { 1: [], 2: [], 3: [], 4: [] };
 
 const estado = (id: number): EstadoAnimal => ESTADOS_ANIMAL.find((e) => e.id === id)!;

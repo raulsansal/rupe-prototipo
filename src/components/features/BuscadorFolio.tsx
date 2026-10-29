@@ -8,7 +8,7 @@ import { PATRON_FOLIO } from "@/mocks/tipos";
 
 const ID_CAMPO = "campo-folio";
 
-/** Buscador por folio (PUB-01). La validación del formato es solo visual; el folio sí existe o no lo decide la ficha. */
+/** Buscador por folio (PUB-01, HU 025): Buscar y Limpiar. Valida el patrón RUPE-XXXXXXXX (8 letras o números, sin I ni O) y lleva a la ficha pública; si el folio no existe, la ficha responde 404 con «Folio no encontrado». */
 export function BuscadorFolio() {
   const router = useRouter();
   const [valor, setValor] = useState("");
@@ -27,8 +27,14 @@ export function BuscadorFolio() {
     document.getElementById(ID_CAMPO)?.focus();
   }
 
+  function limpiar() {
+    setValor("");
+    setError(undefined);
+    document.getElementById(ID_CAMPO)?.focus();
+  }
+
   return (
-    <form noValidate onSubmit={alEnviar} className="flex flex-col gap-3 md:grid md:grid-cols-[minmax(0,1fr)_auto] md:items-start md:gap-4">
+    <form noValidate onSubmit={alEnviar} className="flex flex-col gap-3 md:grid md:grid-cols-[minmax(0,1fr)_auto_auto] md:items-start md:gap-4">
       <CampoTexto
         id={ID_CAMPO}
         etiqueta="Folio"
@@ -43,7 +49,10 @@ export function BuscadorFolio() {
         error={error}
       />
       <Boton type="submit" icono="search" className="md:mt-6">
-        Consultar
+        Buscar
+      </Boton>
+      <Boton type="button" variante="secundario" className="md:mt-6" onClick={limpiar}>
+        Limpiar
       </Boton>
     </form>
   );

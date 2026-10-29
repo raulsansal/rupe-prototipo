@@ -1,17 +1,19 @@
-// npm run preparar-fotos [-- --portada] [--origen=carpeta] [--salida=carpeta]
+// npm run preparar-fotos [-- --portada | --avistamientos] [--origen=carpeta] [--salida=carpeta]
 // Sin opciones: lee fotos-originales/<FOLIO>.{jpg,png,webp} (un archivo por caso sembrado) y escribe src/server/seed/fotos/<FOLIO>.jpg (JPEG, lado máx. 1600 px, sin metadatos).
 // Con --portada: lee fotos-originales/portada-{claro,oscuro}.{jpg,png,webp} y escribe public/portada/portada-{claro,oscuro}.jpg (ancho máx. 2520 px, ≈ ≤ 350 KB).
+// Con --avistamientos: lee fotos-originales/avistamientos/<ID>.{jpg,png,webp} (un archivo por avistamiento sembrado; 105 y 303, ocultos por moderación, son opcionales) y escribe src/server/seed/fotos/avistamientos/<ID>.jpg.
 // Nunca amplía. Después de escribir relee cada resultado y comprueba que es JPEG, sin EXIF y dentro del límite; imprime una tabla y termina con error si algo falla.
 // Las imágenes finales y fotos-originales/ no se agregan a git desde aquí (los originales están en .gitignore).
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, extname, join } from "node:path";
-import { CASOS_MODERACION } from "../src/mocks/moderacion";
+import { AVISTAMIENTOS_MODERACION, CASOS_MODERACION } from "../src/mocks/moderacion";
 import { ANCHO_MAXIMO_PORTADA, LADO_MAXIMO_CASO, prepararImagen, verificarResultado } from "../src/server/imagenes/prepararImagen";
 
 const arg = (nombre: string) => process.argv.find((a) => a.startsWith(`--${nombre}=`))?.split("=").slice(1).join("=");
 const portada = process.argv.includes("--portada");
-const origen = arg("origen") ?? "fotos-originales";
-const salida = arg("salida") ?? (portada ? "public/portada" : "src/server/seed/fotos");
+const avistamientos = process.argv.includes("--avistamientos");
+const origen = arg("origen") ?? (avistamientos ? "fotos-originales/avistamientos" : "fotos-originales");
+const salida = arg("salida") ?? (portada ? "public/portada" : avistamientos ? "src/server/seed/fotos/avistamientos" : "src/server/seed/fotos");
 const EXTENSIONES = new Set([".jpg", ".jpeg", ".png", ".webp"]);
 const PESO_MAXIMO_PORTADA = 350 * 1024;
 const kb = (n: number) => `${(n / 1024).toFixed(0)} KB`;
@@ -48,7 +50,25 @@ async function procesar(archivo: string, destino: string, limite: Parameters<typ
 async function main() {
   if (!existsSync(origen)) throw new Error(`No existe la carpeta de originales «${origen}».`);
   const archivos = readdirSync(origen).filter((a) => !a.startsWith(".") && EXTENSIONES.has(extname(a).toLowerCase()) && statSync(join(origen, a)).isFile()).sort();
-  if (portada) {
+  if (avistamientos) {
+    // Una foto por avistamiento sembrado: fotos-originales/avistamientos/<ID>.{jpg,png,webp} → src/server/seed/fotos/avistamientos/<ID>.jpg. Los ocultos por moderación (105 y 303) son opcionales.
+    const ids = new Map<string, boolean>(AVISTAMIENTOS_MODERACION.map((a) => [String(a.id), a.visible]));
+    const vistos = new Set<string>();
+    for (const a of archivos) {
+      const id = nombreBase(a);
+      if (!ids.has(id)) {
+        avisos.push(`«${a}»: «${id}» no es el ID de ningún avistamiento sembrado; se omite.`);
+        continue;
+      }
+      if (vistos.has(id)) {
+        avisos.push(`«${a}»: el avistamiento ${id} ya tiene otro original; se omite.`);
+        continue;
+      }
+      vistos.add(id);
+      await procesar(a, `${id}.jpg`, { tipo: "lado", maximo: LADO_MAXIMO_CASO }, {}, (v) => v.lado <= LADO_MAXIMO_CASO);
+    }
+    for (const [id, visible] of [...ids].sort((x, y) => Number(x[0]) - Number(y[0]))) if (!vistos.has(id)) avisos.push(`falta el original del avistamiento ${id}${visible ? "" : " (oculto por moderación: opcional)"}; conserva su imagen de marcador.`);
+  } else if (portada) {
     for (const tema of ["claro", "oscuro"]) {
       const a = archivos.find((x) => nombreBase(x) === `portada-${tema}`);
       if (!a) {

@@ -2,20 +2,16 @@ import "server-only";
 // Consultas públicas (ficha, estatus por folio) y reporte de avistamientos por los dos canales (QR con token, o folio). Reglas: R13, R26, R27, R33
 // (tabla de decisión en dominio/visibilidad.ts). Los 404 son idénticos entre sí para no revelar por qué no se encuentra.
 import type { FichaPublica } from "../../mocks/tipos";
-import { ahoraUTC, validarFechaHoraAvistamiento } from "../dominio/fechas";
+import { ahoraUTC } from "../dominio/fechas";
 import { normalizarFolio } from "../dominio/folio";
-import { sanearComentario, validarCoordenadas, validarFotografia, type FotoRecibida } from "../dominio/avistamientos";
-import { IDS_EXCLUYENTES, validarEstadosAnimal } from "../dominio/estadosAnimal";
-import { estadoActual, registrarMovimiento } from "../dominio/transiciones";
+import { estadoActual } from "../dominio/transiciones";
 import { planRegeneracion } from "../dominio/qr";
-import { errorNoEncontrado, exigirAdmiteAvistamientos, estatusPorFolioVisible, fichaPublicaVisible, situacionDe } from "../dominio/visibilidad";
-import { formatoInvalido, noEncontrado, reglaDeNegocio } from "../errores";
-import { aConfirmacionAvistamiento, aConsultaEstatus, aFichaPublica } from "../serializadores/publico";
+import { errorNoEncontrado, errorQrNoVigente, exigirAdmiteAvistamientos, estatusPorFolioVisible, fichaPublicaVisible, situacionDe } from "../dominio/visibilidad";
+import type { ErrorApp } from "../errores";
+import { aConsultaEstatus, aFichaPublica } from "../serializadores/publico";
 import type { CasoExtravio, CodigoQr } from "../tipos";
 import { exigirAccesoAlCaso, type SesionActual } from "../sesion/guardas";
-import { contextoPorDefecto, historialDe, idDeEstado, type Contexto } from "./contexto";
-
-const MENSAJE_QR = "Este código QR ya no está vigente.";
+import { contextoPorDefecto, historialDe, type Contexto } from "./contexto";
 
 async function casoPorFolio(folio: string, ctx: Contexto): Promise<CasoExtravio> {
   const caso = await ctx.repos.casos.porFolio(normalizarFolio(folio));
@@ -29,16 +25,16 @@ export async function consultarFichaPorFolio(folio: string, ctx: Contexto = cont
   return fichaDeCaso(caso, ctx);
 }
 
-/** (a) Ficha pública por token del QR: el token se compara tal cual y debe estar vigente (R27). */
+/** (a) Ficha pública por token del QR: el token se compara en tiempo constante, distingue mayúsculas y debe estar vigente (R27). Cualquier fallo responde lo mismo (QR_NO_VIGENTE). */
 export async function consultarFichaPorToken(token: string, ctx: Contexto = contextoPorDefecto()): Promise<FichaPublica> {
   const qr = await ctx.repos.qr.porToken(token);
-  if (!qr || qr.fechaInvalidacion !== null) throw errorNoEncontrado();
-  return fichaDeCaso((await ctx.repos.casos.porId(qr.idCasoExtravio))!, ctx);
+  if (!qr || qr.fechaInvalidacion !== null) throw errorQrNoVigente();
+  return fichaDeCaso((await ctx.repos.casos.porId(qr.idCasoExtravio))!, ctx, errorQrNoVigente);
 }
 
-async function fichaDeCaso(caso: CasoExtravio, ctx: Contexto): Promise<FichaPublica> {
+async function fichaDeCaso(caso: CasoExtravio, ctx: Contexto, errorSiNoSeMuestra: () => ErrorApp = errorNoEncontrado): Promise<FichaPublica> {
   const historial = await historialDe(ctx.repos, caso.idCasoExtravio);
-  if (!fichaPublicaVisible(situacionDe(historial))) throw errorNoEncontrado();
+  if (!fichaPublicaVisible(situacionDe(historial))) throw errorSiNoSeMuestra();
   const [perro, alcaldias, razas] = [await ctx.repos.casos.perro(caso.idPerro), await ctx.repos.catalogos.alcaldias(), await ctx.repos.catalogos.razas()];
   const foto = (await ctx.repos.casos.fotografia(perro!.idFotografia))!;
   return aFichaPublica(caso, perro!, foto, {
@@ -62,59 +58,41 @@ export async function consultarEstatusPorFolio(folio: string, ctx: Contexto = co
 export type Acceso = { canal: "qr"; token: string } | { canal: "folio"; folio: string };
 
 /**
- * (c) Valida el acceso al reporte. Canal «qr»: el token debe estar vigente (R27; se vuelve a verificar al registrar). Canal «folio»: solo se valida que el
- * folio corresponda a un caso que acepte avistamientos (R13, que incluye a los deshabilitados).
+ * (c) Valida el acceso al reporte (HU 028). Canal «qr»: el token debe estar vigente (R27; se vuelve a verificar al registrar) y el caso mostrable: un token inexistente, mal
+ * formado, regenerado o de un caso cerrado, cancelado o deshabilitado responde LO MISMO (QR_NO_VIGENTE, 404); un QR vigente de un caso Localizado da 409 (R13). Canal «folio»:
+ * solo se valida que el folio corresponda a un caso que acepte avistamientos (R13 y R33); el reporte por folio funciona aunque el QR haya cambiado.
  */
 export async function abrirReporteAvistamiento(acceso: Acceso, ctx: Contexto = contextoPorDefecto()): Promise<{ folio: string }> {
   const caso = await resolverAcceso(acceso, ctx);
   return { folio: caso.folio };
 }
 
-async function resolverAcceso(acceso: Acceso, ctx: Contexto): Promise<CasoExtravio> {
-  let caso: CasoExtravio;
-  if (acceso.canal === "qr") {
-    const qr = await ctx.repos.qr.porToken(acceso.token);
-    if (!qr || qr.fechaInvalidacion !== null) throw noEncontrado(MENSAJE_QR, "QR_NO_VIGENTE");
-    caso = (await ctx.repos.casos.porId(qr.idCasoExtravio))!;
-  } else caso = await casoPorFolio(acceso.folio, ctx);
-  exigirAdmiteAvistamientos(situacionDe(await historialDe(ctx.repos, caso.idCasoExtravio)));
+export async function resolverAcceso(acceso: Acceso, ctx: Contexto): Promise<CasoExtravio> {
+  if (acceso.canal === "folio") {
+    const caso = await casoPorFolio(acceso.folio, ctx);
+    exigirAdmiteAvistamientos(situacionDe(await historialDe(ctx.repos, caso.idCasoExtravio)));
+    return caso;
+  }
+  const qr = await ctx.repos.qr.porToken(acceso.token);
+  if (!qr || qr.fechaInvalidacion !== null) throw errorQrNoVigente();
+  const caso = (await ctx.repos.casos.porId(qr.idCasoExtravio))!;
+  const situacion = situacionDe(await historialDe(ctx.repos, caso.idCasoExtravio));
+  if (!situacion || situacion.estado === "Cerrado") throw errorQrNoVigente(); // cerrado, cancelado o deshabilitado: indistinguible de un QR que no existe
+  exigirAdmiteAvistamientos(situacion); // Localizado: 409 (R13)
   return caso;
 }
 
-export type DatosAvistamiento = {
-  fechaHoraAvistamiento: string; latitud: number; longitud: number; idAlcaldia: number; estadosAnimal: number[]; fotografia: FotoRecibida & { referenciaArchivo: string };
-  direccionAproximada?: string; coloniaZona?: string; referenciasDelLugar?: string; precisionGps?: number; comentario?: string;
-};
-
 /**
- * Registra el avistamiento (R35): vuelve a validar el acceso (si el QR se regeneró entre abrir y registrar, se rechaza), aplica R3, R11, R14, R34, crea el
- * avistamiento con sus estados, mueve el caso a «Avistamiento reportado» (R12) y crea la notificación salvo que la persona tutora la haya desactivado (R25).
+ * Foto del caso para la ficha PÚBLICA (HU 024): solo la foto del PERRO (nunca la de un avistamiento) y solo mientras la ficha se muestre (R33). Un folio inexistente, cancelado,
+ * deshabilitado o cerrado, o un caso sin foto subida (marcador sembrado), responden el mismo 404.
  */
-export async function registrarAvistamiento(acceso: Acceso, datos: DatosAvistamiento, ctx: Contexto = contextoPorDefecto()) {
-  const caso = await resolverAcceso(acceso, ctx);
-  const { repos } = ctx;
-  const estadosAnimal = await repos.catalogos.estadosAnimal();
-  validarEstadosAnimal(datos.estadosAnimal, estadosAnimal.map((e) => ({ id: e.idEstadoAnimal, idCategoria: e.idCategoriaEstadoAnimal, excluyente: (IDS_EXCLUYENTES as readonly number[]).includes(e.idEstadoAnimal), activo: e.estatus === 1 })));
-  validarCoordenadas(datos.latitud, datos.longitud);
-  validarFechaHoraAvistamiento(datos.fechaHoraAvistamiento, ctx.reloj);
-  validarFotografia(datos.fotografia, Number(await repos.parametros.valor("tamano_maximo_archivo_mb")));
-  const alcaldia = (await repos.catalogos.alcaldias()).find((a) => a.idAlcaldia === datos.idAlcaldia);
-  if (!alcaldia) throw reglaDeNegocio("R14", "La alcaldía del avistamiento no existe.", "ALCALDIA_INVALIDA");
-  if (datos.direccionAproximada && datos.direccionAproximada.length > 200) throw formatoInvalido("DIRECCION_LARGA", "La dirección no puede pasar de 200 caracteres.");
-  const ahora = ahoraUTC(ctx.reloj);
-  const historial = await historialDe(repos, caso.idCasoExtravio);
-  const nuevoHistorial = registrarMovimiento(historial, "avistamiento recibido", "automático", ahora); // 409 si el estado no lo permite
-  const av = await repos.avistamientos.crear(
-    { fechaHoraAvistamiento: datos.fechaHoraAvistamiento, direccionAproximada: datos.direccionAproximada, coloniaZona: datos.coloniaZona, referenciasDelLugar: datos.referenciasDelLugar, latitud: datos.latitud, longitud: datos.longitud, precisionGps: datos.precisionGps, comentario: sanearComentario(datos.comentario), fechaHoraEnvio: ahora, visible: true, idAlcaldia: alcaldia.idAlcaldia, idCasoExtravio: caso.idCasoExtravio },
-    { referenciaArchivo: datos.fotografia.referenciaArchivo, formato: datos.fotografia.formato.toUpperCase() as "JPG" | "PNG", tamanoBytes: datos.fotografia.tamanoBytes, fechaCarga: ahora },
-    datos.estadosAnimal,
-  );
-  const mov = nuevoHistorial[nuevoHistorial.length - 1];
-  await repos.historial.agregar({ idCasoExtravio: caso.idCasoExtravio, fechaHora: ahora, tipoMovimiento: mov.tipo, idEstadoCaso: await idDeEstado(repos, mov.estado), idUsuario: null });
-  await repos.casos.actualizarEstado(caso.idCasoExtravio, await idDeEstado(repos, mov.estado), ahora);
-  const dueno = await repos.usuarios.porId((await repos.casos.perro(caso.idPerro))!.idUsuario);
-  if (dueno?.notificacionesActivas) await repos.notificaciones.crear({ tipo: "nuevo avistamiento", canal: "correo", fechaEnvio: ahora, estadoEnvio: "enviada", idAvistamiento: av.idAvistamiento });
-  return aConfirmacionAvistamiento(caso.folio, ahora);
+export async function fotografiaPublicaDelCaso(folio: string, ctx: Contexto = contextoPorDefecto()): Promise<{ tipo: "image/jpeg"; bytes: Uint8Array }> {
+  const caso = await ctx.repos.casos.porFolio(normalizarFolio(folio));
+  if (!caso || !fichaPublicaVisible(situacionDe(await historialDe(ctx.repos, caso.idCasoExtravio)))) throw errorNoEncontrado();
+  const perro = (await ctx.repos.casos.perro(caso.idPerro))!;
+  const contenido = await ctx.repos.casos.contenidoDeFotografia(perro.idFotografia);
+  if (!contenido || contenido.tipo !== "image/jpeg") throw errorNoEncontrado();
+  return { tipo: "image/jpeg", bytes: contenido.bytes };
 }
 
 /**

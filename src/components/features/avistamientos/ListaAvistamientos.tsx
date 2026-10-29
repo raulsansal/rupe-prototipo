@@ -11,6 +11,7 @@ import { Plegable } from "@/components/ui/Plegable";
 import { Toast } from "@/components/ui/Toast";
 import { fechaLocalISO, formatearFechaHora } from "@/lib/formato";
 import { FiltroFechas, SIN_FILTRO, type Filtro } from "./FiltroFechas";
+import { NOTA_UBICACION_SIMULADA } from "../avistamiento/datos";
 import { SelectorVista } from "./SelectorVista";
 
 /** Lo que la lista necesita de cada avistamiento. Un «Fallecido» llega sin fotografía ni estados: solo el aviso sobrio (HU 039). */
@@ -22,6 +23,8 @@ export type ItemAvistamiento = {
   estados: string[];
   fotografiaUrl?: string;
   fallecido: boolean;
+  /** Ubicación estimada por el Prototipo (sin mapa real): se avisa en la tarjeta. */
+  ubicacionSimulada?: boolean;
 };
 
 type Props = {
@@ -109,6 +112,7 @@ export function ListaAvistamientos({ folio, nombrePerro, altPerro, fotografiaPer
                           {formatearFechaHora(a.fechaHora)}
                         </h2>
                         <p className="text-small">{[a.alcaldia, a.coloniaZona].filter(Boolean).join(" · ")}</p>
+                        {a.ubicacionSimulada && <p className="text-caption text-text-muted">{NOTA_UBICACION_SIMULADA}</p>}
                         <p className="text-small text-text-muted">{a.fallecido ? "Aviso: avistamiento con estado «Fallecido». Abre el detalle para más información." : a.estados.join(", ")}</p>
                       </div>
                     </div>

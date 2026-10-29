@@ -7,10 +7,13 @@ import { Icono } from "@/components/ui/Icono";
 import { Plegable } from "@/components/ui/Plegable";
 import { cx } from "@/lib/clases";
 import { alternarIntegridad, categoriaDeshabilitada, elegirUnica, opcionDeshabilitada, type SeleccionEstadoAnimal } from "@/lib/estadoAnimal";
-import { ESTADOS_ANIMAL, type CategoriaEstadoAnimal as Categoria } from "@/mocks/catalogos";
+import type { CategoriaEstadoAnimal as Categoria } from "@/mocks/catalogos";
+import type { OpcionEstadoAnimal } from "./datos";
 
 type Props = {
   categoria: Categoria;
+  /** Solo las opciones ACTIVAS del catálogo (las entrega el servidor). */
+  opciones: readonly OpcionEstadoAnimal[];
   seleccion: SeleccionEstadoAnimal;
   onCambio: (s: SeleccionEstadoAnimal) => void;
   abierta: boolean;
@@ -28,8 +31,8 @@ function Insignia({ obligatoria }: { obligatoria: boolean }) {
 }
 
 /** Categoría plegable del catálogo de estados del animal (lámina 1.6): casillas si se combinan, radios si es única. */
-export function CategoriaEstadoAnimal({ categoria, seleccion, onCambio, abierta, onAlternar, error }: Props) {
-  const opciones = ESTADOS_ANIMAL.filter((e) => e.idCategoria === categoria.id);
+export function CategoriaEstadoAnimal({ categoria, opciones: todas, seleccion, onCambio, abierta, onAlternar, error }: Props) {
+  const opciones = todas.filter((e) => e.idCategoria === categoria.id);
   const elegidos = seleccion[categoria.id];
   const deshabilitada = categoriaDeshabilitada(categoria.id, seleccion);
   const errorId = `error-cat-${categoria.id}`;

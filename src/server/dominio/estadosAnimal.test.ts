@@ -40,3 +40,13 @@ test("R3 · rechazo: estado inexistente, repetido o desactivado", () => {
   rechaza([1, 1, 7]);
   assert.throws(() => validarEstadosAnimal([2, 7], [{ id: 2, idCategoria: 1, excluyente: false, activo: false }, { id: 7, idCategoria: 2, excluyente: false }]), (e) => e instanceof ErrorApp && e.regla === "R3");
 });
+
+test("R3 · un estado desactivado o inexistente da el mensaje amable, sin identificadores internos (ESTADO_NO_DISPONIBLE)", () => {
+  const catalogo = [{ id: 1, idCategoria: 1, excluyente: true }, { id: 7, idCategoria: 2, excluyente: false }, { id: 16, idCategoria: 4, excluyente: false, activo: false }];
+  for (const ids of [[1, 7, 16], [1, 7, 99]]) {
+    assert.throws(
+      () => validarEstadosAnimal(ids, catalogo),
+      (e) => e instanceof ErrorApp && e.codigo === "ESTADO_NO_DISPONIBLE" && e.message === "Una de las opciones elegidas ya no está disponible. Revisa tus selecciones." && !/\b(16|99)\b/.test(e.message),
+    );
+  }
+});

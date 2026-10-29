@@ -58,6 +58,17 @@ export interface RepoQr {
   /** R7: invalida el activo y crea el nuevo de una sola vez. */
   regenerar(idCaso: number, tokenNuevo: string, fecha: string): Promise<T.CodigoQr>;
 }
+/** Todo lo que se guarda al confirmar un avistamiento (HU 035), en una sola operación atómica. */
+export type AltaDeAvistamiento = {
+  avistamiento: Omit<T.Avistamiento, "idAvistamiento" | "idFotografia">;
+  fotografia: Omit<T.Fotografia, "idFotografia">;
+  contenidoFotografia: { tipo: string; bytes: Uint8Array };
+  estados: number[];
+  /** Movimiento de historial y estado nuevo del caso; ausente si el caso ya está en «Avistamiento reportado» (no se duplica). */
+  movimiento?: { fechaHora: string; tipoMovimiento: T.MovimientoDeHistorial["tipoMovimiento"]; idEstadoCaso: number };
+  /** Registro de la notificación simulada (sin id de avistamiento: lo asigna el repositorio); ausente si la persona tutora no recibe avisos (R25). */
+  notificacion?: Omit<T.Notificacion, "idNotificacion" | "idAvistamiento">;
+};
 export interface RepoAvistamientos {
   porId(id: number): Promise<T.Avistamiento | undefined>;
   deCaso(idCaso: number): Promise<T.Avistamiento[]>;
@@ -66,6 +77,8 @@ export interface RepoAvistamientos {
   /** R35: avistamiento, fotografía y estados del animal en una sola operación (la notificación va aparte). */
   crear(a: Omit<T.Avistamiento, "idAvistamiento" | "idFotografia">, fotografia: Omit<T.Fotografia, "idFotografia">, estados: number[]): Promise<T.Avistamiento>;
   moderar(id: number, visible: boolean, motivo?: string): Promise<void>;
+  /** HU 035: fotografía (con sus bytes), avistamiento, estados del animal, movimiento y estado del caso, y notificación en UNA transacción: si algo falla no queda nada. */
+  registrarCompleto(alta: AltaDeAvistamiento): Promise<{ avistamiento: T.Avistamiento; notificacion?: T.Notificacion }>;
 }
 export interface RepoNotificaciones {
   crear(n: Omit<T.Notificacion, "idNotificacion">): Promise<T.Notificacion>;

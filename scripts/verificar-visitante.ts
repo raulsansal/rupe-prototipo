@@ -9,6 +9,7 @@ import { fetchComo } from "./sesion-pruebas";
 import { chromium, type Browser, type BrowserContext, type Locator, type Page } from "playwright";
 import { AVISTAMIENTOS } from "../src/mocks/avistamientos";
 import { PARAMETROS } from "../src/mocks/parametros";
+import { CATALOGOS } from "../src/mocks/catalogosAdmin";
 import { CASOS_ORIGEN, FOLIO_EN_CURSO, FOLIO_INEXISTENTE, valoresReservados } from "../src/mocks/casos";
 import { CLAVE_TEMA } from "../src/lib/tema";
 import { existsSync } from "node:fs";
@@ -53,14 +54,14 @@ async function abrirNavegador(): Promise<Browser> {
   }
 }
 
-type Opciones = { ancho?: number; geolocalizacion?: { latitude: number; longitude: number; accuracy: number } };
-async function nuevaPagina(navegador: Browser, { ancho = 390, geolocalizacion }: Opciones = {}): Promise<{ contexto: BrowserContext; pagina: Page }> {
+type Opciones = { ancho?: number; tema?: "light" | "dark"; geolocalizacion?: { latitude: number; longitude: number; accuracy: number } };
+async function nuevaPagina(navegador: Browser, { ancho = 390, tema = "light", geolocalizacion }: Opciones = {}): Promise<{ contexto: BrowserContext; pagina: Page }> {
   const contexto = await navegador.newContext({
     viewport: { width: ancho, height: 900 },
-    colorScheme: "light",
+    colorScheme: tema,
     ...(geolocalizacion && { geolocation: geolocalizacion, permissions: ["geolocation"] }),
   });
-  await contexto.addInitScript(([k, v]) => localStorage.setItem(k, v), [CLAVE_TEMA, "light"]);
+  await contexto.addInitScript(([k, v]) => localStorage.setItem(k, v), [CLAVE_TEMA, tema]);
   return { contexto, pagina: await contexto.newPage() };
 }
 
@@ -138,7 +139,7 @@ async function ficha(navegador: Browser) {
   const t = vistas[0].texto;
   ver(/Folio no encontrado/.test(t) && /Gracias por ayudar/.test(t) && (await pagina.locator("main section").count()) === 2, "ficha C: una sola pantalla con dos tarjetas apiladas («Folio no encontrado» y la de agradecimiento)", "ficha C: no son dos tarjetas");
   ver((await pagina.getByRole("link", { name: "Buscar otro folio" }).isVisible()) && (await pagina.getByRole("link", { name: "Ir al inicio" }).isVisible()) && (await pagina.getByRole("img", { name: /^Fotografía de/ }).count()) === 0, "ficha C: «Buscar otro folio» e «Ir al inicio», sin fotografía ni ficha", "ficha C: faltan botones o muestra la ficha");
-  ver(vistas.every((v) => v.estado === vistas[0].estado && v.html === vistas[0].html), `ficha C: folio inexistente, caso cerrado y ?estado=no-disponible responden igual (HTTP ${vistas[0].estado}) y con el mismo contenido`, "ficha C: las tres respuestas difieren, se revelaría que el caso existió");
+  ver(vistas[0].estado === 404 && vistas[1].estado === 404 && vistas[0].html === vistas[1].html && vistas[2].html === vistas[0].html, `ficha C: folio inexistente y caso cerrado responden igual (HTTP ${vistas[0].estado} real) y con el mismo contenido que la variante ?estado=no-disponible`, "ficha C: las respuestas difieren, se revelaría que el caso existió");
   ver(!/cerrad|cancelad|deshabilitad/i.test(t) && !t.includes(rocky0.nombre) && !t.includes(rocky0.folio), "ficha C: no menciona cierre, cancelación, deshabilitación, nombre ni folio", "ficha C: revela algo del caso");
   await contexto.close();
 
@@ -151,7 +152,7 @@ async function ficha(navegador: Browser) {
   await irA(p2, `/ficha/${rocky.folio}`);
   ver(/Folio no encontrado/.test(await p2.locator("main").innerText()), "un caso «Cerrado» abre en el estado C por sí solo", "un caso Cerrado no abrió en el estado C");
   await irA(p2, `/ficha/${toby.folio}/avistamiento`);
-  ver(new URL(p2.url()).pathname === `/ficha/${toby.folio}`, "el reporte de un caso «Localizado» vuelve a su ficha (no acepta avistamientos)", `el reporte de un caso Localizado no redirigió: ${p2.url()}`);
+  ver(new URL(p2.url()).pathname === `/ficha/${toby.folio}/avistamiento` && (await p2.getByRole("heading", { name: "Este caso ya no recibe avistamientos" }).isVisible()) && (await p2.getByRole("link", { name: "Volver a la ficha" }).getAttribute("href")) === `/ficha/${toby.folio}`, "el reporte de un caso «Localizado» muestra «Este caso ya no recibe avistamientos» con enlace a su ficha (R13)", `el reporte de un caso Localizado no avisó: ${p2.url()}`);
   await c2.close();
 
   // Sin fugas: el origen SÍ tiene reservados y datos de la persona tutora; ninguno debe aparecer en el HTML.
@@ -200,13 +201,13 @@ async function principal(navegador: Browser) {
     ver((await pagina.locator(`section#${id}`).count()) === 1, `PUB-01: existe la sección #${id}`, `PUB-01: falta la sección #${id}`);
   }
   const campo = pagina.getByRole("textbox", { name: "Folio" });
-  await pagina.getByRole("button", { name: "Consultar" }).click();
+  await pagina.getByRole("button", { name: "Buscar" }).click();
   ver((await campo.getAttribute("aria-invalid")) === "true" && (await textoDescrito(campo)).includes("Escribe el folio"), "buscador: vacío → error asociado con aria-describedby", "buscador: sin error al enviar vacío");
   await campo.fill("RUPE-OOOO1111");
-  await pagina.getByRole("button", { name: "Consultar" }).click();
+  await pagina.getByRole("button", { name: "Buscar" }).click();
   ver((await textoDescrito(campo)).includes("formato RUPE-XXXXXXXX") && new URL(pagina.url()).pathname === "/", "buscador: folio con formato inválido (O, 1) → error de formato y no navega", "buscador: aceptó un folio inválido");
   await campo.fill(" rupe-k7m4xq9t ");
-  await pagina.getByRole("button", { name: "Consultar" }).click();
+  await pagina.getByRole("button", { name: "Buscar" }).click();
   await pagina.waitForURL(`**/ficha/${FOLIO_EN_CURSO}`);
   ver(true, "buscador: folio válido (en minúsculas y con espacios) → lleva a su ficha", "");
   await irA(pagina, "/");
@@ -257,6 +258,7 @@ async function flujo(navegador: Browser) {
   const [selector] = await Promise.all([pagina.waitForEvent("filechooser"), pasoFoto.getByRole("button", { name: "Elegir de galería" }).click()]);
   ver(!!selector, "paso 2: «Elegir de galería» abre el selector de archivos", "paso 2: «Elegir de galería» no abrió el selector");
   await archivo.setInputFiles({ name: "avistamiento.png", mimeType: "image/png", buffer: PNG });
+  await paso(pagina, 2).getByAltText("Vista previa de la fotografía").waitFor(); // la fotografía se reduce en el navegador (asíncrono)
   ver((await paso(pagina, 2).getByAltText("Vista previa de la fotografía").count()) === 1 && (await archivo.getAttribute("aria-invalid")) === null, "paso 2: con fotografía se ve la vista previa y desaparece el error", "paso 2: no hay vista previa o sigue el error");
   const vistaP2 = await pasoFoto.evaluate((cont) => {
     const img = cont.querySelector<HTMLImageElement>("img[alt='Vista previa de la fotografía']")!;
@@ -267,19 +269,19 @@ async function flujo(navegador: Browser) {
   ver(vistaP2.ajuste === "contain" && Math.abs(vistaP2.marco - vistaP2.reemplazar) < 2 && vistaP2.alto >= 43.5 && (await pasoFoto.getByRole("button", { name: "Tomar foto" }).count()) === 0, "paso 2 con foto: vista previa sin recorte (object-contain) y «Reemplazar fotografía» a todo el ancho y de 44 px", `paso 2 con foto: ${JSON.stringify(vistaP2)}`);
   await continuar(pagina).click();
 
-  // Paso 3: dirección + punto confirmado.
+  // Paso 3: dirección, alcaldía, colonia y referencias (mapa y GPS «Próximamente»; ubicación aproximada simulada).
   ver((await barra(pagina)) === "Paso 3 de 6: Ubicación", "flujo: con fotografía, Continuar lleva al paso 3", `flujo: ${await barra(pagina)}`);
   await continuar(pagina).click();
-  ver((await barra(pagina)) === "Paso 3 de 6: Ubicación" && (await pagina.getByLabel(/Dirección aproximada/).getAttribute("aria-invalid")) === "true", "paso 3: sin dirección ni punto no avanza", "paso 3: avanzó vacío");
+  ver((await barra(pagina)) === "Paso 3 de 6: Ubicación" && (await pagina.getByLabel(/Dirección aproximada/).getAttribute("aria-invalid")) === "true" && (await pagina.getByLabel(/Alcaldía/).getAttribute("aria-invalid")) === "true", "paso 3: sin dirección ni alcaldía no avanza y marca ambos errores", "paso 3: avanzó vacío");
+  const p3 = paso(pagina, 3);
+  ver((await p3.getByRole("button", { name: "Marcar en mapa" }).isDisabled()) && (await p3.getByRole("button", { name: "Usar mi ubicación" }).isDisabled()) && (await p3.getByText("Próximamente").count()) === 2 && (await p3.getByText("Ubicación aproximada simulada en el prototipo").isVisible()), "paso 3: «Marcar en mapa» y «Usar mi ubicación» están deshabilitados con «Próximamente» y la nota «Ubicación aproximada simulada en el prototipo»", "paso 3: faltan los controles «Próximamente» o la nota de ubicación simulada");
   await pagina.getByLabel(/Dirección aproximada/).fill("Av. Insurgentes y Chilpancingo");
-  await pagina.getByLabel(/Alcaldía/).selectOption("Cuauhtémoc");
+  await pagina.getByLabel(/Alcaldía/).selectOption({ label: "Cuauhtémoc" });
   await pagina.getByLabel("Colonia o zona (opcional)").fill("Roma Sur");
-  await pagina.getByRole("button", { name: "Ubicar en el mapa" }).click();
-  await pagina.getByRole("button", { name: "Confirmar punto en el mapa" }).click();
   await continuar(pagina).click();
 
   // Paso 4: obligatorios y no futura.
-  ver((await barra(pagina)) === "Paso 4 de 6: Fecha y estado", "flujo: con el punto confirmado, Continuar lleva al paso 4", `flujo: ${await barra(pagina)}`);
+  ver((await barra(pagina)) === "Paso 4 de 6: Fecha y estado", "flujo: con dirección y alcaldía, Continuar lleva al paso 4", `flujo: ${await barra(pagina)}`);
   await continuar(pagina).click();
   const p4 = paso(pagina, 4);
   const faltan = [await p4.locator("input[type=date]").getAttribute("aria-invalid"), await p4.locator("input[type=time]").getAttribute("aria-invalid")];
@@ -304,25 +306,26 @@ async function flujo(navegador: Browser) {
   await continuar(pagina).click();
   ver((await barra(pagina)) === "Paso 6 de 6: Confirmar" && (await continuar(pagina).innerText()) === "Enviar reporte", "flujo: paso 6 con el botón «Enviar reporte»", `flujo: ${await barra(pagina)}`);
   const resumen = await paso(pagina, 6).innerText();
-  const esperado = ["Av. Insurgentes y Chilpancingo", "Roma Sur", "18 oct 2026, 10:30", "Herido / lesionado", "Libre en vía pública", "Iba hacia el parque.", "Cuauhtémoc", FOLIO_EN_CURSO];
+  const esperado = ["Av. Insurgentes y Chilpancingo", "Roma Sur", "18 oct 2026, 10:30", "Herido / lesionado", "Libre en vía pública", "Iba hacia el parque.", "Cuauhtémoc", FOLIO_EN_CURSO, "Ubicación aproximada simulada en el prototipo"];
   ver(esperado.every((t) => resumen.includes(t)) && /Tras el envío, la persona tutora recibe un aviso/.test(resumen), "paso 6: el resumen trae lo capturado y avisa que la persona tutora recibe un aviso", `paso 6: falta ${esperado.filter((t) => !resumen.includes(t)).join(", ")}`);
 
   // Regresar conserva lo capturado.
   for (let n = 5; n >= 2; n--) await regresar(pagina).click();
   ver((await barra(pagina)) === "Paso 2 de 6: Fotografía" && (await paso(pagina, 2).getByAltText("Vista previa de la fotografía").count()) === 1, "Regresar ×4: la fotografía sigue en el paso 2", "Regresar: se perdió la fotografía");
   await continuar(pagina).click();
-  ver((await pagina.getByLabel(/Dirección aproximada/).inputValue()) === "Av. Insurgentes y Chilpancingo" && (await pagina.getByLabel(/Alcaldía/).inputValue()) === "Cuauhtémoc" && (await pagina.locator("[data-paso]:not([hidden])").getByText("Punto confirmado").isVisible()), "paso 3 al regresar: dirección, alcaldía y punto confirmado se conservan", "paso 3 al regresar: se perdió lo capturado");
+  ver((await pagina.getByLabel(/Dirección aproximada/).inputValue()) === "Av. Insurgentes y Chilpancingo" && (await pagina.getByLabel(/Alcaldía/).evaluate((e) => (e as HTMLSelectElement).selectedOptions[0]?.textContent)) === "Cuauhtémoc" && (await pagina.getByLabel("Colonia o zona (opcional)").inputValue()) === "Roma Sur", "paso 3 al regresar: dirección, alcaldía y colonia se conservan", "paso 3 al regresar: se perdió lo capturado");
   await continuar(pagina).click();
   ver((await p4.locator("input[type=date]").inputValue()) === "2026-10-18" && (await p4.locator("input[type=time]").inputValue()) === "10:30" && (await casilla(p4, /Herido/).isChecked()) && (await radio(p4, /^Libre en vía pública/).isChecked()), "paso 4 al regresar: fecha, hora y estados se conservan", "paso 4 al regresar: se perdió lo capturado");
   await continuar(pagina).click();
   ver((await comentario.inputValue()) === "Iba hacia el parque.", "paso 5 al regresar: el comentario se conserva", "paso 5 al regresar: se perdió el comentario");
   await continuar(pagina).click();
   await continuar(pagina).click();
-  await pagina.waitForURL(`**${FICHA}/avistamiento/enviado`);
-  ver(true, "paso 6: «Enviar reporte» con todo completo lleva a «Reporte enviado» (PUB-06)", "");
+  await pagina.waitForURL((u) => u.pathname === `${FICHA}/avistamiento/enviado`);
+  const idEnviado = new URL(pagina.url()).searchParams.get("id");
+  ver(/^\d+$/.test(idEnviado ?? ""), `paso 6: «Enviar reporte» hace el envío REAL (POST /api/avistamientos) y lleva a «Reporte enviado» con el ID ${idEnviado} en la URL (PUB-06)`, `paso 6: el envío no devolvió un ID (${pagina.url()})`);
   const env = await pagina.locator("main").innerText();
   const hrefVer = await pagina.getByRole("link", { name: "Ver ficha" }).getAttribute("href");
-  ver((await pagina.getByRole("heading", { level: 1, name: "Reporte enviado" }).isVisible()) && /persona tutora recibirá un aviso/.test(env) && /Gracias/.test(env) && hrefVer === FICHA && (await pagina.getByRole("link", { name: "Ir al inicio" }).isVisible()), "PUB-06: título, agradecimiento, aviso a la persona tutora, «Ver ficha» e «Ir al inicio»", "PUB-06: contenido incorrecto");
+  ver((await pagina.getByRole("heading", { level: 1, name: "Reporte enviado" }).isVisible()) && /persona tutora recibirá un aviso/.test(env) && /Gracias/.test(env) && new RegExp(`ID de tu reporte: ${idEnviado}`).test(env) && hrefVer === FICHA && (await pagina.getByRole("link", { name: "Ir al inicio" }).isVisible()), "PUB-06: título, agradecimiento, «ID de tu reporte», aviso a la persona tutora, «Ver ficha» e «Ir al inicio»", "PUB-06: contenido incorrecto");
   ver(!/Av\. Insurgentes|Roma Sur|Iba hacia el parque|18 oct/.test(env), "PUB-06: no repite lo capturado ni muestra datos personales", "PUB-06: muestra datos capturados");
   // Nada se guarda en el navegador.
   const almacen = await pagina.evaluate(() => ({ local: Object.keys(localStorage).filter((k) => k !== "rupe-tema"), sesion: Object.keys(sessionStorage), cookies: document.cookie }));
@@ -421,94 +424,250 @@ async function estadoAnimal(navegador: Browser) {
 
 // ---------- (d) paso 3 ----------
 async function ubicacion(navegador: Browser) {
-  const nueva = async (opciones?: Opciones) => {
-    const r = await nuevaPagina(navegador, opciones);
-    await irA(r.pagina, `${AVISTAMIENTO}?paso=3`);
-    return r;
+  const { contexto, pagina } = await nuevaPagina(navegador);
+  await irA(pagina, `${AVISTAMIENTO}?paso=3`);
+  const sigueEn3 = async () => (await barra(pagina)) === "Paso 3 de 6: Ubicación";
+  const dir = pagina.getByLabel(/Dirección aproximada/);
+  const alc = pagina.getByLabel(/Alcaldía/);
+  const opciones = await alc.locator("option").allTextContents();
+  ver(opciones.length === 17 && !opciones.some((o) => /Fuera de la/.test(o)) && opciones.includes("Milpa Alta"), `paso 3: la alcaldía ofrece las ${opciones.length - 1} alcaldías del catálogo (todas activas en el Prototipo, incluida Milpa Alta; sin «Fuera de la Ciudad de México») más el marcador`, `paso 3: opciones ${opciones.join(", ")}`);
+  await continuar(pagina).click();
+  ver((await sigueEn3()) && (await dir.getAttribute("aria-invalid")) === "true" && (await alc.getAttribute("aria-invalid")) === "true", "paso 3: sin dirección ni alcaldía no avanza", "paso 3: avanzó vacío");
+  await dir.fill("Av. Insurgentes y Chilpancingo");
+  await continuar(pagina).click();
+  ver((await sigueEn3()) && (await dir.getAttribute("aria-invalid")) === null && (await alc.getAttribute("aria-invalid")) === "true", "paso 3: con dirección pero sin alcaldía no avanza y solo marca la alcaldía", "paso 3: el error de alcaldía no se aisló");
+  await alc.selectOption({ label: "Cuauhtémoc" });
+  await continuar(pagina).click();
+  ver((await barra(pagina)) === "Paso 4 de 6: Fecha y estado", "paso 3: con dirección y alcaldía avanza (colonia y referencias son opcionales)", "paso 3: no avanzó con dirección y alcaldía");
+  await regresar(pagina).click();
+  const limites = await Promise.all([dir.getAttribute("maxlength"), pagina.getByLabel("Colonia o zona (opcional)").getAttribute("maxlength"), pagina.getByLabel(/Referencias del lugar/).getAttribute("maxlength")]);
+  ver(limites.join() === "200,100,500", `paso 3: los campos limitan la entrada a 200 (dirección), 100 (colonia) y 500 (referencias) caracteres: ${limites.join(", ")}`, `paso 3: límites ${limites.join(", ")}`);
+  await contexto.close();
+
+  // Sin mapa ni GPS en el Prototipo: ninguna forma de «marcar» ni de pedir el permiso de ubicación.
+  const g = await nuevaPagina(navegador, { geolocalizacion: { latitude: 19.4062, longitude: -99.1716, accuracy: 15 } });
+  await irA(g.pagina, `${AVISTAMIENTO}?paso=3`);
+  const solicitudes = await g.pagina.evaluate(() => typeof navigator.geolocation !== "undefined");
+  await g.pagina.getByRole("button", { name: "Usar mi ubicación" }).click({ force: true, timeout: 2000 }).catch(() => undefined);
+  ver(solicitudes && (await barra(g.pagina)) === "Paso 3 de 6: Ubicación" && (await g.pagina.getByText(/Latitud|Punto confirmado|Permiso de ubicación/).count()) === 0, "paso 3: «Usar mi ubicación» deshabilitado no pide el permiso ni muestra coordenadas, aunque el navegador lo conceda", "paso 3: el botón de ubicación hizo algo");
+  await g.contexto.close();
+
+  // Las variantes de captura de la maqueta (?ubicacion=mapa|gps|denegado) se retiraron: el parámetro se ignora.
+  const r = await nuevaPagina(navegador);
+  const respuestas: string[] = [];
+  for (const u of ["direccion", "mapa", "gps", "denegado"]) {
+    await irA(r.pagina, `${AVISTAMIENTO}?paso=3&ubicacion=${u}`);
+    respuestas.push(`${u}:${(await r.pagina.getByText(/Latitud|Permiso de ubicación denegado|Confirmar ubicación en mapa/).count()) === 0 ? "sin cambios" : "variante"}`);
+  }
+  ver(respuestas.every((x) => x.endsWith("sin cambios")), `?ubicacion=… ya no existe: las cuatro variantes abren el mismo paso 3 sin mapa, lectura ni permiso denegado (${respuestas.join(", ")})`, `?ubicacion=: ${respuestas.join(", ")}`);
+  await r.contexto.close();
+}
+
+
+// ---------- (f) recorrido real de cada opción ACTIVA del catálogo de estados del animal ----------
+/** Estados del animal del catálogo sembrado. En el Prototipo el seed los deja TODOS activos (aunque las pantallas del Administrador conserven sus banderas); lo desactivado se prueba con un almacén de prueba en `probar`. */
+const ESTADOS_DEL_CATALOGO = (CATALOGOS["estados-animal"].elementos as unknown as { id: number; nombre: string; idCategoria: number }[]).map((e) => ({ id: e.id, nombre: e.nombre, activo: true, idCategoria: e.idCategoria }));
+const NOMBRES_CATEGORIA: Record<number, string> = { 1: "Integridad física y salud", 2: "Contención y ubicación", 3: "Conducta", 4: "Identificación visible" };
+
+async function recorridoDeOpciones(navegador: Browser) {
+  const activos = ESTADOS_DEL_CATALOGO.filter((e) => e.activo);
+  const base = { 1: 1, 2: 7 } as Record<number, number>;
+  // Combinación mínima válida para cada opción activa: ella sola en su categoría y las obligatorias restantes con «Ileso» y «Libre en vía pública».
+  const combinacion = (e: { id: number; idCategoria: number }) => ({ ...base, [e.idCategoria]: e.id });
+  const abrirCategoria = async (p4: Locator, idCategoria: number) => {
+    const cabecera = p4.locator(`[data-categoria="${idCategoria}"]`).getByRole("button", { name: new RegExp(NOMBRES_CATEGORIA[idCategoria]) }).first();
+    if ((await cabecera.getAttribute("aria-expanded")) === "false") await cabecera.click();
   };
-  const sigueEn3 = async (p: Page) => (await barra(p)) === "Paso 3 de 6: Ubicación";
-  const errorPunto = async (p: Page) => (await p.locator("#error-punto").count()) === 1 && (await p.locator("#error-punto").isVisible());
-  const mapa = (p: Page) => p.getByRole("group", { name: /^Mapa ilustrativo/ });
+  const fallas: string[] = [];
+  let primeraVez = true;
+  for (const opcion of activos) {
+    const { contexto, pagina } = await nuevaPagina(navegador);
+    await irA(pagina, AVISTAMIENTO);
+    await continuar(pagina).click();
+    await paso(pagina, 2).locator("input[type=file]:not([capture])").setInputFiles({ name: "avistamiento.png", mimeType: "image/png", buffer: PNG });
+    await paso(pagina, 2).getByAltText("Vista previa de la fotografía").waitFor();
+    await continuar(pagina).click();
+    await pagina.getByLabel(/Dirección aproximada/).fill("Av. Insurgentes y Chilpancingo");
+    await pagina.getByLabel(/Alcaldía/).selectOption({ label: "Cuauhtémoc" });
+    await continuar(pagina).click();
+    const p4 = paso(pagina, 4);
+    await p4.locator("input[type=date]").fill("2026-10-18");
+    await p4.locator("input[type=time]").fill("10:30");
+    if (primeraVez) {
+      // Ninguna opción DESACTIVADA del catálogo se ofrece, y las activas se ofrecen todas.
+      for (const c of [1, 2, 3, 4]) await abrirCategoria(p4, c);
+      const ofrecidas = await p4.locator("label").allInnerTexts();
+      const faltan = activos.filter((a) => !ofrecidas.some((t) => t.includes(a.nombre)));
+      ver(faltan.length === 0 && ofrecidas.length >= activos.length, `paso 4: se ofrecen las ${activos.length} opciones del catálogo sembrado (todas activas), cada una con su nombre`, `paso 4: falta alguna opción activa (${faltan.map((x) => x.nombre).join(", ")})`);
+      primeraVez = false;
+    }
+    for (const [cat, id] of Object.entries(combinacion(opcion))) {
+      const nombre = ESTADOS_DEL_CATALOGO.find((e) => e.id === id)!.nombre;
+      await abrirCategoria(p4, Number(cat));
+      await etiquetaOpcion(p4, nombre).first().click();
+    }
+    await continuar(pagina).click();
+    await continuar(pagina).click();
+    await continuar(pagina).click();
+    let id: string | null = null;
+    try {
+      await pagina.waitForURL((u) => u.pathname === `${FICHA}/avistamiento/enviado`, { timeout: 8000 });
+      id = new URL(pagina.url()).searchParams.get("id");
+    } catch {
+      id = null;
+    }
+    const mensaje = id ? "" : `paso ${await barra(pagina)}; ${(await pagina.locator('[role="alert"], [id^="error-"]').allInnerTexts()).join(" | ") || "sin mensaje"}`;
+    ver(!!id && /^\d+$/.test(id), `opción activa «${opcion.nombre}» (id ${opcion.id}, ${NOMBRES_CATEGORIA[opcion.idCategoria]}): el envío real termina en «Reporte enviado» con ID ${id}`, `opción activa «${opcion.nombre}» (id ${opcion.id}): el envío NO terminó (${mensaje})`);
+    if (!id) fallas.push(opcion.nombre);
+    await contexto.close();
+  }
 
-  // A · dirección
-  let { contexto, pagina } = await nueva();
-  ver((await radio(pagina, "Escribir dirección").isChecked()), "paso 3: la forma inicial es «Escribir dirección»", "paso 3: forma inicial incorrecta");
-  await pagina.getByLabel(/Dirección aproximada/).fill("Av. Insurgentes y Chilpancingo");
-  await pagina.getByLabel(/Alcaldía/).selectOption("Cuauhtémoc");
+  // Las categorías opcionales (Conducta e Identificación visible): se puede continuar sin elegir nada y una opción ya elegida se quita con «Quitar selección».
+  const { contexto, pagina } = await nuevaPagina(navegador);
+  await irA(pagina, `${AVISTAMIENTO}?paso=4&caso=libre`);
+  const p4 = paso(pagina, 4);
+  await p4.locator("input[type=date]").fill("2026-10-18");
+  await p4.locator("input[type=time]").fill("10:30");
   await continuar(pagina).click();
-  ver((await sigueEn3(pagina)) && (await errorPunto(pagina)), "forma A: con dirección y alcaldía pero sin punto confirmado no avanza («Confirma el punto en el mapa para continuar»)", "forma A: avanzó sin confirmar el punto");
-  await pagina.getByRole("button", { name: "Ubicar en el mapa" }).click();
-  ver(await pagina.getByText(/Latitud/).isVisible(), "forma A: «Ubicar en el mapa» coloca un punto sugerido con latitud y longitud", "forma A: sin punto sugerido");
+  const sinElegir = (await barra(pagina)) === "Paso 5 de 6: Comentario";
+  await regresar(pagina).click();
+  const elegir = async (idCategoria: number, id: number) => {
+    await abrirCategoria(p4, idCategoria);
+    await etiquetaOpcion(p4, ESTADOS_DEL_CATALOGO.find((e) => e.id === id)!.nombre).first().click();
+  };
+  await elegir(3, 11);
+  await elegir(4, 16);
+  const marcadas = await p4.locator('[data-categoria="3"] input:checked, [data-categoria="4"] input:checked').count();
+  for (const c of [3, 4]) await p4.locator(`[data-categoria="${c}"]`).getByRole("button", { name: "Quitar selección" }).click();
+  const quedan = await p4.locator('[data-categoria="3"] input:checked, [data-categoria="4"] input:checked').count();
   await continuar(pagina).click();
-  ver((await sigueEn3(pagina)) && (await pagina.getByText("Confirma el punto en el mapa para continuar").first().isVisible()), "forma A: con el punto sugerido sin confirmar tampoco avanza", "forma A: avanzó con el punto sin confirmar");
-  await mapa(pagina).focus();
-  for (let i = 0; i < 18; i++) await pagina.keyboard.press("ArrowRight");
-  await pagina.getByRole("button", { name: "Confirmar punto en el mapa" }).click();
-  ver(await pagina.getByText("La alcaldía cambió").isVisible(), "forma A: si el punto confirmado cae en otra alcaldía se avisa que se guardará la del punto (R14)", "forma A: no avisó del cambio de alcaldía");
-  await mapa(pagina).focus();
-  await pagina.keyboard.press("ArrowLeft");
-  ver((await pagina.getByRole("button", { name: "Confirmar punto en el mapa" }).isVisible()) && (await pagina.locator("[data-paso]:not([hidden])").getByText("Punto confirmado").count()) === 0, "forma A: mover el marcador después de confirmar pide confirmar otra vez", "forma A: mover el marcador conservó la confirmación");
-  await pagina.getByRole("button", { name: "Confirmar punto en el mapa" }).click();
-  await continuar(pagina).click();
-  ver((await barra(pagina)) === "Paso 4 de 6: Fecha y estado", "forma A: con el punto confirmado avanza al paso 4", "forma A: no avanzó con el punto confirmado");
+  ver(sinElegir && marcadas === 2 && quedan === 0 && (await barra(pagina)) === "Paso 5 de 6: Comentario", "categorías opcionales (Conducta e Identificación visible): se continúa sin elegir nada, y una opción elegida (incluida «Con collar sin datos», id 16) se quita con «Quitar selección» y se sigue", `categorías opcionales: sin elegir ${sinElegir}, marcadas ${marcadas}, tras quitar ${quedan}`);
   await contexto.close();
+}
 
-  // A · campos obligatorios al ubicar
-  ({ contexto, pagina } = await nueva());
-  await pagina.getByRole("button", { name: "Ubicar en el mapa" }).click();
-  ver((await pagina.getByLabel(/Dirección aproximada/).getAttribute("aria-invalid")) === "true" && (await pagina.getByLabel(/Alcaldía/).getAttribute("aria-invalid")) === "true", "forma A: «Ubicar en el mapa» sin dirección ni alcaldía marca ambos errores", "forma A: no marcó errores al ubicar vacío");
-  await contexto.close();
 
-  // B · mapa
-  ({ contexto, pagina } = await nueva());
-  await pagina.locator("label", { hasText: "Marcar en mapa" }).click();
-  await continuar(pagina).click();
-  ver((await sigueEn3(pagina)) && (await errorPunto(pagina)), "forma B: sin marcar el mapa no avanza", "forma B: avanzó sin punto");
-  ver(await pagina.getByText("La alcaldía se determina a partir del punto").isVisible(), "forma B: avisa que la alcaldía sale del punto", "forma B: sin aviso de la alcaldía");
-  await pagina.getByRole("button", { name: "Confirmar ubicación en mapa" }).click();
-  ver((await sigueEn3(pagina)) && (await errorPunto(pagina)) && (await pagina.getByText(/Latitud/).count()) === 0, "forma B: «Confirmar ubicación en mapa» sin punto no confirma nada", "forma B: confirmó sin punto");
-  await mapa(pagina).click({ position: { x: 120, y: 60 } });
-  const coord = await pagina.locator("p", { hasText: /Latitud/ }).first().innerText();
-  ver(/Latitud\s+19\.\d{6}.*Longitud\s+−99\.\d{6}/.test(coord), `forma B: tocar el mapa coloca el marcador con latitud y longitud de 6 decimales (${coord})`, `forma B: coordenadas ${coord}`);
-  await continuar(pagina).click();
-  ver(await sigueEn3(pagina), "forma B: con el marcador pero sin confirmar no avanza", "forma B: avanzó sin confirmar");
-  await pagina.getByRole("button", { name: "Confirmar ubicación en mapa" }).click();
-  ver(await pagina.locator("[data-paso]:not([hidden])").getByText("Punto confirmado").isVisible(), "forma B: confirmar muestra «Punto confirmado» con la alcaldía", "forma B: no confirmó");
-  await continuar(pagina).click();
-  ver((await barra(pagina)) === "Paso 4 de 6: Fecha y estado", "forma B: con el punto confirmado avanza", "forma B: no avanzó");
-  await contexto.close();
+// ---------- (g) paso 5: invitación a dejar un correo cuando el animal está bajo resguardo ----------
+const PLACEHOLDER_RESGUARDO = "Dado que tienes al animal en resguardo, te invitamos a agregar un correo electrónico para que la persona tutora se ponga en contacto contigo. Gracias por tu ayuda.";
+const NOTA_CORREO = "Este comentario lo verá la persona tutora. Si decides compartir un correo electrónico, será visible para ella; no incluyas otros datos personales.";
 
-  // C · usar mi ubicación (permiso concedido)
-  ({ contexto, pagina } = await nueva({ geolocalizacion: { latitude: 19.4062, longitude: -99.1716, accuracy: 15 } }));
-  await pagina.locator("label", { hasText: "Usar mi ubicación" }).click();
-  await continuar(pagina).click();
-  ver((await sigueEn3(pagina)) && (await errorPunto(pagina)), "forma C: sin usar la ubicación no avanza", "forma C: avanzó sin ubicación");
-  await pagina.getByRole("button", { name: "Usar mi ubicación actual" }).click();
-  await pagina.locator("[data-paso]:not([hidden])").getByText("Punto confirmado").waitFor();
-  const gps = await pagina.locator("main").innerText();
-  ver(/Latitud\s+19\.406200/.test(gps) && /Longitud\s+−99\.171600/.test(gps) && /Precisión de la lectura:\s*±\s*15\s*m/.test(gps), "forma C: la lectura trae latitud, longitud y precisión (± 15 m) y queda confirmada", `forma C: ${gps.slice(0, 200)}`);
-  await continuar(pagina).click();
-  ver((await barra(pagina)) === "Paso 4 de 6: Fecha y estado", "forma C: con la lectura confirmada avanza", "forma C: no avanzó");
-  await contexto.close();
+async function comentarioConCorreo(navegador: Browser) {
+  const nombreDe = (id: number) => ESTADOS_DEL_CATALOGO.find((e) => e.id === id)!.nombre;
+  /** Abre el paso 4 con «Ileso» (o lo indicado en Integridad) y la opción de Contención indicada, y avanza al paso 5. */
+  async function hastaComentario(pagina: Page, integridad: number, contencion: number) {
+    await irA(pagina, `${AVISTAMIENTO}?paso=4`);
+    const p4 = paso(pagina, 4);
+    await p4.locator("input[type=date]").fill("2026-10-18");
+    await p4.locator("input[type=time]").fill("10:30");
+    await etiquetaOpcion(p4, nombreDe(integridad)).first().click();
+    await etiquetaOpcion(p4, nombreDe(contencion)).first().click();
+    await continuar(pagina).click();
+  }
+  const campo = (pagina: Page) => paso(pagina, 5).getByLabel(/Comentario adicional/);
+  const nota = (pagina: Page) => paso(pagina, 5).getByText(NOTA_CORREO, { exact: true });
+  const describe = async (pagina: Page) => (await campo(pagina).getAttribute("aria-describedby")) ?? "";
 
-  // C · permiso denegado
-  ({ contexto, pagina } = await nueva());
-  await pagina.locator("label", { hasText: "Usar mi ubicación" }).click();
-  await pagina.getByRole("button", { name: "Usar mi ubicación actual" }).click();
-  await pagina.getByText("Permiso de ubicación denegado").waitFor();
-  ver((await pagina.getByRole("button", { name: "Escribir dirección" }).isVisible()) && (await pagina.getByRole("button", { name: "Marcar en mapa" }).isVisible()), "forma C: con el permiso denegado se ofrece escribir la dirección o marcar en el mapa", "forma C denegada: faltan alternativas");
-  await continuar(pagina).click();
-  ver(await sigueEn3(pagina), "forma C denegada: Continuar sin punto no avanza", "forma C denegada: avanzó");
-  await pagina.getByRole("button", { name: "Marcar en mapa" }).click();
-  ver((await radio(pagina, "Marcar en mapa").isChecked()) && (await mapa(pagina).isVisible()), "forma C denegada: «Marcar en mapa» cambia a esa forma", "forma C denegada: no cambió de forma");
-  await contexto.close();
+  // Con cada una de las tres opciones de resguardo (y con «Fallecido» + resguardo): placeholder exacto, nota permanente y aria-describedby.
+  for (const [integridad, contencion] of [[1, 8], [1, 9], [1, 10], [5, 8], [5, 9], [5, 10]] as const) {
+    const { contexto, pagina } = await nuevaPagina(navegador);
+    await hastaComentario(pagina, integridad, contencion);
+    const ph = await campo(pagina).getAttribute("placeholder");
+    const idNota = await paso(pagina, 5).getByText(NOTA_CORREO, { exact: true }).getAttribute("id");
+    ver(ph === PLACEHOLDER_RESGUARDO && (await nota(pagina).isVisible()) && !!idNota && (await describe(pagina)).split(/\s+/).includes(idNota), `paso 5 con «${nombreDe(integridad)}» + «${nombreDe(contencion)}»: placeholder exacto de resguardo y nota visible enlazada por aria-describedby`, `paso 5 con ${integridad}+${contencion}: placeholder «${ph}», nota ${await nota(pagina).count()}, describedby «${await describe(pagina)}»`);
+    await contexto.close();
+  }
+  // Sin resguardo («Libre en vía pública», también con «Fallecido»): se conserva el placeholder actual y no hay nota.
+  for (const integridad of [1, 5]) {
+    const { contexto, pagina } = await nuevaPagina(navegador);
+    await hastaComentario(pagina, integridad, 7);
+    ver(((await campo(pagina).getAttribute("placeholder")) ?? "") === "" && (await nota(pagina).count()) === 0 && !(await describe(pagina)).includes("nota-correo"), `paso 5 con «${nombreDe(integridad)}» + «Libre en vía pública»: sin placeholder de resguardo ni nota`, `paso 5 con ${integridad}+7: aparece la invitación al correo`);
+    await contexto.close();
+  }
+  // Cambiar la elección al volver: se actualiza y el texto escrito se conserva.
+  {
+    const { contexto, pagina } = await nuevaPagina(navegador);
+    await hastaComentario(pagina, 1, 8);
+    await campo(pagina).fill("Lo tengo en mi casa: persona@example.com");
+    await regresar(pagina).click();
+    const p4 = paso(pagina, 4);
+    await etiquetaOpcion(p4, nombreDe(7)).first().click();
+    await continuar(pagina).click();
+    const sin = ((await campo(pagina).getAttribute("placeholder")) ?? "") === "" && (await nota(pagina).count()) === 0;
+    const texto = await campo(pagina).inputValue();
+    await regresar(pagina).click();
+    await etiquetaOpcion(p4, nombreDe(9)).first().click();
+    await continuar(pagina).click();
+    const con = (await campo(pagina).getAttribute("placeholder")) === PLACEHOLDER_RESGUARDO && (await nota(pagina).isVisible());
+    ver(sin && con && texto === "Lo tengo en mi casa: persona@example.com" && (await campo(pagina).inputValue()) === texto, "paso 5: al volver y cambiar «Contención y ubicación» la invitación aparece y desaparece según la elección, y el texto escrito se conserva", `paso 5 al volver: sin=${sin} con=${con} texto=«${texto}»`);
+    await continuar(pagina).click();
+    const resumen = paso(pagina, 6);
+    ver((await pagina.locator('a[href^="mailto:" i]').count()) === 0 && (await resumen.innerText()).includes("persona@example.com"), "el correo escrito es texto del comentario: el resumen lo muestra como texto y ninguna pantalla lo convierte en enlace mailto", "el correo se convirtió en enlace o no se muestra");
+    await contexto.close();
+  }
+  // Geometría del paso 5 en claro y oscuro, con y sin invitación, a 390, 768 y 1280 px.
+  for (const tema of ["light", "dark"] as const) {
+    for (const ancho of ANCHOS) {
+      for (const [ruta, etiqueta] of [[`${AVISTAMIENTO}?paso=5&datos=ejemplo`, "con invitación"], [`${AVISTAMIENTO}?paso=5`, "sin invitación"]] as const) {
+        const { contexto, pagina } = await nuevaPagina(navegador, { ancho, tema });
+        await irA(pagina, ruta);
+        const e = `paso 5 ${etiqueta} ${ancho}px ${tema === "light" ? "claro" : "oscuro"}`;
+        await desborde(pagina, e);
+        await areasTactiles(pagina, e);
+        await contexto.close();
+      }
+    }
+  }
+}
 
-  // Variantes de las capturas.
-  for (const [u, texto] of [["direccion", "Confirma el punto en el mapa para continuar"], ["mapa", "La alcaldía se determina a partir del punto"], ["gps", "Precisión de la lectura"], ["denegado", "Permiso de ubicación denegado"]] as const) {
-    const r = await nuevaPagina(navegador);
-    await irA(r.pagina, `${AVISTAMIENTO}?ubicacion=${u}`);
-    ver((await barra(r.pagina)) === "Paso 3 de 6: Ubicación" && (await r.pagina.getByText(texto).first().isVisible()), `?ubicacion=${u}: abre en el paso 3 mostrando «${texto}»`, `?ubicacion=${u}: variante incorrecta`);
-    await r.contexto.close();
+
+// ---------- (h) el servidor rechaza una opción que ya no está disponible: mensaje amable en su categoría o al inicio del paso ----------
+async function opcionNoDisponible(navegador: Browser) {
+  const AMABLE = "Una de las opciones elegidas ya no está disponible. Revisa tus selecciones.";
+  /** Desde el paso 4 (con lo que traiga la variante) completa fecha, hora, foto y ubicación y pulsa «Enviar reporte». */
+  async function enviarCompleto(pagina: Page) {
+    const p4 = paso(pagina, 4);
+    await p4.locator("input[type=date]").fill("2026-10-18");
+    await p4.locator("input[type=time]").fill("10:30");
+    await continuar(pagina).click(); // → 5
+    await continuar(pagina).click(); // → 6
+    await continuar(pagina).click(); // Enviar: sin foto ni ubicación regresa al paso 2
+    await paso(pagina, 2).locator("input[type=file]:not([capture])").setInputFiles({ name: "avistamiento.png", mimeType: "image/png", buffer: PNG });
+    await paso(pagina, 2).getByAltText("Vista previa de la fotografía").waitFor();
+    await continuar(pagina).click();
+    await pagina.getByLabel(/Dirección aproximada/).fill("Av. Insurgentes y Chilpancingo");
+    await pagina.getByLabel(/Alcaldía/).selectOption({ label: "Cuauhtémoc" });
+    await continuar(pagina).click(); // → 4
+    await continuar(pagina).click(); // → 5
+    await continuar(pagina).click(); // → 6
+    await continuar(pagina).click(); // Enviar de verdad
+  }
+  // A · Una opción desactivada (id 16, que ya no se ofrece) llegó al servidor: el mensaje queda en SU categoría, con foco, y la opción se quita de la selección.
+  {
+    const { contexto, pagina } = await nuevaPagina(navegador);
+    // El servidor responde lo que respondería con un valor desactivado (se prueba en `probar` con un almacén de prueba); aquí se verifica cómo lo pinta la pantalla.
+    await pagina.route("**/api/avistamientos", (ruta) => ruta.fulfill({ status: 422, contentType: "application/json", body: JSON.stringify({ error: { codigo: "VALIDACION", mensaje: "Revisa los campos marcados.", campos: { estadosAnimal: AMABLE } } }) }));
+    await irA(pagina, `${AVISTAMIENTO}?caso=no-disponible`);
+    await enviarCompleto(pagina);
+    await paso(pagina, 4).getByText(AMABLE).first().waitFor();
+    const p4 = paso(pagina, 4);
+    const categoria4 = p4.locator('[data-categoria="4"]');
+    const textoError = await categoria4.innerText();
+    const cuerpoPagina = await pagina.locator("main").innerText();
+    const dentro = await pagina.evaluate(() => !!document.activeElement?.closest('[data-categoria="4"]'));
+    const marcados = await categoria4.locator("input:checked").count();
+    ver((await barra(pagina)) === "Paso 4 de 6: Fecha y estado" && textoError.includes(AMABLE) && !/\b99\b/.test(cuerpoPagina) && dentro && marcados === 0, "rechazo de una opción desactivada: vuelve al paso 4, el mensaje amable («Una de las opciones elegidas ya no está disponible…») aparece en la categoría que la contiene, sin identificadores, con el foco en ella y la opción quitada de la selección", `rechazo: paso ${await barra(pagina)}, mensaje en categoría ${textoError.includes(AMABLE)}, foco dentro ${dentro}, marcados ${marcados}`);
+    await contexto.close();
+  }
+  // B · No se puede saber qué opción fue (todas las enviadas están activas en la pantalla): el mensaje va al inicio del paso, con foco.
+  {
+    const { contexto, pagina } = await nuevaPagina(navegador);
+    await pagina.route("**/api/avistamientos", (ruta) => ruta.fulfill({ status: 422, contentType: "application/json", body: JSON.stringify({ error: { codigo: "VALIDACION", mensaje: "Revisa los campos marcados.", campos: { estadosAnimal: AMABLE } } }) }));
+    await irA(pagina, `${AVISTAMIENTO}?caso=combinadas`);
+    await enviarCompleto(pagina);
+    const aviso = pagina.locator("#error-estados");
+    await aviso.waitFor();
+    const enfocado = await aviso.evaluate((e) => e === document.activeElement);
+    ver((await barra(pagina)) === "Paso 4 de 6: Fecha y estado" && (await aviso.innerText()).includes(AMABLE) && enfocado, "rechazo sin opción identificable: el mensaje amable aparece al inicio del paso 4 y recibe el foco", `rechazo sin categoría: paso ${await barra(pagina)}, foco ${enfocado}`);
+    await contexto.close();
   }
 }
 
@@ -522,7 +681,6 @@ async function geometria(navegador: Browser) {
     `${FICHA}/avistamiento/enviado`,
     `/ficha/${FOLIO_INEXISTENTE}`,
     ...[1, 2, 3, 4, 5, 6].map((n) => `${AVISTAMIENTO}?paso=${n}&datos=ejemplo`),
-    ...["direccion", "mapa", "gps", "denegado"].map((u) => `${AVISTAMIENTO}?ubicacion=${u}`),
     ...["vacio", "combinadas", "fallecido"].map((c) => `${AVISTAMIENTO}?caso=${c}`),
     "/ruta-que-no-existe",
     "/dev/transversales/error",
@@ -668,16 +826,30 @@ async function main() {
   try {
     if (servidor) await esperarServidor(servidor);
     navegador = await abrirNavegador();
-    await principal(navegador);
-    await portada(navegador);
-    await ficha(navegador);
-    await flujo(navegador);
-    await estadoAnimal(navegador);
-    await ubicacion(navegador);
-    await transversales(navegador);
-    await sinReservadosDeAvistamientos();
-    await enlacesInternos(navegador);
-    await geometria(navegador);
+    const nav = navegador;
+    const solo = process.argv.find((a) => a.startsWith("--solo="))?.split("=")[1];
+    const seccion = async (nombre: string, f: () => Promise<void>) => {
+      if (solo && !nombre.includes(solo)) return;
+      try {
+        await f();
+      } catch (e) {
+        fallos++;
+        console.log(`✗ la sección «${nombre}» se interrumpió: ${String(e).split("\n")[0]} ${String((e as Error).stack).split("\n").find((l) => l.includes("verificar-visitante.ts")) ?? ""}`);
+      }
+    };
+    await seccion("PUB-01", () => principal(nav));
+    await seccion("portada", () => portada(nav));
+    await seccion("ficha", () => ficha(nav));
+    await seccion("flujo", () => flujo(nav));
+    await seccion("estados del animal", () => estadoAnimal(nav));
+    await seccion("ubicación", () => ubicacion(nav));
+    await seccion("transversales", () => transversales(nav));
+    await seccion("avistamientos sin reservados", () => sinReservadosDeAvistamientos());
+    await seccion("enlaces internos", () => enlacesInternos(nav));
+    await seccion("geometría", () => geometria(nav));
+    await seccion("recorrido de opciones", () => recorridoDeOpciones(nav));
+    await seccion("comentario con correo", () => comentarioConCorreo(nav));
+    await seccion("opción no disponible", () => opcionNoDisponible(nav));
   } finally {
     await navegador?.close();
     apagar();

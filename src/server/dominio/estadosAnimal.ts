@@ -2,6 +2,7 @@
 //  · Categoría 1 (obligatoria): o una sola excluyente (1 Ileso, 5 Fallecido, 6 No se puede determinar) o cualquier subconjunto no vacío de combinables (2, 3, 4 y los nuevos).
 //  · Categoría 2 (obligatoria): exactamente una.  · Categorías 3 y 4: cero o una.  · «Fallecido» deshabilita la categoría 3 (Conducta).
 import { ESTADOS_ANIMAL, ID_CATEGORIA_CONDUCTA, ID_ESTADO_FALLECIDO } from "../../mocks/catalogos";
+import { MENSAJE_OPCION_NO_DISPONIBLE } from "../../lib/estadoAnimal";
 import { reglaDeNegocio } from "../errores";
 
 /** R3: los ids 1, 5 y 6 (Ileso, Fallecido, No se puede determinar) son excluyentes; los estados nuevos de la categoría 1 son combinables. */
@@ -12,9 +13,9 @@ const DEL_MOCK: readonly EstadoDelCatalogo[] = ESTADOS_ANIMAL.map((e) => ({ id: 
 export function validarEstadosAnimal(ids: readonly number[], catalogo: readonly EstadoDelCatalogo[] = DEL_MOCK): void {
   const falla = (mensaje: string, codigo = "ESTADOS_INVALIDOS") => reglaDeNegocio("R3", mensaje, codigo);
   if (new Set(ids).size !== ids.length) throw falla("Hay estados repetidos.");
-  const elegidos = ids.map((id) => catalogo.find((e) => e.id === id) ?? (() => { throw falla(`El estado ${id} no existe.`); })());
+  const elegidos = ids.map((id) => catalogo.find((e) => e.id === id) ?? (() => { throw falla(MENSAJE_OPCION_NO_DISPONIBLE, "ESTADO_NO_DISPONIBLE"); })());
   const inactivo = elegidos.find((e) => e.activo === false);
-  if (inactivo) throw falla(`El estado ${inactivo.id} está desactivado.`);
+  if (inactivo) throw falla(MENSAJE_OPCION_NO_DISPONIBLE, "ESTADO_NO_DISPONIBLE");
   const de = (cat: number) => elegidos.filter((e) => e.idCategoria === cat);
   const integridad = de(1);
   if (integridad.length === 0) throw falla("Elige al menos una opción de integridad física y salud.");

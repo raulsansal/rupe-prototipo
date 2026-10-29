@@ -33,7 +33,7 @@ export function FichaPublicaVista({ ficha, hrefAvistamiento }: Props) {
       </header>
       <div className="grid gap-4 md:grid-cols-2 md:items-start">
         <div className="relative aspect-square overflow-hidden rounded-tarjeta border border-border bg-disabled-bg">
-          <Image src={fotografiaUrl} alt={altDeFoto(ficha)} fill sizes="(min-width: 768px) 384px, 100vw" priority className={cx("object-cover", !acepta && "opacity-70 grayscale")} />
+          <Image src={fotografiaUrl} alt={altDeFoto(ficha)} fill sizes="(min-width: 768px) 384px, 100vw" priority unoptimized={fotografiaUrl.startsWith("/api/")} className={cx("object-cover", !acepta && "opacity-70 grayscale")} />
         </div>
         <div className="flex flex-col gap-4">
           <TarjetaDatos

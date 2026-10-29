@@ -5,6 +5,7 @@ import "server-only";
 // PENDIENTE (P6): hoy el tablero (ADM-01) y Reportes (ADM-02) se calculan solo con los casos y avistamientos SINTÉTICOS de src/mocks/tablero.ts, y
 // sus cifras no deben cambiar. En P6 deberán SUMAR a ellos los casos y avistamientos reales de este almacén (los sembrados aquí ya están en el
 // maquetado de moderación pero no en esas cifras), sin cambiar hoy ninguna cifra.
+import { join } from "node:path";
 import { hashSync } from "bcryptjs";
 import { COSTO_BCRYPT } from "../sesion/contrasenas";
 import { leerFotoSembrada } from "./fotosSembradas";
@@ -56,12 +57,14 @@ export type OpcionesSiembra = { carpetaFotos?: string };
 
 export function sembrar(a: Almacen, entorno: Entorno = process.env, { carpetaFotos }: OpcionesSiembra = {}): Almacen {
   // ---- Catálogos ----
-  CATALOGOS.alcaldias.elementos.forEach((e) => a.alcaldias.push({ idAlcaldia: e.id, nombre: e.nombre, claveGeoestadistica: e.clave ?? null, estatus: e.activo ? 1 : 0 }));
-  CATALOGOS.razas.elementos.forEach((e) => a.razas.push({ idRaza: e.id, nombre: e.nombre, estatus: e.activo ? 1 : 0 }));
+  // PROTOTIPO: todos los valores sembrados quedan ACTIVOS (aunque las pantallas del Administrador, que leen `mocks/catalogosAdmin.ts`, conserven los suyos como inactivos) para que los flujos de
+  // prueba no fallen con alcaldía Milpa Alta, raza Pug, motivo «Estrés…» ni los estados del animal 16 y 17. Activar y desactivar será función real del Administrador en P6.
+  CATALOGOS.alcaldias.elementos.forEach((e) => a.alcaldias.push({ idAlcaldia: e.id, nombre: e.nombre, claveGeoestadistica: e.clave ?? null, estatus: 1 }));
+  CATALOGOS.razas.elementos.forEach((e) => a.razas.push({ idRaza: e.id, nombre: e.nombre, estatus: 1 }));
   CATEGORIAS_MOTIVO.forEach((c) => a.categoriasMotivo.push({ idCategoriaMotivo: c.id, nombre: c.nombre }));
-  CATALOGOS.motivos.elementos.forEach((e) => a.motivos.push({ idMotivo: e.id, idCategoriaMotivo: e.idCategoria!, nombre: e.nombre, descripcion: e.descripcion ?? "", estatus: e.activo ? 1 : 0 }));
+  CATALOGOS.motivos.elementos.forEach((e) => a.motivos.push({ idMotivo: e.id, idCategoriaMotivo: e.idCategoria!, nombre: e.nombre, descripcion: e.descripcion ?? "", estatus: 1 }));
   CATEGORIAS_ESTADO_ANIMAL.forEach((c) => a.categoriasEstadoAnimal.push({ idCategoriaEstadoAnimal: c.id, nombre: c.nombre }));
-  CATALOGOS["estados-animal"].elementos.forEach((e) => a.estadosAnimal.push({ idEstadoAnimal: e.id, idCategoriaEstadoAnimal: e.idCategoria!, nombre: e.nombre, descripcion: e.descripcion ?? "", estatus: e.activo ? 1 : 0 }));
+  CATALOGOS["estados-animal"].elementos.forEach((e) => a.estadosAnimal.push({ idEstadoAnimal: e.id, idCategoriaEstadoAnimal: e.idCategoria!, nombre: e.nombre, descripcion: e.descripcion ?? "", estatus: 1 }));
   ESTADOS_CASO.forEach((nombre, i) => a.estadosCaso.push({ idEstadoCaso: i + 1, nombre, orden: i + 1 }));
   a.parametros.push(
     { clave: "version_aviso_privacidad", descripcion: "Versión vigente del aviso de privacidad", valor: "1.0", valorPorDefecto: "1.0" },
@@ -133,6 +136,14 @@ export function sembrar(a: Almacen, entorno: Entorno = process.env, { carpetaFot
   const todos = [...AVISTAMIENTOS, ...AVISTAMIENTOS_OCULTOS_ORIGEN].sort((x, y) => x.id - y.id);
   for (const v of todos) {
     const foto: T.Fotografia = { idFotografia: siguienteId(a, "fotografia"), referenciaArchivo: v.fotografiaUrl, formato: "JPG", tamanoBytes: 90_000, fechaCarga: v.fechaHora };
+    // P4: foto real del avistamiento (src/server/seed/fotos/avistamientos/<ID>.jpg, generadas con `npm run preparar-fotos -- --avistamientos`); sin ella, el marcador de siempre.
+    const real = carpetaFotos ? leerFotoSembrada(join(carpetaFotos, "avistamientos"), String(v.id)) : undefined;
+    if (real) {
+      foto.referenciaArchivo = `/api/fotografias/${foto.idFotografia}`;
+      foto.formato = real.formato;
+      foto.tamanoBytes = real.bytes.length;
+      a.contenidosFoto[foto.idFotografia] = { tipo: real.tipo, bytes: real.bytes };
+    }
     a.fotografias.push(foto);
     const visible = "visible" in v ? (v as { visible: boolean }).visible : true;
     const motivo = "motivoModeracion" in v ? (v as { motivoModeracion?: string }).motivoModeracion : undefined;

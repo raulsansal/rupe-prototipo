@@ -153,7 +153,7 @@ test("Ficha pública · el caso nuevo se publica SIN calle, referencias, momento
   assert.deepEqual(Object.keys(ficha).sort(), [...CAMPOS_FICHA_PUBLICA].sort());
   const json = JSON.stringify(ficha);
   for (const reservado of ["Calle Reservada 99", "Referencia reservada", "Descripción reservada", "tarde", "Rosa", "Hernández", "@example", "/api/fotografias/"]) assert.ok(!json.includes(reservado), reservado);
-  assert.equal(ficha.fotografiaUrl, ""); // la foto subida aún no se publica (P3/P4); la ruta privada no sale en la ficha
+  assert.equal(ficha.fotografiaUrl, `/api/fichas/${r.folio}/fotografia`); // P4: la ficha usa la ruta PÚBLICA de la foto del perro; la ruta privada (/api/fotografias/<id>) nunca sale
   assert.ok(!/momento|motivo|direccion|referencias|descripcion|idUsuario|tokenPublico/i.test(json));
   assert.equal(ficha.estado, "En búsqueda");
 });

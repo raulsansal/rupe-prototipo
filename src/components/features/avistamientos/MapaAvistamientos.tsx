@@ -7,10 +7,11 @@ import { Icono } from "@/components/ui/Icono";
 import { fechaLocalISO, formatearFechaHora } from "@/lib/formato";
 import { FondoMapa } from "../MapaIlustrativo";
 import { FiltroFechas, SIN_FILTRO, type Filtro } from "./FiltroFechas";
+import { NOTA_UBICACION_SIMULADA } from "../avistamiento/datos";
 import { SelectorVista } from "./SelectorVista";
 
 /** Un avistamiento en el mapa. Sin estados ni fotografía: aquí solo hay fecha, lugar y coordenadas. */
-export type PuntoAvistamiento = { id: number; fechaHora: string; alcaldia: string; coloniaZona?: string; latitud: number; longitud: number };
+export type PuntoAvistamiento = { id: number; fechaHora: string; alcaldia: string; coloniaZona?: string; latitud: number; longitud: number; ubicacionSimulada?: boolean };
 
 type Props = {
   folio: string;
@@ -93,6 +94,7 @@ export function MapaAvistamientos({ folio, registro, puntos, rutaInicial = false
             {visibles.length === 0 && <p className="absolute inset-x-4 top-1/2 -translate-y-1/2 rounded-campo bg-surface p-3 text-center text-small">Ningún avistamiento en ese periodo.</p>}
           </div>
           <p className="text-caption text-text-muted">Mapa ilustrativo de la maqueta: no usa datos ni servicios de mapas reales.</p>
+          {visibles.some((p) => p.ubicacionSimulada) && <p className="text-caption text-text-muted">{NOTA_UBICACION_SIMULADA}: algunos puntos son estimados.</p>}
         </div>
         <div className="contents lg:col-start-2 lg:row-start-1 lg:flex lg:flex-col lg:gap-4">
           <div className="order-1 lg:order-2">{botones}</div>

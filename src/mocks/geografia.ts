@@ -44,6 +44,9 @@ const CENTROS: Record<Alcaldia, Coordenadas> = {
   Xochimilco: { latitud: 19.26, longitud: -99.1 },
 };
 
+/** Centro aproximado de la alcaldía (maqueta). */
+export const centroDeAlcaldia = (alcaldia: Alcaldia): Coordenadas => ({ ...CENTROS[alcaldia] });
+
 const RADIO_MAXIMO = 0.1; // grados: más lejos del centro más cercano ya cuenta como fuera de la ciudad
 
 const distancia = (a: Coordenadas, b: Coordenadas) => Math.hypot(a.latitud - b.latitud, a.longitud - b.longitud);

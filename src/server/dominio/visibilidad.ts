@@ -12,6 +12,7 @@
 // Todos los 404 son idénticos entre sí (no se revela por qué). Contradicción entre las HU: la 024/025 ocultan todo caso «Cerrado» y la 038
 // solo cancelados y deshabilitados; se resuelve por alcance (ficha pública frente a consulta de estatus), y R33 las concilia.
 import type { MovimientoHistorial } from "../../mocks/tipos";
+import { MENSAJE_QR_NO_VIGENTE } from "../config/mensajes";
 import { conflictoDeEstado, noEncontrado } from "../errores";
 
 export type TipoCierre = "cierre confirmado" | "cancelación" | "deshabilitación";
@@ -25,6 +26,10 @@ export function situacionDe(h: readonly MovimientoHistorial[]): Situacion | unde
 
 export const MENSAJE_NO_ENCONTRADO = "No encontramos ese folio.";
 export const errorNoEncontrado = () => noEncontrado(MENSAJE_NO_ENCONTRADO);
+
+/** Canal QR: un token inexistente, mal formado, regenerado o de un caso que no se muestra responde SIEMPRE lo mismo, sin revelar si existió (R27, R33). */
+export { MENSAJE_QR_NO_VIGENTE };
+export const errorQrNoVigente = () => noEncontrado(MENSAJE_QR_NO_VIGENTE, "QR_NO_VIGENTE");
 
 export const fichaPublicaVisible = (s: Situacion | undefined) => !!s && s.estado !== "Cerrado";
 export const estatusPorFolioVisible = (s: Situacion | undefined) => !!s && !(s.estado === "Cerrado" && (s.cierre === "cancelación" || s.cierre === "deshabilitación"));

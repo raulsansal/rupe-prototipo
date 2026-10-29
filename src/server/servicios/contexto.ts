@@ -11,6 +11,8 @@ export type Contexto = {
   repos: Repositorios; reloj: Reloj; aleatorio?: Aleatorio;
   /** Inyectables en las pruebas (por defecto, bcryptjs). */
   comparar?: Comparar; hashear?: Hashear;
+  /** Envío SIMULADO del aviso de un avistamiento (HU 036): en el Prototipo no sale ningún correo. Si lanza, la notificación se registra como «fallida» y el avistamiento se guarda igual. */
+  enviarNotificacion?: (mensaje: { asunto: string; cuerpo: string[] }, destinatario: { idUsuario: number }) => Promise<void>;
 };
 export const contextoPorDefecto = (): Contexto => ({ repos: crearRepositorios(), reloj: relojDelSistema });
 
