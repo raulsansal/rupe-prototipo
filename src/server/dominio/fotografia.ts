@@ -3,7 +3,8 @@
 // (P3/P4) habrá que re-codificar en el servidor.
 export type FormatoFoto = "JPG" | "PNG";
 export const TIPO_MIME: Record<FormatoFoto, string> = { JPG: "image/jpeg", PNG: "image/png" };
-export const MAXIMO_TECNICO_MB = 4.5; // R11
+import { LIMITE_TECNICO_MB } from "../../config/parametros";
+export const MAXIMO_TECNICO_MB = LIMITE_TECNICO_MB; // R11 (única definición: config/parametros.ts)
 
 const FIRMA_PNG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 

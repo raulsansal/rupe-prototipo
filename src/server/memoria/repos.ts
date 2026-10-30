@@ -3,7 +3,12 @@ import "server-only";
 import type * as T from "../tipos";
 import type { Repositorios } from "../repos";
 import { ConflictoDeUnicidad } from "../repos/errores";
-import { validarEntrada, type EntradaNueva } from "../dominio/bitacora";
+import { REGLAS_CATALOGO } from "../../config/catalogos";
+import { idDeCatalogo, validarEntrada, type EntradaNueva } from "../dominio/bitacora";
+import { comprobarUnicidad, detalleDeAlta, detalleDeDesactivacion, errorYaDesactivado, impedimentoParaDesactivar, leerDatosCatalogo, planearEdicion } from "../dominio/catalogos";
+import { detalleDeParametro, planearCambioDeParametros, planearRestablecimiento, type CambioDeParametro } from "../dominio/parametros";
+import { noEncontrado } from "../errores";
+import { ADAPTADORES } from "./catalogos";
 import { errorAvistamientoYaOculto, errorAvistamientoYaVisible, errorCasoYaCambio } from "../dominio/moderacion";
 import { errorConfirmarSesionPropia, errorSinCambioDeCuenta, errorUltimoAdministrador, esUltimoAdministradorActivo, validarRol } from "../dominio/usuarios";
 import { ErrorApp } from "../errores";
@@ -56,6 +61,15 @@ function cerrarSesiones(al: Almacen, idUsuario: number, fecha: string): number {
   const activas = al.sesiones.filter((s) => s.idUsuario === idUsuario && !s.fechaCierre);
   activas.forEach((s) => (s.fechaCierre = fecha));
   return activas.length;
+}
+
+/** P6b: aplica los cambios de parámetros (ya planeados) y agrega UNA entrada de bitácora por parámetro que cambió. Dentro de `transaccion`. */
+function aplicarParametros(al: Almacen, cambios: CambioDeParametro[], e: { idAdministrador: number; fecha: string }) {
+  const entradas = cambios.map((c) => {
+    al.parametros.find((p) => p.clave === c.clave)!.valor = c.nuevo;
+    return agregarBitacora(al, { tipoAccion: "modificar parámetro", idAfectada: c.clave, detalle: detalleDeParametro(c), idUsuario: e.idAdministrador, fechaHora: e.fecha });
+  });
+  return { parametros: al.parametros, cambios, entradas };
 }
 
 export function crearRepositorios(almacen: () => Almacen = obtenerAlmacen): Repositorios {
@@ -375,11 +389,71 @@ export function crearRepositorios(almacen: () => Almacen = obtenerAlmacen): Repo
           }),
         );
       },
+      async altaCatalogo(tipo, entrada, e) {
+        const al = a();
+        const r = REGLAS_CATALOGO[tipo];
+        const ad = ADAPTADORES[tipo];
+        return copia(
+          transaccion(al, () => {
+            const d = leerDatosCatalogo(r, entrada, ad.categorias(al)); // 422
+            comprobarUnicidad(r, ad.filas(al), d); // 409, sobre las filas VIGENTES y sin ceder el turno
+            ad.crear(al, d);
+            const fila = ad.filas(al).at(-1)!;
+            const entradaBitacora = agregarBitacora(al, { tipoAccion: "alta de catálogo", idAfectada: idDeCatalogo(r.etiquetaBitacora, fila.id), detalle: detalleDeAlta(d), idUsuario: e.idAdministrador, fechaHora: e.fecha });
+            return { fila, entrada: entradaBitacora };
+          }),
+        );
+      },
+      async editarCatalogo(tipo, id, entrada, e) {
+        const al = a();
+        const r = REGLAS_CATALOGO[tipo];
+        const ad = ADAPTADORES[tipo];
+        return copia(
+          transaccion(al, () => {
+            const filas = ad.filas(al);
+            const actual = filas.find((f) => f.id === id);
+            if (!actual) throw noEncontrado();
+            const categorias = ad.categorias(al);
+            const d = leerDatosCatalogo(r, entrada, categorias, actual);
+            const plan = planearEdicion(r, filas, actual, d, categorias);
+            if (plan.sinCambios) return { fila: actual, sinCambios: true, reactivado: false };
+            ad.aplicar(al, plan.nueva);
+            const entradaBitacora = agregarBitacora(al, { tipoAccion: "edición de catálogo", idAfectada: idDeCatalogo(r.etiquetaBitacora, id), detalle: plan.detalle, idUsuario: e.idAdministrador, fechaHora: e.fecha });
+            return { fila: plan.nueva, sinCambios: false, reactivado: plan.reactiva, entrada: entradaBitacora };
+          }),
+        );
+      },
+      async desactivarCatalogo(tipo, id, e) {
+        const al = a();
+        const r = REGLAS_CATALOGO[tipo];
+        const ad = ADAPTADORES[tipo];
+        return copia(
+          transaccion(al, () => {
+            const filas = ad.filas(al);
+            const actual = filas.find((f) => f.id === id);
+            if (!actual) throw noEncontrado();
+            if (!actual.activo) throw errorYaDesactivado(r);
+            const impedimento = impedimentoParaDesactivar(r, filas, actual, ad.categorias(al));
+            if (impedimento) throw impedimento;
+            const nueva = { ...actual, activo: false };
+            ad.aplicar(al, nueva);
+            const entradaBitacora = agregarBitacora(al, { tipoAccion: "desactivación de catálogo", idAfectada: idDeCatalogo(r.etiquetaBitacora, id), detalle: detalleDeDesactivacion(r), idUsuario: e.idAdministrador, fechaHora: e.fecha });
+            return { fila: nueva, entrada: entradaBitacora };
+          }),
+        );
+      },
+      async modificarParametros(entrada, e) {
+        const al = a();
+        return copia(transaccion(al, () => aplicarParametros(al, planearCambioDeParametros(entrada, al.parametros), e)));
+      },
+      async restablecerParametros(e) {
+        const al = a();
+        return copia(transaccion(al, () => aplicarParametros(al, planearRestablecimiento(al.parametros), e)));
+      },
     },
     parametros: {
       async todos() { return copia(a().parametros); },
       async valor(clave) { return a().parametros.find((p) => p.clave === clave)!.valor; },
-      async actualizar(clave, valor) { const p = a().parametros.find((x) => x.clave === clave); if (p) p.valor = valor; },
     },
   };
 }

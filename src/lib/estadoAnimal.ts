@@ -14,7 +14,14 @@ export const bajoResguardo = (s: SeleccionEstadoAnimal) => (s[2] ?? []).some((id
 
 export const SELECCION_VACIA: SeleccionEstadoAnimal = { 1: [], 2: [], 3: [], 4: [] };
 
-const estado = (id: number): EstadoAnimal => ESTADOS_ANIMAL.find((e) => e.id === id)!;
+/**
+ * Lo mínimo que las reglas necesitan de un estado. P6b (D5): el Administrador puede AGREGAR estados al catálogo, así que las reglas trabajan sobre las opciones que entrega el servidor (activas),
+ * no sobre la lista del maquetado; sin ella se usa la lista del maquetado (solo pruebas y datos ficticios).
+ */
+export type OpcionDeEstado = Pick<EstadoAnimal, "id" | "idCategoria" | "excluyente"> & { nombre?: string };
+const DEL_MAQUETADO: readonly OpcionDeEstado[] = ESTADOS_ANIMAL;
+/** R3: solo 1, 5 y 6 son excluyentes; un estado desconocido para la lista (un id que ya no se ofrece) se trata como combinable de «Integridad». */
+const estado = (id: number, catalogo: readonly OpcionDeEstado[]): OpcionDeEstado => catalogo.find((e) => e.id === id) ?? { id, idCategoria: 1, excluyente: false };
 
 export const idsDe = (s: SeleccionEstadoAnimal): number[] => Object.values(s).flat();
 
@@ -24,20 +31,20 @@ export const hayFallecido = (s: SeleccionEstadoAnimal) => s[1].includes(ID_ESTAD
 export const categoriaDeshabilitada = (idCategoria: number, s: SeleccionEstadoAnimal) => idCategoria === ID_CATEGORIA_CONDUCTA && hayFallecido(s);
 
 /** Una opción de «Integridad» se deshabilita si hay una excluyente elegida (y no es ella) o si ella es excluyente y ya hay otras. */
-export function opcionDeshabilitada(id: number, s: SeleccionEstadoAnimal): boolean {
-  const e = estado(id);
+export function opcionDeshabilitada(id: number, s: SeleccionEstadoAnimal, catalogo: readonly OpcionDeEstado[] = DEL_MAQUETADO): boolean {
+  const e = estado(id, catalogo);
   if (categoriaDeshabilitada(e.idCategoria, s)) return true;
   if (CATEGORIAS_ESTADO_ANIMAL.find((c) => c.id === e.idCategoria)?.seleccion !== "multiple") return false;
   const elegidos = s[e.idCategoria];
   if (elegidos.includes(id)) return false;
-  const hayExcluyente = elegidos.some((x) => estado(x).excluyente);
-  const hayCombinable = elegidos.some((x) => !estado(x).excluyente);
+  const hayExcluyente = elegidos.some((x) => estado(x, catalogo).excluyente);
+  const hayCombinable = elegidos.some((x) => !estado(x, catalogo).excluyente);
   return hayExcluyente || (e.excluyente && hayCombinable);
 }
 
 /** Marca o desmarca una opción de «Integridad». Al elegir «Fallecido» se vacía Conducta. */
-export function alternarIntegridad(s: SeleccionEstadoAnimal, id: number): SeleccionEstadoAnimal {
-  if (opcionDeshabilitada(id, s)) return s;
+export function alternarIntegridad(s: SeleccionEstadoAnimal, id: number, catalogo: readonly OpcionDeEstado[] = DEL_MAQUETADO): SeleccionEstadoAnimal {
+  if (opcionDeshabilitada(id, s, catalogo)) return s;
   const elegidos = s[1].includes(id) ? s[1].filter((x) => x !== id) : [...s[1], id];
   return { ...s, 1: elegidos, 3: elegidos.includes(ID_ESTADO_FALLECIDO) ? [] : s[3] };
 }
@@ -57,4 +64,4 @@ export function erroresEstadoAnimal(s: SeleccionEstadoAnimal): Partial<Record<nu
 }
 
 /** Nombres de los estados elegidos, en el orden del catálogo (así se guardan en el avistamiento). */
-export const nombresElegidos = (s: SeleccionEstadoAnimal): string[] => ESTADOS_ANIMAL.filter((e) => idsDe(s).includes(e.id)).map((e) => e.nombre);
+export const nombresElegidos = (s: SeleccionEstadoAnimal, catalogo: readonly (OpcionDeEstado & { nombre: string })[] = ESTADOS_ANIMAL): string[] => catalogo.filter((e) => idsDe(s).includes(e.id)).map((e) => e.nombre);

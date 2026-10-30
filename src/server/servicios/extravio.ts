@@ -2,6 +2,7 @@ import "server-only";
 // F2 «Registrar extravío» (HU 011, 012 y 013). La guarda de sesión, rol y dueño va AQUÍ, dentro del servicio (no en el layout ni en el proxy). El dueño sale SIEMPRE
 // de la sesión. R6: el caso, el perro, la fotografía, el QR inicial y los movimientos «registro» y «ficha generada» se crean en UNA transacción, de modo que el caso queda
 // en «En búsqueda» (E1; «Extraviado» es un estado instantáneo). R24 no aplica: la bitácora solo registra acciones administrativas.
+import { LIMITE_TECNICO_MB } from "../../config/parametros";
 import { ahoraUTC, hoyCDMX } from "../dominio/fechas";
 import { LADO_MAXIMO_CASO, prepararImagen } from "../imagenes/prepararImagen";
 import { generarFolio } from "../dominio/folio";
@@ -22,7 +23,7 @@ export const INTENTOS_DE_FOLIO = 10;
 /** Tamaño máximo de la parte de la petición: la fotografía más un margen para los datos. */
 export const MARGEN_DE_DATOS_BYTES = 64 * 1024;
 export async function limiteDeCuerpo(ctx: Contexto = contextoPorDefecto()): Promise<number> {
-  const mb = Math.min(Number(await ctx.repos.parametros.valor("tamano_maximo_archivo_mb")), 4.5);
+  const mb = Math.min(Number(await ctx.repos.parametros.valor("tamano_maximo_archivo_mb")), LIMITE_TECNICO_MB);
   return Math.floor(mb * 1024 * 1024) + MARGEN_DE_DATOS_BYTES;
 }
 

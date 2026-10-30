@@ -336,12 +336,15 @@ async function pruebas() {
   for (let i = 0; i < 5; i++) intentos.push((await peticion("POST", "/api/acceso/iniciar", { cuerpo: { correo: diego.correo, contrasena: "Incorrecta123" } })).estado);
   const sexto = await peticion("POST", "/api/acceso/iniciar", { cuerpo: { correo: diego.correo, contrasena: "Incorrecta123" } });
   ver(intentos.join() === "401,401,401,401,403" && (sexto.json?.error as { codigo: string }).codigo === "CUENTA_BLOQUEADA", "R17: cuatro intentos fallidos dan 401 y el QUINTO ya da 403 CUENTA_BLOQUEADA (y el sexto también)", sexto, `intentos: ${intentos.join()}`);
-  const sinPermisoDev = await peticion("POST", "/api/dev/parametro", { rol: "admin", cuerpo: { valor: "2.0" } }); // este servidor sí permite la herramienta
+  // P6b: la versión del aviso se cambia por la ruta REAL del Administrador (ya no existe /api/dev/parametro): sesión de Administrador, transacción y bitácora.
+  const fijaAviso = await peticion("PUT", "/api/admin/parametros", { rol: "admin", cuerpo: { version_aviso_privacidad: "2.0" } });
+  const bitacoraAviso = await peticion("GET", "/api/admin/bitacora?tipo=modificar%20par%C3%A1metro", { rol: "admin" });
+  const entradaAviso = ((bitacoraAviso.json?.items as { detalle?: string; entidadAfectada?: string }[] | undefined) ?? [])[0];
   const c2 = credencial("tutor2");
   const malaConAviso = await peticion("POST", "/api/acceso/iniciar", { cuerpo: { correo: c2.correo, contrasena: "Incorrecta123" } });
   const sin = await iniciar("tutor2");
   const con = await iniciar("tutor2", { aceptarAviso: true });
-  ver(sinPermisoDev.estado === 200 && malaConAviso.estado === 401 && sin.estado === 409 && (sin.json?.error as { codigo: string; versionAviso: string }).codigo === "AVISO_DESACTUALIZADO" && (sin.json?.error as { versionAviso: string }).versionAviso === "2.0" && sin.cabeceras.get("set-cookie") === null && con.estado === 200, "R22: con el aviso en 2.0, contraseña mala → 401 uniforme; contraseña correcta → 409 AVISO_DESACTUALIZADO sin cookie; aceptándolo → 200", sin, `mala → ${malaConAviso.estado}; aceptando → ${con.estado}`);
+  ver(fijaAviso.estado === 200 && (fijaAviso.json as { avisoReaceptacion?: boolean }).avisoReaceptacion === true && entradaAviso?.detalle === "1.0 → 2.0" && entradaAviso?.entidadAfectada === "version_aviso_privacidad" && malaConAviso.estado === 401 && sin.estado === 409 && (sin.json?.error as { codigo: string; versionAviso: string }).codigo === "AVISO_DESACTUALIZADO" && (sin.json?.error as { versionAviso: string }).versionAviso === "2.0" && sin.cabeceras.get("set-cookie") === null && con.estado === 200, "R22: el Administrador pone el aviso en 2.0 por PUT /api/admin/parametros (200, con su entrada «1.0 → 2.0» en la bitácora); contraseña mala → 401 uniforme; contraseña correcta → 409 AVISO_DESACTUALIZADO sin cookie; aceptándolo → 200", sin, `mala → ${malaConAviso.estado}; aceptando → ${con.estado}`);
   const setenta2 = "a1".repeat(36);
   const largo = await peticion("POST", "/api/acceso/registrar", { cuerpo: { nombre: "Persona Larga", correo: `larga.${Date.now()}@example.org`, contrasena: `${setenta2}b`, telefono: "5512345678", aceptaAviso: true, versionAviso: "2.0" } });
   const justo = await peticion("POST", "/api/acceso/registrar", { cuerpo: { nombre: "Persona Justa", correo: `justa.${Date.now()}@example.org`, contrasena: setenta2, telefono: "5512345678", aceptaAviso: true, versionAviso: "2.0" } });
@@ -365,15 +368,26 @@ async function herramientasSinPermiso(base2: string) {
   const origen = new URL(base2).origin;
   const login = await fetch(`${base2}/api/acceso/iniciar`, { method: "POST", headers: { "Content-Type": "application/json", Origin: origen }, body: JSON.stringify({ correo: credencial("admin").correo, contrasena: credencial("admin").contrasena }) });
   const cookie = login.headers.getSetCookie().find((c) => c.startsWith(`${NOMBRE_COOKIE}=`))?.split(";")[0] ?? "";
-  const pedir = async (ruta: string, cuerpo: unknown, conSesion: boolean): Promise<Resp> => {
+  const pedir = async (ruta: string, cuerpo: unknown, conSesion: boolean, metodo = "POST"): Promise<Resp> => {
     const h = new Headers({ "Content-Type": "application/json", Origin: origen });
     if (conSesion) h.set("Cookie", cookie);
-    const r = await fetch(`${base2}${ruta}`, { method: "POST", headers: h, body: JSON.stringify(cuerpo) });
+    const r = await fetch(`${base2}${ruta}`, { method: metodo, headers: h, body: JSON.stringify(cuerpo) });
     const texto = await r.text();
-    return { estado: r.status, cabeceras: r.headers, texto, json: JSON.parse(texto) };
+    let json: Record<string, unknown> | undefined;
+    try {
+      json = JSON.parse(texto);
+    } catch {
+      json = undefined; // una ruta que no existe responde la página 404 de Next, no JSON
+    }
+    return { estado: r.status, cabeceras: r.headers, texto, json };
   };
-  const [a, b, c, d] = [await pedir("/api/dev/reiniciar", {}, false), await pedir("/api/dev/parametro", { valor: "2.0" }, false), await pedir("/api/dev/reiniciar", {}, true), await pedir("/api/dev/parametro", { valor: "2.0" }, true)];
-  ver(login.status === 200 && [a, b, c, d].every((r) => r.estado === 404 && r.texto === a.texto && r.cabeceras.get("cache-control") === "no-store"), "POST /api/dev/reiniciar y POST /api/dev/parametro: 404 con el MISMO cuerpo y no-store, sin sesión y también con sesión de Administrador", b, `(reiniciar sin sesión ${a.estado}, parametro sin sesión ${b.estado}, reiniciar con Administrador ${c.estado}, parametro con Administrador ${d.estado})`);
+  const [a, c] = [await pedir("/api/dev/reiniciar", {}, false), await pedir("/api/dev/reiniciar", {}, true)];
+  ver(login.status === 200 && [a, c].every((r) => r.estado === 404 && r.texto === a.texto && r.cabeceras.get("cache-control") === "no-store"), "POST /api/dev/reiniciar: 404 con el MISMO cuerpo y no-store, sin sesión y también con sesión de Administrador", a, `(sin sesión ${a.estado}, con Administrador ${c.estado})`);
+  // P6b: la ruta de parámetros NO es una herramienta de desarrollo: existe en producción, pero solo para el Administrador.
+  const [sinSesion, conAdmin] = [await pedir("/api/admin/parametros", { version_aviso_privacidad: "2.0" }, false, "PUT"), await pedir("/api/admin/parametros", { version_aviso_privacidad: "2.0" }, true, "PUT")];
+  ver(sinSesion.estado === 401 && conAdmin.estado === 200, "PUT /api/admin/parametros (ruta real, no de desarrollo) con el servidor SIN RUPE_PERMITIR_REINICIO: sin sesión 401; con Administrador 200", conAdmin, `(sin sesión ${sinSesion.estado}, con Administrador ${conAdmin.estado})`);
+  const dev = await pedir("/api/dev/parametro", { valor: "2.0" }, true);
+  ver(dev.estado === 404, "POST /api/dev/parametro ya no existe (404, también con Administrador)", dev, `HTTP ${dev.estado}`);
 }
 
 /** Entorno de los servidores de prueba SIN RUPE_URL_PUBLICA (la pone el .env.local de cada persona): así el respaldo de hosts locales se prueba igual en todas las máquinas. */

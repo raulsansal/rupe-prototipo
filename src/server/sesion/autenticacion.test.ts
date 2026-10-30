@@ -115,7 +115,7 @@ test("R17 · un correo SIN cuenta también se bloquea igual (el bloqueo no delat
 test("R22 · aviso desactualizado: 401 uniforme con contraseña incorrecta; con la correcta, 409 SIN sesión; aceptándolo, registra la aceptación y entra", async () => {
   const { ctx, almacen } = nuevoContexto(entorno);
   const tutor = (await ctx.repos.usuarios.porId(2))!;
-  await ctx.repos.parametros.actualizar("version_aviso_privacidad", "2.0");
+  await ctx.repos.administracion.modificarParametros({ version_aviso_privacidad: "2.0" }, { idAdministrador: 1, fecha: AHORA.toISOString() }); // vía real: transacción + bitácora
   // Contraseña incorrecta: nunca se llega a saber del aviso (no sirve para saber si la cuenta existe).
   const mala = await errorDe(iniciarSesion(entrar(tutor.correo, "incorrecta1"), ctx, secreto));
   const inexistente = await errorDe(iniciarSesion(entrar("nadie@example.org", "incorrecta1"), ctx, secreto));
@@ -142,7 +142,7 @@ test("R22 · aviso desactualizado: 401 uniforme con contraseña incorrecta; con 
 test("R22 · la comparación es POR VALOR («1.0» y «1.00» son versiones distintas) y se toma la última aceptación (fecha, desempate por id)", async () => {
   const { ctx } = nuevoContexto(entorno);
   const t = (await ctx.repos.usuarios.porId(2))!;
-  await ctx.repos.parametros.actualizar("version_aviso_privacidad", "1.00");
+  await ctx.repos.administracion.modificarParametros({ version_aviso_privacidad: "1.00" }, { idAdministrador: 1, fecha: AHORA.toISOString() }); // vía real: transacción + bitácora
   await rechaza(iniciarSesion(entrar(t.correo, contrasenas.tutor1), ctx, secreto), 409, "AVISO_DESACTUALIZADO");
   // Dos aceptaciones con la misma fecha: gana la de mayor id.
   await ctx.repos.aceptaciones.agregar({ versionAviso: "0.9", fechaHora: AHORA.toISOString(), idUsuario: 2 });

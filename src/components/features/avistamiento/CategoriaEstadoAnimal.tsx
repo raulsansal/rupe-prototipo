@@ -64,8 +64,8 @@ export function CategoriaEstadoAnimal({ categoria, opciones: todas, seleccion, o
                   }
                   ayuda={o.descripcion}
                   checked={elegidos.includes(o.id)}
-                  disabled={opcionDeshabilitada(o.id, seleccion)}
-                  onChange={() => onCambio(alternarIntegridad(seleccion, o.id))}
+                  disabled={opcionDeshabilitada(o.id, seleccion, todas)}
+                  onChange={() => onCambio(alternarIntegridad(seleccion, o.id, todas))}
                   className="py-1"
                 />
               ))}

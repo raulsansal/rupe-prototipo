@@ -1,11 +1,12 @@
 // Validación del alta de un extravío (HU 011 y 012; R8, R10, R11, R14): todos los errores por campo, con los mismos textos que el maquetado. Funciones puras.
 // Solo se leen los campos de la lista permitida: cualquier otro que mande el cliente (idCaso, folio, estado, idUsuario, fechas…) se IGNORA.
+import { ID_ALCALDIA_FUERA_DE_LA_CIUDAD } from "../../config/catalogos";
 import { edadValida, type UnidadEdad } from "./edad";
 import { validarFotografiaRecibida } from "./fotografia";
 import { formatoInvalido } from "../errores";
 
 export const ID_RAZA_OTRA = 14;
-export const ID_ALCALDIA_FUERA_DE_LA_CIUDAD = 17; // solo la asigna el sistema a avistamientos (R14)
+export { ID_ALCALDIA_FUERA_DE_LA_CIUDAD }; // solo la asigna el sistema a avistamientos (R14)
 export const MOMENTOS = ["madrugada", "mañana", "tarde", "noche", "desconocido"] as const;
 export const SEXOS = ["Macho", "Hembra", "No sé"] as const;
 export const TAMANOS = ["pequeño", "mediano", "grande"] as const;

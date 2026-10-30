@@ -2,7 +2,9 @@ import "server-only";
 // F4 «Reportar un avistamiento» (HU 028 a 036), SIN cuenta: el canal es el folio o el QR vigente. El reporte es anónimo: no se guarda IP, agente de usuario ni ningún dato de quien
 // lo envía, y la fotografía se vincula al ID del avistamiento. Todo se confirma en UNA transacción (avistamiento, estados, foto, movimiento de estado y notificación): si algo falla
 // no queda nada. R24: sin bitácora (solo las acciones del Administrador la escriben).
-import { FUERA_DE_LA_CIUDAD, type Alcaldia } from "../../mocks/tipos";
+import { ID_ALCALDIA_FUERA_DE_LA_CIUDAD } from "../../config/catalogos";
+import { LIMITE_TECNICO_MB } from "../../config/parametros";
+import type { Alcaldia } from "../../mocks/tipos";
 import { fechaHoraDeCDMX, sanearComentario, ubicacionSimulada } from "../dominio/avistamientos";
 import { correoDeAvistamiento } from "../dominio/correo";
 import { IDS_EXCLUYENTES, validarEstadosAnimal } from "../dominio/estadosAnimal";
@@ -46,7 +48,7 @@ export async function registrarAvistamiento(acceso: Acceso, entrada: { datos: un
   const alcaldia = alcaldias.find((a) => a.idAlcaldia === d.idAlcaldia);
   if (!d.direccion.trim()) campos.direccion = "Escribe una dirección aproximada.";
   else if (d.direccion.trim().length > LIMITES.direccion) campos.direccion = `La dirección no puede pasar de ${LIMITES.direccion} caracteres.`;
-  if (!alcaldia || alcaldia.estatus !== 1 || alcaldia.nombre === FUERA_DE_LA_CIUDAD) campos.alcaldia = "Elige una alcaldía de la Ciudad de México.";
+  if (!alcaldia || alcaldia.estatus !== 1 || alcaldia.idAlcaldia === ID_ALCALDIA_FUERA_DE_LA_CIUDAD) campos.alcaldia = "Elige una alcaldía de la Ciudad de México.";
   if ((d.coloniaZona ?? "").trim().length > LIMITES.coloniaZona) campos.coloniaZona = `La colonia o zona no puede pasar de ${LIMITES.coloniaZona} caracteres.`;
   if ((d.referencias ?? "").trim().length > LIMITES.referencias) campos.referencias = `Las referencias no pueden pasar de ${LIMITES.referencias} caracteres.`;
 
@@ -135,8 +137,8 @@ export async function registrarAvistamiento(acceso: Acceso, entrada: { datos: un
 export async function iniciarReporte(acceso: Acceso, ctx: Contexto = contextoPorDefecto()) {
   const caso = await resolverAcceso(acceso, ctx);
   const ficha = await consultarFichaPorFolio(caso.folio, ctx);
-  const alcaldias = (await ctx.repos.catalogos.alcaldias()).filter((a) => a.estatus === 1 && a.nombre !== FUERA_DE_LA_CIUDAD).map((a) => ({ id: a.idAlcaldia, nombre: a.nombre }));
+  const alcaldias = (await ctx.repos.catalogos.alcaldias()).filter((a) => a.estatus === 1 && a.idAlcaldia !== ID_ALCALDIA_FUERA_DE_LA_CIUDAD).map((a) => ({ id: a.idAlcaldia, nombre: a.nombre }));
   // Solo las opciones ACTIVAS del catálogo, de la misma fuente que usa la validación del POST.
   const estadosAnimal = (await ctx.repos.catalogos.estadosAnimal()).filter((e) => e.estatus === 1).map((e) => ({ id: e.idEstadoAnimal, idCategoria: e.idCategoriaEstadoAnimal, nombre: e.nombre, descripcion: e.descripcion, excluyente: (IDS_EXCLUYENTES as readonly number[]).includes(e.idEstadoAnimal) }));
-  return { folio: ficha.folio, nombre: ficha.nombre, fotografiaUrl: ficha.fotografiaUrl, alcaldias, estadosAnimal, maximoMb: Math.min(Number(await ctx.repos.parametros.valor("tamano_maximo_archivo_mb")), 4.5) };
+  return { folio: ficha.folio, nombre: ficha.nombre, fotografiaUrl: ficha.fotografiaUrl, alcaldias, estadosAnimal, maximoMb: Math.min(Number(await ctx.repos.parametros.valor("tamano_maximo_archivo_mb")), LIMITE_TECNICO_MB) };
 }

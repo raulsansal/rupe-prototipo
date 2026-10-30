@@ -1,6 +1,6 @@
 import type { Page } from "playwright";
 import { botonContinuar, capturarRegistroCompleto, ENTRADA_FOTO, registrarPorLaInterfaz } from "./scripts/imagenes-pruebas";
-import { credencial, fijarVersionAviso } from "./scripts/sesion-pruebas";
+import { credencial, fetchComo } from "./scripts/sesion-pruebas";
 import { USUARIOS_INICIALES } from "./src/mocks/usuarios";
 import { FOLIO_CON_AVISTAMIENTOS, FOLIO_UN_AVISTAMIENTO } from "./src/mocks/avistamientos";
 import { CASOS_ORIGEN, FOLIO_EN_CURSO } from "./src/mocks/casos";
@@ -289,10 +289,15 @@ RUTAS.push(
   { ruta: `${CASO}/ficha?modal=visor&hoja=carta`, archivo: "tutor-ficha-visor-1280-carta", anchos: [1280], ventana: true },
   { ruta: `${CASO}/ficha?modal=visor&hoja=media-carta`, archivo: "tutor-ficha-visor-1280-media-carta", anchos: [1280], ventana: true },
 );
+/** Cambia la versión vigente del aviso por la ruta REAL del Administrador (P6b: ya no existe /api/dev/parametro); queda su entrada en la bitácora. */
+async function cambiarVersionDelAviso(base: string, valor: string): Promise<void> {
+  const r = await fetchComo(base, "admin", "/api/admin/parametros", { method: "PUT", headers: { "Content-Type": "application/json", Origin: new URL(base).origin }, body: JSON.stringify({ version_aviso_privacidad: valor }) });
+  if (!r.ok) throw new Error(`No se pudo cambiar la versión del aviso: HTTP ${r.status}`);
+}
 // SIEMPRE la última: fija la versión del aviso en 2.0, y lo que se capture después ya no sería comparable (los datos se reinician al terminar la corrida).
 RUTAS.push(
   // Cambia la versión vigente del aviso a 2.0 y entra con una cuenta real, que debe reaceptarlo (409 real del servidor, TRA-03).
-  { ruta: "/acceso", archivo: "acceso-reaceptacion-aviso", rol: null, preparar: async (p, { base }) => { await fijarVersionAviso(base, "2.0"); const c = credencial("tutor1"); await llenarAcceso(p, c.correo, c.contrasena); await p.getByRole("dialog", { name: /Aviso de privacidad actualizado v2\.0/ }).waitFor(); } },
+  { ruta: "/acceso", archivo: "acceso-reaceptacion-aviso", rol: null, preparar: async (p, { base }) => { await cambiarVersionDelAviso(base, "2.0"); const c = credencial("tutor1"); await llenarAcceso(p, c.correo, c.contrasena); await p.getByRole("dialog", { name: /Aviso de privacidad actualizado v2\.0/ }).waitFor(); } },
 );
 
 export const ANCHOS = [390, 1280];

@@ -41,7 +41,7 @@ test("HU 003 · rechazo: sin aceptar el aviso no se guarda NADA (ni usuario ni a
 
 test("R22 · rechazo: aceptar una versión del aviso que ya no es la vigente da 409 y no guarda nada", async () => {
   const { ctx, almacen } = nuevoContexto();
-  await ctx.repos.parametros.actualizar("version_aviso_privacidad", "2.0");
+  await ctx.repos.administracion.modificarParametros({ version_aviso_privacidad: "2.0" }, { idAdministrador: 1, fecha: AHORA.toISOString() }); // vía real: transacción + bitácora
   const e = await falla(registrarTutor(valido(), ctx, secreto));
   assert.equal(e?.estado, 409);
   assert.equal(e?.codigo, "AVISO_DESACTUALIZADO");

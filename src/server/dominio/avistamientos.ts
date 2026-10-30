@@ -1,9 +1,10 @@
 // Validaciones del avistamiento (HU 029–035, R3, R11, R14, R34).
+import { LIMITE_TECNICO_MB } from "../../config/parametros";
 import { centroDeAlcaldia, type Coordenadas } from "../../mocks/geografia";
 import type { Alcaldia } from "../../mocks/tipos";
 import { reglaDeNegocio } from "../errores";
 
-export const MAXIMO_TECNICO_MB = 4.5;
+export const MAXIMO_TECNICO_MB = LIMITE_TECNICO_MB; // única definición: config/parametros.ts
 export type FotoRecibida = { formato: string; tamanoBytes: number };
 
 /** R11: JPG o PNG y tamaño dentro del parámetro (nunca por encima del límite técnico de 4.5 MB). */

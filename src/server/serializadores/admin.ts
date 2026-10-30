@@ -14,6 +14,10 @@ export const CAMPOS_AVISTAMIENTO_ADMIN = ["id", "folio", "fechaHora", "alcaldia"
 export const CAMPOS_ENTRADA_BITACORA = ["id", "fechaHora", "tipo", "entidad", "idAfectada", "entidadAfectada", "motivo", "detalle", "administrador"] as const;
 export const CAMPOS_USUARIO_ADMIN = ["id", "nombreCompleto", "correo", "rol", "activo", "fechaUltimaModificacion", "esLaPersonaActual", "esUltimoAdministradorActivo"] as const;
 
+export const CAMPOS_CATALOGO_ADMIN = ["id", "nombre", "clave", "idCategoria", "categoria", "descripcion", "activo", "protegido", "motivoNoDesactivable"] as const;
+export const CAMPOS_PARAMETRO_ADMIN = ["clave", "descripcion", "valor", "valorPorDefecto"] as const;
+export const CAMPOS_ESTADO_CASO_ADMIN = ["id", "nombre", "orden"] as const;
+
 const elegir = <T extends object, K extends readonly string[]>(origen: T, campos: K): Record<K[number], unknown> => {
   const salida: Record<string, unknown> = {};
   for (const c of campos) {
@@ -41,3 +45,11 @@ export const aRegistroAdminDetalle = (d: RegistroAdminDetalle): RegistroAdminDet
 export const aAvistamientoAdmin = (d: AvistamientoAdmin): AvistamientoAdmin => elegir(d, CAMPOS_AVISTAMIENTO_ADMIN) as AvistamientoAdmin;
 export const aEntradaBitacora = (d: EntradaBitacoraVista): EntradaBitacoraVista => elegir(d, CAMPOS_ENTRADA_BITACORA) as EntradaBitacoraVista;
 export const aUsuarioAdmin = (d: UsuarioAdmin): UsuarioAdmin => elegir(d, CAMPOS_USUARIO_ADMIN) as UsuarioAdmin;
+
+/** P6b: una fila de catálogo para el Administrador. `motivoNoDesactivable` es el texto por el que NO se puede desactivar (valor protegido, última opción activa…), si lo hay. */
+export type CatalogoAdmin = { id: number; nombre: string; clave?: string; idCategoria?: number; categoria?: string; descripcion?: string; activo: boolean; protegido: boolean; motivoNoDesactivable?: string };
+export type ParametroAdmin = { clave: string; descripcion: string; valor: string; valorPorDefecto: string };
+export type EstadoCasoAdmin = { id: number; nombre: string; orden: number };
+export const aCatalogoAdmin = (d: CatalogoAdmin): CatalogoAdmin => elegir(d, CAMPOS_CATALOGO_ADMIN) as CatalogoAdmin;
+export const aParametroAdmin = (d: ParametroAdmin): ParametroAdmin => elegir(d, CAMPOS_PARAMETRO_ADMIN) as ParametroAdmin;
+export const aEstadoCasoAdmin = (d: EstadoCasoAdmin): EstadoCasoAdmin => elegir(d, CAMPOS_ESTADO_CASO_ADMIN) as EstadoCasoAdmin;

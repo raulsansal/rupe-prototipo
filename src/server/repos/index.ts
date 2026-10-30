@@ -3,6 +3,9 @@
 import type * as T from "../tipos";
 import type { EstadoCaso } from "../../mocks/tipos";
 import type { Actor } from "../dominio/transiciones";
+import type { TipoCatalogo } from "../../config/catalogos";
+import type { FilaCatalogo } from "../dominio/catalogos";
+import type { CambioDeParametro } from "../dominio/parametros";
 
 export interface RepoUsuarios {
   porId(id: number): Promise<T.Usuario | undefined>;
@@ -120,10 +123,9 @@ export interface RepoCatalogos {
   estadosCaso(): Promise<T.EstadoCasoCat[]>;
 }
 export interface RepoParametros {
+  /** Solo lectura: se modifican con `RepoAdministracion.modificarParametros` / `restablecerParametros` (transacción + bitácora, R24). */
   todos(): Promise<T.ParametroSistema[]>;
   valor(clave: T.ParametroSistema["clave"]): Promise<string>;
-  /** Solo se actualiza la columna `valor`. */
-  actualizar(clave: T.ParametroSistema["clave"], valor: string): Promise<void>;
 }
 
 /** Quién ejecuta la acción administrativa y cuándo; se guarda en la bitácora (R24). */
@@ -149,6 +151,19 @@ export interface RepoAdministracion {
   habilitarUsuario(idUsuario: number, e: Ejecucion): Promise<ResultadoDeUsuario & { entrada: T.AccionBitacoraReg }>;
   /** HU 009: cambia el rol (Administrador o Tutor), cierra las sesiones de esa cuenta (R19: el rol se lee del almacén en cada petición, y así también cambia la sesión) y registra «cambiar rol» con «anterior → nuevo». */
   cambiarRolDeUsuario(idUsuario: number, rol: T.Rol, e: Ejecucion & { confirmarSesionPropia?: boolean }): Promise<ResultadoDeUsuario & { rolAnterior: T.Rol; entrada: T.AccionBitacoraReg }>;
+
+  // ---- P6b: catálogos (HU 049-052) y parámetros (HU 054). Reciben la entrada SIN validar: el formato (422), la unicidad, los protegidos y «la última opción activa» (409) se comprueban DENTRO de la
+  // transacción, sobre las filas vigentes, junto con la entrada de bitácora (R24). ----
+  /** Alta (siempre activa) + bitácora «alta de catálogo» con el nombre. 422 formato; 409 `NOMBRE_DUPLICADO` / `CLAVE_DUPLICADA`. */
+  altaCatalogo(tipo: TipoCatalogo, entrada: unknown, e: Ejecucion): Promise<{ fila: FilaCatalogo; entrada: T.AccionBitacoraReg }>;
+  /** Edición (reactivar = editar con `activo:true`) + bitácora «edición de catálogo» con «anterior → nuevo». Sin cambios no escribe nada (`sinCambios`, sin entrada). 404 si no existe. */
+  editarCatalogo(tipo: TipoCatalogo, id: number, entrada: unknown, e: Ejecucion): Promise<{ fila: FilaCatalogo; sinCambios: boolean; reactivado: boolean; entrada?: T.AccionBitacoraReg }>;
+  /** Desactivación + bitácora «desactivación de catálogo». 409 `VALOR_PROTEGIDO`, `ULTIMA_ACTIVA_DE_CATEGORIA`, `ULTIMA_ALCALDIA_ACTIVA` (extensión) o `YA_DESACTIVADO`. */
+  desactivarCatalogo(tipo: TipoCatalogo, id: number, e: Ejecucion): Promise<{ fila: FilaCatalogo; entrada: T.AccionBitacoraReg }>;
+  /** Modifica uno o más parámetros en UNA transacción, con una entrada «modificar parámetro» por cada parámetro que cambió (valor anterior → nuevo). Si ninguno cambia, no escribe nada. */
+  modificarParametros(entrada: unknown, e: Ejecucion): Promise<{ parametros: T.ParametroSistema[]; cambios: CambioDeParametro[]; entradas: T.AccionBitacoraReg[] }>;
+  /** «Restablecer valores por defecto»: copia `valorPorDefecto` a `valor`, con una entrada por parámetro que cambió. */
+  restablecerParametros(e: Ejecucion): Promise<{ parametros: T.ParametroSistema[]; cambios: CambioDeParametro[]; entradas: T.AccionBitacoraReg[] }>;
 }
 
 export type Repositorios = {

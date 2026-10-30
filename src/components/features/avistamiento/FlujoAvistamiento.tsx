@@ -147,7 +147,7 @@ export function FlujoAvistamiento({ ficha, acceso, alcaldias, estadosAnimal, ini
     <PasoUbicacion key={3} datos={datos} errores={errores} actualizar={actualizar} alcaldias={alcaldias} />,
     <PasoEstadoAnimal key={4} datos={datos} errores={errores} actualizar={actualizar} estadosAnimal={estadosAnimal} abrirTodas={inicial.abrirTodasCategorias} />,
     <PasoComentario key={5} valor={datos.comentario} bajoResguardo={bajoResguardo(datos.estados)} error={errores.comentario} onCambio={(comentario) => actualizar({ comentario }, ["comentario"])} />,
-    <PasoConfirmar key={6} ficha={ficha} datos={datos} alcaldias={alcaldias} />,
+    <PasoConfirmar key={6} ficha={ficha} datos={datos} alcaldias={alcaldias} estadosAnimal={estadosAnimal} />,
   ];
 
   return (

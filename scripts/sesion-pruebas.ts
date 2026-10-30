@@ -68,12 +68,6 @@ export const rolDeRuta = (ruta: string): RolPrueba | null => (/^\/admin(?:[/?#]|
 /** Quita la sesión de un servidor (p. ej. tras reiniciar los datos, que invalida las sesiones). */
 export const olvidarSesiones = () => cache.clear();
 
-/** Herramienta de desarrollo: fija la versión vigente del aviso (para probar y capturar la reaceptación, R22). Requiere sesión de Administrador si el servidor está en producción. */
-export async function fijarVersionAviso(base: string, valor: string): Promise<void> {
-  const r = await fetchComo(base, "admin", "/api/dev/parametro", { method: "POST", headers: { "Content-Type": "application/json", Origin: new URL(base).origin }, body: JSON.stringify({ valor }) });
-  if (!r.ok) throw new Error(`No se pudo fijar la versión del aviso: HTTP ${r.status}`);
-}
-
 /**
  * Vuelve a los datos ficticios iniciales (también los contadores de intentos y las sesiones). LANZA si el servidor no responde 200: un reinicio que falla en silencio dejaba pruebas y capturas
  * trabajando sobre datos sucios. El servidor debe arrancarse con RUPE_PERMITIR_REINICIO=1 (los scripts que lo levantan ya la fijan).

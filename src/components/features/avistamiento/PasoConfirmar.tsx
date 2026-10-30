@@ -3,12 +3,14 @@ import { Alerta } from "@/components/ui/Alerta";
 import { nombresElegidos } from "@/lib/estadoAnimal";
 import { formatearFechaCorta } from "@/lib/formato";
 import type { FichaPublica } from "@/mocks/tipos";
-import { NOTA_UBICACION_SIMULADA, type DatosAvistamiento } from "./datos";
+import { NOTA_UBICACION_SIMULADA, type DatosAvistamiento, type OpcionEstadoAnimal } from "./datos";
 
 type Props = {
   ficha: Pick<FichaPublica, "folio" | "nombre">;
   datos: DatosAvistamiento;
   alcaldias: { id: number; nombre: string }[];
+  /** Opciones del catálogo que entrega el servidor (incluye las que el Administrador agregó). */
+  estadosAnimal: readonly OpcionEstadoAnimal[];
 };
 
 function Fila({ etiqueta, children }: { etiqueta: string; children: React.ReactNode }) {
@@ -21,8 +23,8 @@ function Fila({ etiqueta, children }: { etiqueta: string; children: React.ReactN
 }
 
 /** Paso 6 (PUB-05.6): resumen de lo capturado antes de enviar; al enviar se muestra PUB-06 con el ID del reporte. */
-export function PasoConfirmar({ ficha, datos, alcaldias }: Props) {
-  const estados = nombresElegidos(datos.estados);
+export function PasoConfirmar({ ficha, datos, alcaldias, estadosAnimal }: Props) {
+  const estados = nombresElegidos(datos.estados, estadosAnimal);
   const alcaldia = alcaldias.find((a) => String(a.id) === datos.alcaldiaElegida)?.nombre;
   return (
     <div className="flex flex-col gap-4">

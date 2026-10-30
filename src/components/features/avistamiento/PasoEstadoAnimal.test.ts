@@ -32,5 +32,20 @@ test("Paso 4 · el rechazo de una opción no disponible se muestra en su categor
   const dentro = enCategoria.slice(enCategoria.indexOf('data-categoria="4"'));
   assert.ok(dentro.includes(AMABLE) && enCategoria.split(AMABLE).length === 2, "el mensaje aparece una sola vez, dentro de la categoría 4");
   const alInicio = html(todas, { estados: AMABLE });
-  assert.ok(alInicio.indexOf(AMABLE) < alInicio.indexOf('data-categoria="1"') && alInicio.includes('id="error-estados"') && alInicio.includes('tabindex="-1"'));
+  assert.ok(alInicio.indexOf(AMABLE) < alInicio.indexOf('data-categoria="1"') && alInicio.includes('id="error-estados"') && alInicio.includes('tabindex="-1"'), "el aviso va al inicio del paso, con id y foco");
+});
+
+test("Paso 4 (D5) · los estados que el Administrador agregó (ids que no existen en el maquetado) se dibujan en su categoría y no truenan; los excluyentes 1, 5 y 6 siguen marcados", () => {
+  const nuevas: OpcionEstadoAnimal[] = [
+    { id: 18, idCategoria: 1, nombre: "Cojea levemente", descripcion: "Camina con dificultad.", excluyente: false },
+    { id: 19, idCategoria: 3, nombre: "Juguetón", descripcion: "Quiere jugar.", excluyente: false },
+    { id: 20, idCategoria: 4, nombre: "Con microchip visible", descripcion: "Se ve el chip.", excluyente: false },
+  ];
+  const salida = html([...ESTADOS_ANIMAL.map(opcion), ...nuevas], {}, { ...SELECCION_VACIA, 1: [18] });
+  for (const o of nuevas) assert.ok(salida.includes(o.nombre), `falta «${o.nombre}»`);
+  assert.equal((salida.match(/type="checkbox"/g) ?? []).length, 7, "7 casillas: 6 + la nueva");
+  assert.equal((salida.match(/Solo puede elegirse sola/g) ?? []).length, 3, "solo 1, 5 y 6");
+  // Con el combinable nuevo elegido, los tres excluyentes quedan deshabilitados y el resto no.
+  const cat1 = salida.slice(salida.indexOf('data-categoria="1"'), salida.indexOf('data-categoria="2"'));
+  assert.equal((cat1.match(/disabled=""/g) ?? []).length, 3);
 });

@@ -44,8 +44,11 @@ const CENTROS: Record<Alcaldia, Coordenadas> = {
   Xochimilco: { latitud: 19.26, longitud: -99.1 },
 };
 
-/** Centro aproximado de la alcaldía (maqueta). */
-export const centroDeAlcaldia = (alcaldia: Alcaldia): Coordenadas => ({ ...CENTROS[alcaldia] });
+/** Centro de la ciudad: lo usa una alcaldía que el Administrador agregó o renombró (P6b), de la que la ilustración no conoce el centro. */
+const CENTRO_DE_LA_CIUDAD: Coordenadas = { latitud: 19.4326, longitud: -99.1332 };
+
+/** Centro aproximado de la alcaldía (maqueta); una alcaldía desconocida para la ilustración (alta o renombrada por el Administrador) cae en el centro de la ciudad. */
+export const centroDeAlcaldia = (alcaldia: Alcaldia): Coordenadas => ({ ...(CENTROS[alcaldia] ?? CENTRO_DE_LA_CIUDAD) });
 
 const RADIO_MAXIMO = 0.1; // grados: más lejos del centro más cercano ya cuenta como fuera de la ciudad
 

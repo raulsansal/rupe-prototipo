@@ -57,14 +57,20 @@ export type OpcionesSiembra = { carpetaFotos?: string };
 
 export function sembrar(a: Almacen, entorno: Entorno = process.env, { carpetaFotos }: OpcionesSiembra = {}): Almacen {
   // ---- Catálogos ----
-  // PROTOTIPO: todos los valores sembrados quedan ACTIVOS (aunque las pantallas del Administrador, que leen `mocks/catalogosAdmin.ts`, conserven los suyos como inactivos) para que los flujos de
-  // prueba no fallen con alcaldía Milpa Alta, raza Pug, motivo «Estrés…» ni los estados del animal 16 y 17. Activar y desactivar será función real del Administrador en P6.
+  // PROTOTIPO: todos los valores sembrados quedan ACTIVOS (aunque las pantallas del Administrador, que hasta la Etapa 2 de P6b leen `mocks/catalogosAdmin.ts`, conserven los suyos como inactivos) para que
+  // los flujos de prueba no fallen con alcaldía Milpa Alta, raza Pug, motivo «Estrés…» ni los estados del animal 16 y 17. Lo desactivado se prueba con acciones reales del Administrador (P6b).
+  // El seed resuelve alcaldía, raza y motivo de los casos POR EL NOMBRE de los mocks (nunca por los del almacén ya editado: se siembra siempre desde cero).
   CATALOGOS.alcaldias.elementos.forEach((e) => a.alcaldias.push({ idAlcaldia: e.id, nombre: e.nombre, claveGeoestadistica: e.clave ?? null, estatus: 1 }));
   CATALOGOS.razas.elementos.forEach((e) => a.razas.push({ idRaza: e.id, nombre: e.nombre, estatus: 1 }));
   CATEGORIAS_MOTIVO.forEach((c) => a.categoriasMotivo.push({ idCategoriaMotivo: c.id, nombre: c.nombre }));
   CATALOGOS.motivos.elementos.forEach((e) => a.motivos.push({ idMotivo: e.id, idCategoriaMotivo: e.idCategoria!, nombre: e.nombre, descripcion: e.descripcion ?? "", estatus: 1 }));
   CATEGORIAS_ESTADO_ANIMAL.forEach((c) => a.categoriasEstadoAnimal.push({ idCategoriaEstadoAnimal: c.id, nombre: c.nombre }));
   CATALOGOS["estados-animal"].elementos.forEach((e) => a.estadosAnimal.push({ idEstadoAnimal: e.id, idCategoriaEstadoAnimal: e.idCategoria!, nombre: e.nombre, descripcion: e.descripcion ?? "", estatus: 1 }));
+  // P6b: las altas del Administrador toman el siguiente id (AUTO_INCREMENT): el contador de cada catálogo parte del máximo sembrado.
+  a.ids.alcaldia = Math.max(0, ...a.alcaldias.map((x) => x.idAlcaldia));
+  a.ids.raza = Math.max(0, ...a.razas.map((x) => x.idRaza));
+  a.ids.motivo = Math.max(0, ...a.motivos.map((x) => x.idMotivo));
+  a.ids.estado_animal = Math.max(0, ...a.estadosAnimal.map((x) => x.idEstadoAnimal));
   ESTADOS_CASO.forEach((nombre, i) => a.estadosCaso.push({ idEstadoCaso: i + 1, nombre, orden: i + 1 }));
   a.parametros.push(
     { clave: "version_aviso_privacidad", descripcion: "Versión vigente del aviso de privacidad", valor: "1.0", valorPorDefecto: "1.0" },
@@ -173,7 +179,7 @@ export function sembrar(a: Almacen, entorno: Entorno = process.env, { carpetaFot
     a.ids.bitacora = Math.max(a.ids.bitacora ?? 0, b.id);
   });
   // P6a: el seed deja TODOS los catálogos activos, pero el historial sembrado registra desactivaciones (alcaldía 12, raza 6, motivo 2 y estados del animal 16 y 17). Para que el historial sea coherente con el
-  // seed, se siembran sus 5 REACTIVACIONES («edición de catálogo»: reactivar = editar, R9), POSTERIORES a las desactivaciones. La bitácora del almacén pasa de 26 a 31 entradas; la pantalla del maqueta (que
+  // seed, se siembran sus 5 REACTIVACIONES («edición de catálogo»: reactivar = editar, R9), POSTERIORES a las desactivaciones. La bitácora del almacén pasa de 25 a 30 entradas (medido); la pantalla del maqueta (que
   // todavía lee `mocks/bitacora.ts`) conserva las 26 hasta que lea el almacén (Etapa 2).
   const REACTIVACIONES = [
     { id: "alcaldia:12", detalle: "Inactiva → Activa", fechaHora: "2026-10-18T11:05:00Z" }, { id: "raza:6", detalle: "Inactivo → Activo", fechaHora: "2026-10-18T11:10:00Z" },

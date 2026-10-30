@@ -1,7 +1,8 @@
 // Reglas de los catálogos del Administrador (HU 049 a 052, R9 del diccionario). Funciones puras: la interfaz solo las aplica.
+import { PATRON_CLAVE } from "../config/catalogos";
 import type { ConfigCatalogo, ElementoCatalogo } from "../mocks/catalogosAdmin";
 
-export const PATRON_CLAVE = /^09[0-9]{3}$/;
+export { PATRON_CLAVE };
 
 export const normalizar = (t: string) => t.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
 
