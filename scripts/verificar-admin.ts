@@ -6,21 +6,21 @@
 //  · sin hex ni colores fijos fuera de globals.css, sin datos de usuarios en pantallas públicas, sin desbordes ni objetivos < 44 px.
 // Opciones: --sin-build reutiliza el build · --base=URL usa un servidor que ya corre.
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { chromium, type Browser, type BrowserContext, type Locator, type Page } from "playwright";
 import { CASOS_ORIGEN } from "../src/mocks/casos";
 import { calcularTablero, CASOS_TABLERO, MOVIMIENTOS_CIERRE, PERIODO_PREDETERMINADO, type ResumenTablero } from "../src/mocks/tablero";
 import { USUARIOS_INICIALES } from "../src/mocks/usuarios";
-import { aRegistroAdminLista, CAMPOS_REGISTRO_ADMIN, CAMPOS_REGISTRO_ADMIN_LISTA, CASOS_MODERACION, AVISTAMIENTOS_MODERACION, FOLIO_MODERACION_ACTIVO, FOLIO_MODERACION_CANCELADO, FOLIO_MODERACION_DESHABILITADO, ID_AVISTAMIENTO_FALLECIDO, ID_AVISTAMIENTO_VISIBLE } from "../src/mocks/moderacion";
+import { CASOS_MODERACION, AVISTAMIENTOS_MODERACION, FOLIO_MODERACION_ACTIVO, FOLIO_MODERACION_CANCELADO, FOLIO_MODERACION_DESHABILITADO, ID_AVISTAMIENTO_FALLECIDO, ID_AVISTAMIENTO_VISIBLE } from "../src/mocks/moderacion";
 import { CATALOGOS, TIPOS_CATALOGO } from "../src/mocks/catalogosAdmin";
 import { CATEGORIAS_MOTIVO } from "../src/mocks/catalogos";
 import { AVISTAMIENTOS } from "../src/mocks/avistamientos";
 import { desactivarElemento, esUltimaActivaDeCategoria, guardarElemento, motivoNoDesactivable, validarCatalogo } from "../src/lib/catalogos";
 import { CLAVE_TEMA } from "../src/lib/tema";
-import { agregarSesion, fetchComo, rolDeRuta, type RolPrueba } from "./sesion-pruebas";
-import { BITACORA, ENTIDAD_DE_TIPO, TIPOS_ACCION, TIPOS_CON_DETALLE, TIPOS_CON_MOTIVO } from "../src/mocks/bitacora";
-import { filtrarBitacora } from "../src/lib/bitacora";
+import { agregarSesion, credencial, fetchComo, NOMBRE_COOKIE, olvidarSesiones, reiniciarDatos, rolDeRuta, valorDeSesion, type RolPrueba } from "./sesion-pruebas";
+import { BITACORA, ENTIDAD_DE_TIPO, TIPOS_ACCION } from "../src/mocks/bitacora";
 import { generarReporte } from "../src/lib/reportes";
 import { esDeshabilitado } from "../src/lib/moderacion";
 import { VALORES_POR_DEFECTO } from "../src/lib/parametros";
@@ -34,7 +34,9 @@ const base = baseExterna ?? `http://localhost:${PUERTO}`;
 const ANCHOS = [390, 768, 1280];
 
 let fallos = 0;
+let total = 0;
 const ver = (ok: boolean, bien: string, mal: string) => {
+  total++;
   if (ok) console.log(`✓ ${bien}`);
   else {
     fallos++;
@@ -309,105 +311,155 @@ async function tablero(navegador: Browser) {
 const tarjeta = (p: Page, id: number) => p.locator(`ul > li[data-usuario="${id}"]`);
 const fila = (p: Page, id: number) => p.locator(`tr[data-usuario="${id}"]`);
 
+/** Navega (formularios GET, enlaces) y espera a que la página nueva termine de cargar. */
+async function navegando(pagina: Page, accion: () => Promise<unknown>) {
+  await Promise.all([pagina.waitForNavigation({ waitUntil: "load" }), accion()]);
+  await pagina.evaluate(() => document.fonts.ready);
+  await pagina.waitForSelector("main h1");
+}
+/** Espera (hasta 8 s) a que una condición asincrónica sea cierta: las acciones reales terminan con router.refresh(). */
+async function hasta(condicion: () => Promise<boolean>, ms = 8000): Promise<boolean> {
+  const limite = Date.now() + ms;
+  while (Date.now() < limite) {
+    if (await condicion().catch(() => false)) return true;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return false;
+}
+
+/** Pulsa un control de paginación (navegación del cliente) y espera a que la página cambie. */
+async function cambiarPagina(pagina: Page, nombre: string) {
+  const actual = () => pagina.locator("nav[aria-label='Paginación'] [aria-current='page']").getAttribute("aria-label");
+  const antes = await actual();
+  await boton(pagina, nombre).click();
+  await hasta(async () => (await actual()) !== antes || antes === nombre);
+  await pagina.waitForTimeout(150);
+}
+
 async function usuarios(navegador: Browser) {
   let { contexto, pagina } = await nuevaPagina(navegador, 390);
   await irA(pagina, "/admin/usuarios");
   const ids = async () => pagina.locator("ul > li[data-usuario]").evaluateAll((l) => l.map((x) => Number(x.getAttribute("data-usuario"))));
-  ver(JSON.stringify(await ids()) === "[1,2,3,4,5]" && (await pagina.locator("table[data-tabla-compacta]").isVisible()) === false, "ADM-03 en móvil: 5 tarjetas por página y la tabla no se muestra", "ADM-03 en móvil: tarjetas o tabla incorrectas");
+  const aviso = (re: RegExp) => hasta(() => pagina.getByRole("status").getByText(re).isVisible());
+  ver(JSON.stringify(await ids()) === "[1,2,3,4,5]" && (await pagina.locator("table[data-tabla-compacta]").isVisible()) === false, "ADM-03 en móvil: 5 tarjetas por página (del almacén) y la tabla no se muestra", "ADM-03 en móvil: tarjetas o tabla incorrectas");
   const r = await pagina.locator("main").innerText();
-  ver(/1–5 de 12 usuarios/.test(r) && (await tarjeta(pagina, 1).getByText("Rol: Administrador").isVisible()) && (await tarjeta(pagina, 1).getByText("Activo", { exact: true }).isVisible()) && /Última modificación: 12 oct 2026/.test(await tarjeta(pagina, 1).innerText()), "ADM-03: cada tarjeta muestra nombre, correo, rol, estatus (con texto) y fecha de última modificación", "ADM-03: tarjeta incompleta");
-  ver((await tarjeta(pagina, 3).evaluate((e) => getComputedStyle(e).borderStyle)) === "dashed" && (await tarjeta(pagina, 3).getByText("Inactivo", { exact: true }).isVisible()) && (await boton(tarjeta(pagina, 3), /^Habilitar a/).isVisible()), "ADM-03: la cuenta inactiva lleva borde discontinuo, «Inactivo» con texto y «Habilitar»", "ADM-03: cuenta inactiva mal representada");
-  // Regla del último administrador activo.
+  ver(/1–5 de 12 usuarios/.test(r) && (await tarjeta(pagina, 1).getByText("Rol: Administrador").isVisible()) && (await tarjeta(pagina, 1).getByText("Activo", { exact: true }).isVisible()) && /Última modificación: 12 oct 2026/.test(await tarjeta(pagina, 1).innerText()), "ADM-03: tarjeta del usuario 1 con nombre, correo, rol, estatus y fecha de última modificación", "ADM-03: tarjeta 1 incorrecta");
+  ver((await tarjeta(pagina, 3).evaluate((e) => getComputedStyle(e).borderStyle)) === "dashed" && (await tarjeta(pagina, 3).getByText("Inactivo", { exact: true }).isVisible()) && (await boton(tarjeta(pagina, 3), /^Habilitar a/).isVisible()), "ADM-03: la cuenta inactiva lleva borde discontinuo, «Inactivo» y «Habilitar»", "ADM-03: cuenta inactiva incorrecta");
+  // Regla del último administrador activo (R21).
   const ricardo = tarjeta(pagina, 1);
   const bloq = [await boton(ricardo, /^Cambiar rol de/).isDisabled(), await boton(ricardo, /^Deshabilitar a/).isDisabled()];
-  ver(bloq.every(Boolean) && /Último administrador activo: no se puede deshabilitar ni cambiar su rol/.test(await textoDescrito(boton(ricardo, /^Deshabilitar a/))), "último administrador activo: «Cambiar rol» y «Deshabilitar» deshabilitados y con su motivo a la vista (aria-describedby)", "último administrador activo: acciones no bloqueadas o sin motivo");
+  ver(bloq.every(Boolean) && /Último administrador activo: no se puede deshabilitar ni cambiar su rol/.test(await textoDescrito(boton(ricardo, /^Deshabilitar a/))), "último administrador activo: «Cambiar rol» y «Deshabilitar» deshabilitados y con su motivo a la vista (aria-describedby)", "último administrador: acciones sin bloquear o sin motivo");
   ver((await boton(tarjeta(pagina, 2), /^Cambiar rol de/).isEnabled()) && (await boton(tarjeta(pagina, 2), /^Deshabilitar a/).isEnabled()), "las demás cuentas conservan sus acciones", "otras cuentas con acciones bloqueadas");
 
-  // Habilitar a la otra administradora: ya no es el último.
+  // Habilitar a la otra administradora (acción REAL): ya no es el último.
   await boton(tarjeta(pagina, 4), /^Habilitar a/).click();
   let dlg = pagina.getByRole("dialog", { name: "Habilitar cuenta" });
   ver((await dlg.isVisible()) && (await dlg.getByText("Carmen Ortiz Ejemplo").isVisible()) && (await dlg.getByRole("button").allInnerTexts()).join("|") === "Cancelar|Confirmar", "MOD-10 «Habilitar cuenta»: nombre, correo y botones «Cancelar» y «Confirmar»", "MOD-10 habilitar: contenido incorrecto");
   await boton(dlg, "Confirmar").click();
-  ver(!(await dialogoAbierto(pagina)) && (await tarjeta(pagina, 4).getByText("Activo", { exact: true }).isVisible()) && (await boton(ricardo, /^Cambiar rol de/).isEnabled()) && (await boton(ricardo, /^Deshabilitar a/).isEnabled()) && (await ricardo.getByText(/Último administrador activo/).count()) === 0, "con 2 administradores activos, Ricardo ya no está bloqueado y su aviso desaparece", "habilitar a la segunda administradora no desbloqueó a Ricardo");
-  ver(await pagina.getByRole("status").getByText(/Cuenta de Carmen Ortiz Ejemplo habilitada/).isVisible(), "MOD-10: el resultado se anuncia (role=\"status\")", "MOD-10: sin aviso de resultado");
-  // Deshabilitar a Carmen: Ricardo vuelve a ser el último.
+  ver(await hasta(async () => !(await dialogoAbierto(pagina)) && (await tarjeta(pagina, 4).getByText("Activo", { exact: true }).isVisible()) && (await boton(ricardo, /^Cambiar rol de/).isEnabled()) && (await boton(ricardo, /^Deshabilitar a/).isEnabled())), "habilitar a Carmen es REAL: pasa a «Activo», Ricardo deja de ser el último y sus acciones se habilitan (la pantalla se refrescó con el servidor)", "habilitar a Carmen: la pantalla no refleja el cambio");
+  ver(await aviso(/Cuenta de Carmen Ortiz Ejemplo habilitada/), "MOD-10: el resultado se anuncia (role=\"status\")", "MOD-10: sin aviso de resultado");
+  // Deshabilitar a Carmen (sin sesiones abiertas): el aviso NO afirma que se cerraron sesiones.
   await boton(tarjeta(pagina, 4), /^Deshabilitar a/).click();
   dlg = pagina.getByRole("dialog", { name: "Deshabilitar cuenta" });
-  ver(/no podrá iniciar sesión y se cerrarán sus sesiones activas/.test(await dlg.innerText()), "MOD-10 «Deshabilitar cuenta»: advierte que no podrá iniciar sesión y se cerrarán sus sesiones", "MOD-10 deshabilitar: falta la advertencia");
+  ver(/no podrá iniciar sesión y, si tiene sesiones abiertas, se cerrarán/.test(await dlg.innerText()), "MOD-10 «Deshabilitar cuenta»: advierte que no podrá iniciar sesión y que se cerrarán las sesiones abiertas (si las hay)", "MOD-10 deshabilitar: falta la advertencia");
   await boton(dlg, "Confirmar").click();
-  ver((await tarjeta(pagina, 4).getByText("Inactivo", { exact: true }).isVisible()) && (await boton(ricardo, /^Deshabilitar a/).isDisabled()) && (await ricardo.getByText(/Último administrador activo/).isVisible()), "al deshabilitar a Carmen, Ricardo vuelve a ser el último administrador activo y se bloquea", "Ricardo no volvió a bloquearse");
+  ver(await hasta(async () => (await tarjeta(pagina, 4).getByText("Inactivo", { exact: true }).isVisible()) && (await boton(ricardo, /^Deshabilitar a/).isDisabled()) && (await ricardo.getByText(/Último administrador activo/).isVisible())), "al deshabilitar a Carmen, Ricardo vuelve a ser el último administrador activo y se bloquea", "deshabilitar a Carmen: Ricardo no volvió a bloquearse");
+  ver(await aviso(/Cuenta de Carmen Ortiz Ejemplo deshabilitada; no tenía sesiones abiertas/), "el aviso es fiel: Carmen no tenía sesiones, así que NO dice que se cerraron", "el aviso de deshabilitar a Carmen no es fiel");
 
-  // Cambiar rol de una persona tutora.
+  // Cambiar rol de una persona tutora que SÍ tiene una sesión abierta: el aviso dice que se cerró y la cookie deja de valer.
+  const cookieRosa = await valorDeSesion(base, "tutor1");
   const rosa = tarjeta(pagina, 2);
   const antes = await rosa.getByText(/Última modificación/).innerText();
   const cambiar = boton(rosa, /^Cambiar rol de/);
   await cambiar.click();
   dlg = pagina.getByRole("dialog", { name: "Cambiar rol" });
   const opciones = await dlg.getByLabel("Seleccionar rol").locator("option").allTextContents();
-  ver((await dlg.getByText("Rosa Hernández Ficticia").isVisible()) && (await dlg.getByText("Rol actual").isVisible()) && /Tutor/.test(await dlg.locator("p.h-campo").innerText()) && JSON.stringify(opciones) === JSON.stringify(["Administrador", "Tutor"]) && /bitácora con el rol anterior y el nuevo/.test(await dlg.innerText()), "MOD-10 «Cambiar rol»: persona, rol actual, selector Administrador / Tutor y aviso de bitácora", "MOD-10 cambiar rol: contenido incorrecto");
+  ver((await dlg.getByText("Rosa Hernández Ficticia").isVisible()) && (await dlg.getByText("Rol actual").isVisible()) && /Tutor/.test(await dlg.locator("p.h-campo").innerText()) && JSON.stringify(opciones) === JSON.stringify(["Administrador", "Tutor"]) && /bitácora con el rol anterior y el nuevo/.test(await dlg.innerText()), "MOD-10 «Cambiar rol»: persona, rol actual, selector con Administrador y Tutor y la nota de bitácora", "MOD-10 cambiar rol: contenido incorrecto");
   await dlg.getByLabel("Seleccionar rol").selectOption("Tutor");
   await boton(dlg, "Guardar cambios").click();
-  ver((await dialogoAbierto(pagina)) && /rol distinto al actual/.test(await textoDescrito(dlg.getByLabel("Seleccionar rol"))), "MOD-10: elegir el mismo rol no se guarda y el error queda asociado (aria-describedby)", "MOD-10: aceptó el mismo rol");
+  ver((await dialogoAbierto(pagina)) && /rol distinto al actual/.test(await textoDescrito(dlg.getByLabel("Seleccionar rol"))), "MOD-10: elegir el mismo rol no se envía y el error queda asociado (aria-describedby)", "MOD-10: aceptó el mismo rol");
   for (const via of ["«Cancelar»", "Escape", "clic fuera"] as const) {
     if (via === "«Cancelar»") await boton(dlg, "Cancelar").click();
     else if (via === "Escape") await pagina.keyboard.press("Escape");
     else await pagina.mouse.click(4, 4);
-    ver(!(await dialogoAbierto(pagina)) && (await foco(pagina)) === "Cambiar rol de Rosa Hernández Ficticia" && (await rosa.getByText("Rol: Tutor").isVisible()), `MOD-10: ${via} cierra sin cambiar nada y el foco vuelve al botón de origen`, `MOD-10: ${via} → abierto=${await dialogoAbierto(pagina)}, foco=${await foco(pagina)}`);
+    ver(!(await dialogoAbierto(pagina)) && (await foco(pagina)) === "Cambiar rol de Rosa Hernández Ficticia" && (await rosa.getByText("Rol: Tutor").isVisible()), `MOD-10: ${via} cierra sin cambiar nada y el foco vuelve al botón de origen`, `MOD-10: ${via} no cerró bien`);
     await cambiar.click();
   }
   await dlg.getByLabel("Seleccionar rol").selectOption("Administrador");
   await boton(dlg, "Guardar cambios").click();
-  const despues = await rosa.getByText(/Última modificación/).innerText();
-  ver(!(await dialogoAbierto(pagina)) && (await rosa.getByText("Rol: Administrador").isVisible()) && despues !== antes && (await pagina.getByRole("status").getByText("Rol de Rosa Hernández Ficticia actualizado a Administrador").isVisible()), "MOD-10: «Guardar cambios» cambia el rol, actualiza la fecha de última modificación y lo anuncia", "MOD-10: el cambio de rol no se aplicó");
+  ver(await hasta(async () => !(await dialogoAbierto(pagina)) && (await rosa.getByText("Rol: Administrador").isVisible()) && (await rosa.getByText(/Última modificación/).innerText()) !== antes), "MOD-10: «Guardar cambios» cambia el rol de verdad (rol y fecha de última modificación nuevos tras refrescar)", "MOD-10: el rol no cambió");
+  ver(await aviso(/Rol de Rosa Hernández Ficticia actualizado a Administrador; se cerró su sesión abierta/), "el aviso del cambio de rol dice que se cerró su sesión abierta (era cierto: Rosa tenía una)", "aviso del cambio de rol no fiel");
+  const trasRol = await fetch(`${base}/api/admin/bitacora`, { headers: { Cookie: `${NOMBRE_COOKIE}=${cookieRosa}` } });
+  ver(trasRol.status === 401, `la cookie que Rosa tenía antes del cambio de rol dejó de valer (${trasRol.status})`, `la cookie anterior de Rosa sigue valiendo (${trasRol.status})`);
   // Con 2 administradores activos (Ricardo y Rosa) ninguno es el último; si Rosa se deshabilita, Ricardo vuelve a serlo.
   await boton(rosa, /^Deshabilitar a/).click();
   await boton(pagina.getByRole("dialog", { name: "Deshabilitar cuenta" }), "Confirmar").click();
-  ver((await rosa.getByText("Inactivo", { exact: true }).isVisible()) && (await boton(ricardo, /^Cambiar rol de/).isDisabled()), "regla del último administrador: tras deshabilitar a Rosa, Ricardo queda bloqueado otra vez", "regla del último administrador: no se bloqueó");
+  ver(await hasta(async () => (await rosa.getByText("Inactivo", { exact: true }).isVisible()) && (await boton(ricardo, /^Cambiar rol de/).isDisabled())), "regla del último administrador: tras deshabilitar a Rosa, Ricardo queda bloqueado otra vez", "regla del último administrador: no se re-bloqueó");
 
-  // Paginación, búsqueda y filtro.
-  await boton(pagina, "Página siguiente").click();
-  ver(JSON.stringify(await ids()) === "[6,7,8,9,10]" && /6–10 de 12 usuarios/.test(await pagina.locator("main").innerText()), "ADM-03: la paginación pasa a la página 2 (usuarios 6 a 10)", "ADM-03: página 2 incorrecta");
-  await boton(pagina, "Página 3").click();
+  // Paginación, búsqueda y filtro: viven en la URL y el servidor los valida.
+  await navegando(pagina, () => boton(pagina, "Página siguiente").click());
+  ver(JSON.stringify(await ids()) === "[6,7,8,9,10]" && /6–10 de 12 usuarios/.test(await pagina.locator("main").innerText()) && /[?&]pagina=2/.test(pagina.url()), "ADM-03: la paginación pasa a la página 2 (usuarios 6 a 10) y queda en la URL (?pagina=2)", `ADM-03: página 2 incorrecta (${pagina.url()})`);
+  await navegando(pagina, () => boton(pagina, "Página 3").click());
   ver(JSON.stringify(await ids()) === "[11,12]" && (await boton(pagina, "Página siguiente").isDisabled()), "ADM-03: la página 3 trae los 2 últimos y «Siguiente» se deshabilita", "ADM-03: página 3 incorrecta");
   await pagina.getByLabel("Buscar usuario").fill("hector");
-  await boton(pagina, "Buscar").click();
-  ver(JSON.stringify(await ids()) === "[11]", "búsqueda: «hector» encuentra a Héctor (sin distinguir acentos) y regresa a la página 1", `búsqueda: ${await ids()}`);
-  await pagina.getByLabel("Buscar usuario").fill("example.org");
-  await boton(pagina, "Buscar").click();
-  await pagina.getByLabel("Filtrar por estatus").selectOption("Inactivo");
-  ver(JSON.stringify(await ids()) === "[3,4,8,2]".replace("[3,4,8,2]", JSON.stringify((await ids()))) && (await ids()).every((n) => [2, 3, 4, 8].includes(n)) && (await ids()).length === 4, "filtro «Inactivo» con la búsqueda: solo cuentas inactivas (3, 4, 8 y Rosa, deshabilitada hace un momento)", `filtro: ${await ids()}`);
+  await navegando(pagina, () => boton(pagina, "Buscar").click());
+  ver(JSON.stringify(await ids()) === "[11]" && /[?&]q=hector/.test(pagina.url()), "búsqueda: «hector» encuentra a Héctor (sin distinguir acentos), regresa a la página 1 y queda en la URL (?q=)", `búsqueda: ${await ids()}`);
+  await pagina.getByLabel("Buscar usuario").fill("");
+  await pagina.getByLabel("Filtrar por estatus").selectOption("inactivo");
+  await navegando(pagina, () => boton(pagina, "Buscar").click());
+  ver(JSON.stringify((await ids()).sort((a, b) => a - b)) === "[2,3,4,8]" && /estatus=inactivo/.test(pagina.url()), "filtro «Inactivo»: solo cuentas inactivas (2 —deshabilitada arriba—, 3, 4 y 8) y queda en la URL", `filtro Inactivo: ${await ids()}`);
+  await pagina.getByLabel("Buscar usuario").fill("ejemplo");
+  await navegando(pagina, () => boton(pagina, "Buscar").click());
+  const combinadas = await ids();
+  ver(combinadas.length > 0 && combinadas.every((n) => [3, 4, 8].includes(n)), `búsqueda «ejemplo» + «Inactivo» combinadas: ${combinadas.join(", ")} (inactivas cuyo nombre o correo contiene «ejemplo»)`, `búsqueda + estatus: ${combinadas}`);
   await pagina.getByLabel("Buscar usuario").fill("zzzz");
-  await boton(pagina, "Buscar").click();
-  ver((await pagina.getByText("Ningún usuario coincide").isVisible()) && (await boton(pagina, "Limpiar búsqueda").isVisible()), "búsqueda sin resultados: estado vacío «Ningún usuario coincide» con «Limpiar búsqueda»", "búsqueda sin resultados: falta el estado vacío");
-  await boton(pagina, "Limpiar búsqueda").click();
+  await navegando(pagina, () => boton(pagina, "Buscar").click());
+  ver((await pagina.getByText("Ningún usuario coincide").isVisible()) && (await enlace(pagina, "Limpiar búsqueda").isVisible()), "búsqueda sin resultados: estado vacío «Ningún usuario coincide» con «Limpiar búsqueda»", "búsqueda sin resultados: falta el estado vacío");
+  await navegando(pagina, () => enlace(pagina, "Limpiar búsqueda").click());
   ver((await ids()).length === 5 && /de 12 usuarios/.test(await pagina.locator("main").innerText()), "«Limpiar búsqueda» restaura los 12 usuarios", "Limpiar búsqueda no restauró la lista");
-  await contexto.close();
-
-  // Estados de carga y vacío y variantes del modal.
-  ({ contexto, pagina } = await nuevaPagina(navegador, 390));
-  await irA(pagina, "/admin/usuarios?estado=cargando");
-  ver((await pagina.getByRole("status").count()) === 4 && (await pagina.locator("li[data-usuario]").count()) === 0, "ADM-03 cargando: 4 esqueletos con role=\"status\" y sin tarjetas", "ADM-03 cargando: incorrecto");
-  await irA(pagina, "/admin/usuarios?estado=vacio");
-  ver((await pagina.getByText("Aún no hay usuarios").isVisible()) && (await pagina.locator("li[data-usuario]").count()) === 0, "ADM-03 vacío: «Aún no hay usuarios»", "ADM-03 vacío: incorrecto");
-  for (const [m, titulo] of [["rol", "Cambiar rol"], ["deshabilitar", "Deshabilitar cuenta"], ["habilitar", "Habilitar cuenta"]] as const) {
-    await irA(pagina, `/admin/usuarios?modal=${m}`);
-    ver(await pagina.getByRole("dialog", { name: titulo }).isVisible(), `ADM-03 ?modal=${m}: abre «${titulo}» al cargar`, `ADM-03 ?modal=${m}: no abrió`);
-  }
+  // El servidor valida lo que llega por la URL: un estatus inventado se informa y no filtra; una página fuera de rango va a la última.
+  await irA(pagina, "/admin/usuarios?estatus=raro&pagina=99");
+  ver((await pagina.locator("main").innerText()).includes("de 12 usuarios") && /Elige «Activo» o «Inactivo»|Elige/.test(await pagina.locator("main").innerText()) && (await ids()).join() === "11,12", "?estatus=raro&pagina=99: el servidor informa el estatus inválido (sin filtrar) y lleva a la última página", "la URL inválida no se validó en el servidor");
   await contexto.close();
 
   // Escritorio: tabla compacta con acciones por fila y la misma regla.
   ({ contexto, pagina } = await nuevaPagina(navegador, 1280));
   await irA(pagina, "/admin/usuarios");
   const cab = await pagina.locator("table[data-tabla-compacta] thead th").allTextContents();
-  ver(JSON.stringify(cab) === JSON.stringify(["Usuario", "Rol", "Estatus", "Última modificación", "Acciones"]) && (await pagina.locator("ul > li[data-usuario]").evaluateAll((l) => l.every((x) => getComputedStyle(x).display === "none" || x.getBoundingClientRect().height === 0))) , "ADM-03 en escritorio: tabla con Usuario, Rol, Estatus, Última modificación y Acciones; las tarjetas no se muestran", `ADM-03 escritorio: ${cab.join(", ")}`);
+  ver(JSON.stringify(cab) === JSON.stringify(["Usuario", "Rol", "Estatus", "Última modificación", "Acciones"]) && (await pagina.locator("ul > li[data-usuario]").evaluateAll((l) => l.every((x) => getComputedStyle(x).display === "none" || x.getBoundingClientRect().height === 0))), "ADM-03 en escritorio: tabla de 5 columnas y sin tarjetas", `ADM-03 escritorio: encabezados ${cab}`);
   const altos = await pagina.locator("table[data-tabla-compacta] button").evaluateAll((bs) => bs.map((b) => Math.round(b.getBoundingClientRect().height)));
   ver(altos.length > 0 && altos.every((h) => h === 36), `ADM-03: los botones de la tabla son del tamaño compacto (${altos[0]} px), marcada con data-tabla-compacta`, `ADM-03: alturas de la tabla ${altos}`);
-  ver((await boton(fila(pagina, 1), /^Cambiar rol de/).isDisabled()) && (await boton(fila(pagina, 1), /^Deshabilitar a/).isDisabled()) && (await fila(pagina, 1).getByText("Último administrador activo").isVisible()) && /Último administrador activo/.test(await textoDescrito(boton(fila(pagina, 1), /^Deshabilitar a/))), "ADM-03 en escritorio: la fila del último administrador activo lleva sus acciones deshabilitadas y su motivo visible", "ADM-03 escritorio: regla del último administrador");
+  ver((await boton(fila(pagina, 1), /^Cambiar rol de/).isDisabled()) && (await boton(fila(pagina, 1), /^Deshabilitar a/).isDisabled()) && (await fila(pagina, 1).getByText("Último administrador activo").isVisible()), "ADM-03 en escritorio: la regla del último administrador también se ve en la tabla", "ADM-03 escritorio: el último administrador no se bloqueó");
   await boton(fila(pagina, 5), /^Cambiar rol de/).click();
   ver(await pagina.getByRole("dialog", { name: "Cambiar rol" }).isVisible(), "ADM-03 en escritorio: «Cambiar rol» abre MOD-10", "ADM-03 escritorio: MOD-10 no abrió");
   await pagina.keyboard.press("Escape");
   ver((await foco(pagina)) === "Cambiar rol de Luis Navarro Ficticio", "MOD-10 en escritorio: Escape devuelve el foco al botón de la fila", `MOD-10 escritorio: foco ${await foco(pagina)}`);
   await contexto.close();
+
+  // La PROPIA cuenta: con otra persona administradora activa se puede, pero pide confirmación explícita y cierra la sesión. La hace Rosa (promovida a Administrador),
+  // no Ricardo: la cuenta de Ricardo es la única con credenciales de Administrador y deshabilitarla dejaría sin acceso a las demás pruebas.
+  await reiniciarDatos(base);
+  const ascenso = await fetchComo(base, "admin", "/api/admin/usuarios/2/rol", { method: "PUT", headers: { "Content-Type": "application/json", Origin: new URL(base).origin }, body: JSON.stringify({ rol: "Administrador" }) });
+  ver(ascenso.status === 200, "preparación: Rosa se promueve a Administrador (hay dos administradores activos)", `no se pudo promover a Rosa: HTTP ${ascenso.status}`);
+  olvidarSesiones();
+  ({ contexto, pagina } = await nuevaPagina(navegador, 390, "light", "tutor1"));
+  await irA(pagina, "/admin/usuarios");
+  await boton(tarjeta(pagina, 2), /^Deshabilitar a/).click();
+  dlg = pagina.getByRole("dialog", { name: "Deshabilitar cuenta" });
+  ver(/Es tu propia cuenta/.test(await dlg.innerText()) && /se cerrará tu sesión/.test(await dlg.innerText()) && (await dlg.getByLabel("Entiendo que se cerrará mi sesión").isVisible()), "autoacción: sobre la propia cuenta el modal avisa «Es tu propia cuenta» y que se cerrará la sesión, y pide una casilla de confirmación", "autoacción: el modal no avisa ni pide confirmación");
+  await boton(dlg, "Confirmar").click();
+  ver((await dialogoAbierto(pagina)) && /Confirma que entiendes/.test(await textoDescrito(dlg.getByLabel("Entiendo que se cerrará mi sesión"))) && (await tarjeta(pagina, 2).getByText("Activo", { exact: true }).isVisible()), "autoacción: sin marcar la casilla no se envía nada (el error queda asociado a la casilla) y la cuenta sigue activa", "autoacción: se envió sin confirmación");
+  await dlg.getByText("Entiendo que se cerrará mi sesión").click();
+  await Promise.all([pagina.waitForURL(/\/acceso/, { timeout: 10000 }), boton(dlg, "Confirmar").click()]);
+  ver(/\/acceso/.test(pagina.url()), "autoacción confirmada: se cierra la sesión y la pantalla lleva a iniciar sesión", `autoacción: no llevó a iniciar sesión (${pagina.url()})`);
+  const trasAuto = await pagina.goto(`${base}/admin/usuarios`, { waitUntil: "load" });
+  ver(/\/acceso/.test(pagina.url()) || (trasAuto?.status() ?? 0) >= 400, "autoacción: la cookie de esa sesión ya no entra a /admin", `autoacción: aún entra a /admin (${pagina.url()})`);
+  await contexto.close();
+  olvidarSesiones();
+
+  // Roles: una persona tutora no entra a la pantalla.
+  const t403 = await fetchComo(base, "tutor2", "/admin/usuarios", { redirect: "manual" });
+  ver(t403.status === 403, `una persona tutora que abre /admin/usuarios recibe ${t403.status}`, `tutora en /admin/usuarios: ${t403.status}`);
 }
 
 /** Folios «RUPE-XXXXXXXX» visibles y cuántos se parten en dos líneas (se mide cada folio con un Range). */
@@ -432,7 +484,9 @@ const medirFolios = (pagina: Page) =>
 
 /** Cada folio «RUPE-XXXXXXXX» visible cabe en una sola línea (no se parte en el guion), en tarjetas, tablas y modales; con autoprueba del defecto. */
 async function foliosEnUnaLinea(navegador: Browser) {
-  const rutas = ["/admin/registros", `/admin/registros/${FOLIO_MODERACION_ACTIVO}`, `/admin/registros/${FOLIO_MODERACION_DESHABILITADO}`, "/admin/registros?modal=deshabilitar", `/admin/registros/${FOLIO_MODERACION_ACTIVO}?modal=deshabilitar`, "/admin/avistamientos?pagina=1", "/admin/avistamientos?pagina=2", "/admin/avistamientos?pagina=3", "/admin/avistamientos?modal=ocultar", "/admin/avistamientos?modal=detalle", "/admin/avistamientos?modal=detalle-oculto", "/admin/avistamientos?modal=detalle-fallecido&foto=visible"];
+  const rutas = ["/admin/registros", `/admin/registros/${FOLIO_MODERACION_ACTIVO}`, `/admin/registros/${FOLIO_MODERACION_DESHABILITADO}`, "/admin/avistamientos?pagina=1", "/admin/avistamientos?pagina=2", "/admin/avistamientos?pagina=3", "/admin/avistamientos?detalle=101", "/admin/avistamientos?detalle=105", "/admin/avistamientos?detalle=102&foto=visible"];
+  // Los modales de moderación se abren con clics reales (ya no existen ?modal=).
+  const conModal: Array<[string, RegExp, string]> = [["/admin/registros", /^Deshabilitar RUPE/, "Deshabilitar registro"], [`/admin/registros/${FOLIO_MODERACION_ACTIVO}`, /^Deshabilitar registro$/, "Deshabilitar registro"], ["/admin/avistamientos", /^Ocultar el avistamiento/, "Ocultar avistamiento"]];
   for (const ancho of [390, 1280]) {
     const { contexto, pagina } = await nuevaPagina(navegador, ancho);
     let total = 0;
@@ -443,7 +497,15 @@ async function foliosEnUnaLinea(navegador: Browser) {
       total += r.n;
       partidos.push(...r.malos.map((f) => `${ruta} → ${f}`));
     }
-    ver(total > 40 && partidos.length === 0, `folios de ADM-04 y ADM-05 (${ancho}px): ${total} folios visibles en ${rutas.length} pantallas, ninguno se parte en dos líneas`, `folios partidos (${ancho}px): ${partidos.join(" | ")}`);
+    for (const [ruta, abrir, dialogo] of conModal) {
+      await irA(pagina, ruta);
+      await boton(pagina, abrir).first().click();
+      await pagina.getByRole("dialog", { name: dialogo }).waitFor();
+      const r = await medirFolios(pagina);
+      total += r.n;
+      partidos.push(...r.malos.map((f) => `${ruta} (modal) → ${f}`));
+    }
+    ver(total > 40 && partidos.length === 0, `folios de ADM-04 y ADM-05 (${ancho}px): ${total} folios visibles en ${rutas.length + conModal.length} pantallas (con 3 modales abiertos por clic), ninguno se parte en dos líneas`, `folios partidos (${ancho}px): ${partidos.join(" | ")}`);
     // Autoprueba: con el estilo anterior (white-space normal) la misma medición debe marcar el defecto.
     let conDefecto = 0;
     for (const ruta of ["/admin/avistamientos?pagina=1", "/admin/avistamientos?pagina=2", "/admin/registros"]) {
@@ -466,10 +528,12 @@ async function viasDeCierre(pagina: Page, abrir: Locator, nombreDialogo: string,
   for (const via of ["botón", "Escape", "clic fuera"] as const) {
     await abrir.click();
     const dlg = pagina.getByRole("dialog", { name: nombreDialogo });
+    await dlg.waitFor();
     if (via === "botón") await boton(dlg, botonCierre).click();
     else if (via === "Escape") await pagina.keyboard.press("Escape");
     else await pagina.mouse.click(4, 4);
     const nombre = await abrir.evaluate((el) => el.getAttribute("aria-label") || el.textContent?.trim());
+    await hasta(async () => !(await dialogoAbierto(pagina)) && (await foco(pagina)) === nombre && (await alVolver()));
     ver(!(await dialogoAbierto(pagina)) && (await foco(pagina)) === nombre && (await alVolver()), `${etiqueta}: ${via === "botón" ? `«${botonCierre}»` : via} cierra sin cambiar nada y el foco vuelve al botón de origen`, `${etiqueta}: ${via} → abierto=${await dialogoAbierto(pagina)}, foco=${await foco(pagina)}`);
   }
 }
@@ -545,12 +609,12 @@ async function moderacionRegistros(navegador: Browser) {
   await irA(pagina, "/admin/registros");
   const visibles = () => pagina.locator("li[data-registro]").evaluateAll((l) => l.map((x) => x.getAttribute("data-registro")));
   ver(JSON.stringify(await visibles()) === JSON.stringify(folios.slice(0, 5)) && /1–5 de 12 registros/.test(await pagina.locator("main").innerText()) && (await pagina.locator("table[data-tabla-compacta]").isVisible()) === false, "ADM-04 en móvil: 5 tarjetas por página, del registro más reciente al más antiguo, y la tabla no se muestra", `ADM-04 en móvil: ${await visibles()}`);
-  ver(JSON.stringify(await pagina.locator("main form[aria-label='Filtrar registros'] label").allInnerTexts()) === JSON.stringify(["Estado del caso", "Alcaldía"]) && (await boton(pagina, "Limpiar filtros").isVisible()) && (await boton(pagina, "Aplicar filtros").isVisible()), "ADM-04: filtros «Estado del caso» y «Alcaldía» con «Limpiar filtros» y «Aplicar filtros» (sin búsqueda)", "ADM-04: filtros incorrectos");
+  ver(JSON.stringify(await pagina.locator("main form[aria-label='Filtrar registros'] label").allInnerTexts()) === JSON.stringify(["Estado del caso", "Alcaldía"]) && (await enlace(pagina, "Limpiar filtros").isVisible()) && (await boton(pagina, "Aplicar filtros").isVisible()), "ADM-04: filtros «Estado del caso» y «Alcaldía» con «Limpiar filtros» y «Aplicar filtros» (sin búsqueda)", "ADM-04: filtros incorrectos");
   const max = tarj(pagina, "RUPE-K7M4XQ9T");
   ver((await max.getByRole("heading").innerText()) === "RUPE-K7M4XQ9T · Max" && /Fecha de registro: 18 oct 2026/.test(await max.innerText()) && (await max.getByText("En búsqueda", { exact: true }).isVisible()) && (await enlace(max, /^Ver detalle/).getAttribute("href")) === "/admin/registros/RUPE-K7M4XQ9T" && (await boton(max, /^Deshabilitar/).isEnabled()), "ADM-04: la tarjeta lleva «Folio · Nombre», fecha de registro, estado y «Ver detalle» / «Deshabilitar»", "ADM-04: tarjeta incorrecta");
   // Casos cerrados: por deshabilitación (restaurable), por cancelación y por cierre confirmado.
   await pagina.getByLabel("Estado del caso").selectOption("Cerrado");
-  await boton(pagina, "Aplicar filtros").click();
+  await navegando(pagina, () => boton(pagina, "Aplicar filtros").click());
   const cerrados = folios.filter((f) => CASOS_MODERACION.find((c) => c.folio === f)!.estado === "Cerrado");
   ver(JSON.stringify((await visibles()).sort()) === JSON.stringify([...cerrados].sort()) && cerrados.length === 3, "filtro «Estado del caso: Cerrado»: los 3 casos cerrados (deshabilitado, cancelado y cerrado tras localizar)", `filtro Cerrado: ${await visibles()}`);
   const kira = tarj(pagina, FOLIO_MODERACION_DESHABILITADO);
@@ -561,22 +625,22 @@ async function moderacionRegistros(navegador: Browser) {
   let bien = true;
   for (const [t, motivo] of noDisp) bien = bien && (await boton(t, /^Deshabilitar/).isDisabled()) && motivo.test(await textoDescrito(boton(t, /^Deshabilitar/))) && motivo.test(await t.innerText()) && (await boton(t, /^Restaurar/).count()) === 0 && (await t.getByText("Cerrado", { exact: true }).isVisible());
   ver(bien, "HU 018: un caso cancelado («Cancelado por la persona tutora…») o cerrado tras localizar («Cerrado tras una localización confirmada…») no se deshabilita ni se restaura; «Deshabilitar» queda deshabilitado con el motivo según el cierre a la vista (aria-describedby)", "HU 018: acciones de casos cerrados incorrectas");
-  await boton(pagina, "Limpiar filtros").click();
+  await navegando(pagina, () => enlace(pagina, "Limpiar filtros").click());
   ver(JSON.stringify(await visibles()) === JSON.stringify(folios.slice(0, 5)), "«Limpiar filtros» restaura la lista", "«Limpiar filtros» no restauró la lista");
-  await pagina.getByLabel("Alcaldía").selectOption("Tlalpan");
-  await boton(pagina, "Aplicar filtros").click();
+  await pagina.getByLabel("Alcaldía").selectOption({ label: "Tlalpan" });
+  await navegando(pagina, () => boton(pagina, "Aplicar filtros").click());
   const enTlalpan = CASOS_MODERACION.filter((c) => c.alcaldia === "Tlalpan").map((c) => c.folio);
   ver(JSON.stringify((await visibles()).sort()) === JSON.stringify(enTlalpan.sort()) && enTlalpan.length >= 2, `filtro «Alcaldía: Tlalpan»: ${enTlalpan.length} casos`, `filtro Tlalpan: ${await visibles()}`);
-  await boton(pagina, "Limpiar filtros").click();
+  await navegando(pagina, () => enlace(pagina, "Limpiar filtros").click());
   await pagina.getByLabel("Estado del caso").selectOption("Extraviado");
-  await boton(pagina, "Aplicar filtros").click();
+  await navegando(pagina, () => boton(pagina, "Aplicar filtros").click());
   ver((await pagina.getByText("Ningún registro coincide").isVisible()) && (await pagina.locator("li[data-registro]").count()) === 0, "filtros sin resultados: estado vacío «Ningún registro coincide»", "filtros sin resultados: falta el estado vacío");
-  await boton(pagina, "Limpiar filtros").click();
-  await boton(pagina, "Página siguiente").click();
+  await navegando(pagina, () => enlace(pagina, "Limpiar filtros").click());
+  await cambiarPagina(pagina, "Página siguiente");
   ver(JSON.stringify(await visibles()) === JSON.stringify(folios.slice(5, 10)), "ADM-04: la paginación pasa a la página 2", `ADM-04: página 2 → ${await visibles()}`);
-  await boton(pagina, "Página 3").click();
+  await cambiarPagina(pagina, "Página 3");
   ver(JSON.stringify(await visibles()) === JSON.stringify(folios.slice(10)) && (await boton(pagina, "Página siguiente").isDisabled()), "ADM-04: la página 3 trae los 2 últimos y «Siguiente» se deshabilita", `ADM-04: página 3 → ${await visibles()}`);
-  await boton(pagina, "Página 1").click();
+  await cambiarPagina(pagina, "Página 1");
 
   // MOD-08: deshabilitar.
   const abrir = boton(max, /^Deshabilitar/);
@@ -590,8 +654,10 @@ async function moderacionRegistros(navegador: Browser) {
   await abrir.click();
   await dlg.getByLabel(/^Motivo \(obligatorio\)/).fill("Incumple las condiciones de uso.");
   await boton(dlg, "Confirmar").click();
+  await hasta(() => max.getByText("Cerrado (deshabilitado)").isVisible());
   ver(!(await dialogoAbierto(pagina)) && (await max.getByText("Cerrado (deshabilitado)").isVisible()) && /Motivo de moderación: Incumple las condiciones de uso\./.test(await max.innerText()) && /Deshabilitado el \d+ \w+ 2026/.test(await max.innerText()) && (await boton(max, /^Restaurar/).isEnabled()) && (await boton(max, /^Deshabilitar/).count()) === 0 && (await pagina.getByRole("status").getByText(/Registro RUPE-K7M4XQ9T deshabilitado/).isVisible()), "MOD-08: «Confirmar» deshabilita: pasa a «Cerrado (deshabilitado)» con su motivo y fecha, aparece «Restaurar» y el resultado se anuncia", "MOD-08: la deshabilitación no se reflejó");
   await boton(max, /^Restaurar/).click();
+  await hasta(async () => !/Motivo de moderación/.test(await max.innerText()));
   ver((await max.getByText("En búsqueda", { exact: true }).isVisible()) && /Motivo de moderación/.test(await max.innerText()) === false && (await boton(max, /^Deshabilitar/).isEnabled()) && (await pagina.getByRole("status").getByText(/restaurado: volvió a «En búsqueda»/).isVisible()), "«Restaurar» regresa el caso al estado que tenía antes de deshabilitarlo («En búsqueda») y se anuncia", "«Restaurar»: no volvió al estado previo");
   // Restaurar un caso con otro estado previo: Kira estaba «En búsqueda»; Luna («Avistamiento reportado») se deshabilita y vuelve a ese estado.
   const luna = tarj(pagina, "RUPE-P3H8WD5N");
@@ -599,7 +665,9 @@ async function moderacionRegistros(navegador: Browser) {
   dlg = pagina.getByRole("dialog", { name: "Deshabilitar registro" });
   await dlg.getByLabel(/^Motivo \(obligatorio\)/).fill("Prueba de restauración.");
   await boton(dlg, "Confirmar").click();
+  await hasta(async () => (await boton(luna, /^Restaurar/).count()) > 0);
   await boton(luna, /^Restaurar/).click();
+  await hasta(async () => (await boton(luna, /^Deshabilitar/).count()) > 0 && (await boton(luna, /^Deshabilitar/).isEnabled()));
   ver(await luna.getByText("Avistamiento reportado", { exact: true }).isVisible(), "restauración: un caso deshabilitado desde «Avistamiento reportado» vuelve a «Avistamiento reportado» (estado previo, no siempre el mismo)", "restauración: estado previo incorrecto");
   await contexto.close();
 
@@ -611,42 +679,45 @@ async function moderacionRegistros(navegador: Browser) {
   const altos = await pagina.locator("table[data-tabla-compacta] button, table[data-tabla-compacta] a").evaluateAll((bs) => bs.map((b) => Math.round(b.getBoundingClientRect().height)));
   ver(altos.length > 0 && altos.every((h) => h === 36) && (await pagina.locator("table[data-tabla-compacta]").getAttribute("data-excepcion-tactil")) === "compacto", `ADM-04: los botones de la tabla son del tamaño compacto (${altos[0]} px) y la tabla lleva la marca data-excepcion-tactil`, `ADM-04: alturas ${altos}`);
   await pagina.getByLabel("Estado del caso").selectOption("Cerrado");
-  await boton(pagina, "Aplicar filtros").click();
+  await navegando(pagina, () => boton(pagina, "Aplicar filtros").click());
   const filaKira = pagina.locator(`tr[data-registro="${FOLIO_MODERACION_DESHABILITADO}"]`);
   const filaSimba = pagina.locator(`tr[data-registro="${FOLIO_MODERACION_CANCELADO}"]`);
   ver((await boton(filaKira, /^Restaurar/).isEnabled()) && (await boton(filaSimba, /^Deshabilitar/).isDisabled()) && (await filaSimba.getByText("Cancelado por la persona tutora", { exact: true }).isVisible()) && /Cancelado por la persona tutora/.test(await textoDescrito(boton(filaSimba, /^Deshabilitar/))), "ADM-04 en escritorio: «Restaurar» solo en el deshabilitado; en los demás cerrados «Deshabilitar» va deshabilitado con su motivo", "ADM-04 escritorio: acciones incorrectas");
   await boton(filaKira, /^Restaurar/).click();
+  await hasta(async () => (await filaKira.count()) === 0);
   ver((await filaKira.count()) === 0 && (await pagina.getByRole("status").getByText(/restaurado: volvió a «En búsqueda»/).isVisible()), "ADM-04 en escritorio: «Restaurar» devuelve el caso a «En búsqueda» (sale del filtro «Cerrado») y se anuncia", "ADM-04 escritorio: restauración incorrecta");
-  await boton(pagina, "Limpiar filtros").click();
-  await boton(pagina, "Página siguiente").click();
+  await navegando(pagina, () => enlace(pagina, "Limpiar filtros").click());
+  await cambiarPagina(pagina, "Página siguiente");
   ver((await filaKira.getByText("En búsqueda", { exact: true }).isVisible()) && !/Motivo de moderación/.test(await filaKira.innerText()), "ADM-04 en escritorio: tras restaurar, la fila vuelve a «En búsqueda» sin motivo de moderación", "ADM-04 escritorio: la fila restaurada conserva el motivo");
   await contexto.close();
 
-  // Estados de carga y vacío, y ?modal=deshabilitar.
+  // Variantes del maquetado RETIRADAS: la URL ya no fija esqueletos, estados vacíos ni modales abiertos; el estado vacío real es el de «filtros sin resultados» (arriba).
   ({ contexto, pagina } = await nuevaPagina(navegador, 390));
-  await irA(pagina, "/admin/registros?estado=cargando");
-  ver((await pagina.getByRole("status").count()) === 3 && (await pagina.locator("li[data-registro]").count()) === 0, "ADM-04 cargando: 3 esqueletos con role=\"status\" y sin tarjetas", "ADM-04 cargando: incorrecto");
-  await irA(pagina, "/admin/registros?estado=vacio");
-  ver(await pagina.getByText("Aún no hay registros").isVisible(), "ADM-04 vacío: «Aún no hay registros»", "ADM-04 vacío: incorrecto");
-  await irA(pagina, "/admin/registros?modal=deshabilitar");
-  ver(await pagina.getByRole("dialog", { name: "Deshabilitar registro" }).isVisible(), "ADM-04 ?modal=deshabilitar: abre MOD-08 al cargar", "ADM-04 ?modal=deshabilitar: no abrió");
-  await irA(pagina, "/admin/registros?modal=deshabilitar&error=motivo");
-  ver(/Escribe el motivo para continuar/.test(await textoDescrito(pagina.getByRole("dialog", { name: "Deshabilitar registro" }).getByLabel(/^Motivo \(obligatorio\)/))), "ADM-04 ?modal=deshabilitar&error=motivo: abre MOD-08 con el error de motivo vacío asociado al campo (variante de captura)", "ADM-04 ?error=motivo: no mostró el error");
+  for (const v of ["?estado=cargando", "?estado=vacio", "?modal=deshabilitar", "?modal=deshabilitar&error=motivo"]) {
+    await irA(pagina, `/admin/registros${v}`);
+    ver((await pagina.locator("li[data-registro]").count()) === 5 && !(await dialogoAbierto(pagina)) && (await pagina.getByRole("status").count()) === 0, `ADM-04 /admin/registros${v}: variante retirada, se ignora (lista real de 5 tarjetas, sin esqueletos ni modal)`, `ADM-04 ${v}: la variante sigue activa`);
+  }
   await contexto.close();
 
-  // Detalle (TUT-05 variante Administrador).
+  // Detalle (TUT-05 variante Administrador). Las acciones de arriba fueron reales (Kira se restauró): se parte de datos reiniciados.
+  await reiniciarDatos(base);
   ({ contexto, pagina } = await nuevaPagina(navegador, 390));
   await irA(pagina, `/admin/registros/${FOLIO_MODERACION_ACTIVO}`);
   const texto = await pagina.locator("main").innerText();
   const origenAdmin = CASOS_MODERACION.find((c) => c.folio === FOLIO_MODERACION_ACTIVO)!;
-  const camposDe = (o: object) => Object.keys(o).join();
-  ver(CASOS_MODERACION.every((c) => camposDe(c) === CAMPOS_REGISTRO_ADMIN.join()) && CASOS_MODERACION.map(aRegistroAdminLista).every((c) => camposDe(c) === CAMPOS_REGISTRO_ADMIN_LISTA.join()) && !CAMPOS_REGISTRO_ADMIN.some((k) => /tutor|usuario|correo|telefono|token|email/i.test(k)), `datos del Administrador: cada caso trae exactamente los ${CAMPOS_REGISTRO_ADMIN.length} campos permitidos del detalle y ${CAMPOS_REGISTRO_ADMIN_LISTA.length} en la lista; ninguno es de la persona tutora (nombre, correo, teléfono, identificadores de usuario ni token)`, "datos del Administrador: un caso trae campos que no están en la lista permitida");
+  const prohibidas = ["vistoPorTutora", "relevante", "ubicacionSimulada", "tokenPublico", "contrasenaHash", "telefono", "intentosFallidos"];
+  const enPaginas: string[] = [];
+  for (const ruta of [REGISTROS_RUTA, `${REGISTROS_RUTA}/${FOLIO_MODERACION_ACTIVO}`, "/admin/avistamientos", "/admin/avistamientos?detalle=101", "/admin/bitacora"]) {
+    const h = await (await fetchComo(base, "admin", ruta)).text();
+    for (const k of prohibidas) if (h.includes(k)) enPaginas.push(`${ruta} → ${k}`);
+  }
+  ver(enPaginas.length === 0, `datos del Administrador: ninguna llave interna (${prohibidas.join(", ")}) viaja en el HTML ni en los datos de Next de las 5 pantallas de moderación y bitácora`, `llaves internas en: ${enPaginas.join(" | ")}`);
   // Nada de la persona tutora ni el token del QR viajan al navegador en ninguna pantalla de moderación; los reservados, solo en el detalle.
   const tutor = CASOS_ORIGEN[0].tutor;
-  const secretosTutor = [tutor.nombreCompleto, tutor.correo, tutor.telefono, ...CASOS_ORIGEN.map((c) => c.tokenPublico)];
+  const secretosTutor = [tutor.nombreCompleto, tutor.correo, tutor.telefono, credencial("tutor1").correo, ...CASOS_ORIGEN.map((c) => c.tokenPublico)];
   const reservadosDe = (c: (typeof CASOS_MODERACION)[number]) => [c.direccionAproximada, c.referenciasDelLugar, c.descripcionCircunstancias].filter((v): v is string => Boolean(v));
   const fugasTutor: string[] = [];
-  for (const ruta of [REGISTROS_RUTA, ...CASOS_MODERACION.map((c) => `${REGISTROS_RUTA}/${c.folio}`), "/admin/avistamientos", "/admin/avistamientos?modal=detalle-fallecido"]) {
+  for (const ruta of [REGISTROS_RUTA, ...CASOS_MODERACION.map((c) => `${REGISTROS_RUTA}/${c.folio}`), "/admin/avistamientos", "/admin/avistamientos?detalle=102", "/admin/bitacora"]) {
     const h = await (await fetchComo(base, rolDeRuta(ruta), ruta)).text();
     for (const v of secretosTutor) if (h.includes(v)) fugasTutor.push(`${ruta} → ${v.slice(0, 12)}…`);
   }
@@ -671,9 +742,11 @@ async function moderacionRegistros(navegador: Browser) {
   await motivoObligatorio(pagina, dlg, "MOD-08 (detalle)");
   await dlg.getByLabel(/^Motivo \(obligatorio\)/).fill("Datos falsos en el registro.");
   await boton(dlg, "Confirmar").click();
+  await hasta(async () => (await boton(pagina, "Restaurar registro").count()) > 0);
   const histo = await pagina.locator("section[aria-labelledby=historial-titulo]").innerText();
   ver(!(await dialogoAbierto(pagina)) && (await pagina.getByText("Cerrado (deshabilitado)").first().isVisible()) && /Caso deshabilitado/.test(histo) && /Motivo: Datos falsos en el registro\./.test(histo) && (await boton(pagina, "Restaurar registro").isVisible()) && (await boton(pagina, "Deshabilitar registro").count()) === 0, "TUT-05 Administrador: al deshabilitar, el historial suma «Caso deshabilitado» con su motivo y aparece «Restaurar registro»", "TUT-05 Administrador: la deshabilitación no se reflejó");
   await boton(pagina, "Restaurar registro").click();
+  await hasta(async () => (await boton(pagina, "Deshabilitar registro").count()) > 0);
   ver((await pagina.getByText("En búsqueda", { exact: true }).first().isVisible()) && /Caso restaurado/.test(await pagina.locator("section[aria-labelledby=historial-titulo]").innerText()) && (await boton(pagina, "Deshabilitar registro").isEnabled()), "TUT-05 Administrador: «Restaurar registro» vuelve a «En búsqueda» y queda en el historial", "TUT-05 Administrador: restauración incorrecta");
   await irA(pagina, `/admin/registros/${FOLIO_MODERACION_DESHABILITADO}`);
   ver((await boton(pagina, "Restaurar registro").isEnabled()) && /La fotografía no corresponde a un perro extraviado/.test(await pagina.locator("section[aria-labelledby=historial-titulo]").innerText()) && (await pagina.getByText("Cerrado (deshabilitado)").first().isVisible()), "detalle de un caso deshabilitado: «Restaurar registro» y el motivo en el historial", "detalle de un caso deshabilitado: incorrecto");
@@ -693,30 +766,30 @@ async function moderacionAvistamientos(navegador: Browser) {
   ver(JSON.stringify(await visibles()) === JSON.stringify(ids.slice(0, 5)) && new RegExp(`1–5 de ${ids.length} avistamientos`).test(await pagina.locator("main").innerText()), `ADM-05 en móvil: 5 tarjetas por página (${ids.length} avistamientos), del más reciente al más antiguo`, `ADM-05 en móvil: ${await visibles()}`);
   ver(JSON.stringify(await pagina.locator("main form[aria-label='Filtrar avistamientos'] label").allInnerTexts()) === JSON.stringify(["Estatus", "Desde", "Hasta"]) && (await pagina.locator("main form[aria-label='Filtrar avistamientos'] legend").innerText()) === "Fecha", "ADM-05: filtros «Estatus» y «Fecha» (Desde y Hasta) con «Limpiar filtros» y «Aplicar filtros»", "ADM-05: filtros incorrectos");
   // Filtro por estatus.
-  await pagina.getByLabel("Estatus", { exact: true }).selectOption("Oculto");
-  await boton(pagina, "Aplicar filtros").click();
+  await pagina.getByLabel("Estatus", { exact: true }).selectOption({ label: "Oculto" });
+  await navegando(pagina, () => boton(pagina, "Aplicar filtros").click());
   const ocultos = AVISTAMIENTOS_MODERACION.filter((a) => !a.visible).map((a) => a.id);
   ver(JSON.stringify((await visibles()).sort()) === JSON.stringify([...ocultos].sort()) && ocultos.length === 2, "filtro «Estatus: Oculto»: solo los 2 avistamientos ocultos", `filtro Oculto: ${await visibles()}`);
   const oculto = tarj(pagina, 105);
   ver((await oculto.getByText("Oculto", { exact: true }).isVisible()) && /Motivo de moderación: El comentario incluía un número telefónico/.test(await oculto.innerText()) && /Ocultado el 9 oct 2026/.test(await oculto.innerText()) && (await oculto.evaluate((e) => getComputedStyle(e).borderStyle)) === "dashed" && (await boton(oculto, /^Restaurar/).isEnabled()) && (await boton(oculto, /^Ocultar/).count()) === 0, "avistamiento oculto: chip «Oculto» con texto, motivo y fecha a la vista, borde discontinuo y «Restaurar» disponible", "avistamiento oculto: tarjeta incorrecta");
-  await pagina.getByLabel("Estatus", { exact: true }).selectOption("Visible");
-  await boton(pagina, "Aplicar filtros").click();
+  await pagina.getByLabel("Estatus", { exact: true }).selectOption({ label: "Visible" });
+  await navegando(pagina, () => boton(pagina, "Aplicar filtros").click());
   ver((await visibles()).length === 5 && !(await visibles()).some((i) => ocultos.includes(i)), "filtro «Estatus: Visible»: ninguno de los ocultos", "filtro Visible: incorrecto");
-  await boton(pagina, "Limpiar filtros").click();
+  await navegando(pagina, () => enlace(pagina, "Limpiar filtros").click());
   // Filtro por fecha: rango inválido y rango válido (día local de la Ciudad de México).
   await pagina.getByLabel("Desde").fill("2026-10-10");
   await pagina.getByLabel("Hasta").fill("2026-10-01");
-  await boton(pagina, "Aplicar filtros").click();
+  await navegando(pagina, () => boton(pagina, "Aplicar filtros").click());
   ver(/«Hasta» no puede ser anterior a «Desde»/.test(await textoDescrito(pagina.getByLabel("Hasta"))) && (await pagina.getByLabel("Hasta").getAttribute("aria-invalid")) === "true", "filtro de fecha: «Hasta» anterior a «Desde» muestra el error asociado al campo", "filtro de fecha: no validó el rango");
   await pagina.getByLabel("Desde").fill("2026-10-10");
   await pagina.getByLabel("Hasta").fill("2026-10-12");
-  await boton(pagina, "Aplicar filtros").click();
+  await navegando(pagina, () => boton(pagina, "Aplicar filtros").click());
   const enRango = AVISTAMIENTOS_MODERACION.filter((a) => { const d = new Date(new Date(a.fechaHora).getTime() - 6 * 3600 * 1000).toISOString().slice(0, 10); return d >= "2026-10-10" && d <= "2026-10-12"; }).map((a) => a.id);
   ver(JSON.stringify((await visibles()).sort()) === JSON.stringify([...enRango].sort()) && enRango.length >= 2, `filtro de fecha 10 a 12 oct: ${enRango.length} avistamientos`, `filtro de fecha: ${await visibles()} (esperados ${enRango})`);
-  await boton(pagina, "Limpiar filtros").click();
-  await boton(pagina, "Página siguiente").click();
+  await navegando(pagina, () => enlace(pagina, "Limpiar filtros").click());
+  await cambiarPagina(pagina, "Página siguiente");
   ver(JSON.stringify(await visibles()) === JSON.stringify(ids.slice(5, 10)), "ADM-05: la paginación pasa a la página 2", `ADM-05: página 2 → ${await visibles()}`);
-  await boton(pagina, "Página 1").click();
+  await cambiarPagina(pagina, "Página 1");
 
   // Coherencia con la persona tutora: un avistamiento oculto no está en su historial (HU 037, regla 3).
   const htmlTutor = await (await fetchComo(base, "tutor1", "/tutor/casos/RUPE-Y9F4LK2E/avistamientos")).text();
@@ -724,10 +797,10 @@ async function moderacionAvistamientos(navegador: Browser) {
   // La fotografía de un «Fallecido» nunca se dibuja en la lista.
   const fallecido = tarj(pagina, ID_AVISTAMIENTO_FALLECIDO);
   const siguiente = JSON.stringify(await visibles()).includes(String(ID_AVISTAMIENTO_FALLECIDO));
-  if (!siguiente) await boton(pagina, "Página siguiente").click();
+  if (!siguiente) await cambiarPagina(pagina, "Página siguiente");
   const marcador = fallecido.getByRole("img", { name: "Fotografía oculta: contenido sensible", exact: true });
   ver((await fallecido.locator("img").count()) === 0 && (await marcador.count()) === 1 && (await marcador.evaluate((e) => e.querySelector("svg, span")?.getAttribute("aria-hidden") === "true" || e.querySelector("[aria-hidden=true]") !== null)), "avistamiento «Fallecido» (tarjeta): la lista no dibuja su fotografía; el marcador del ojo tachado tiene el texto alternativo «Fotografía oculta: contenido sensible» (role=\"img\") y su ícono es decorativo", "avistamiento «Fallecido»: la lista muestra una imagen o el marcador no tiene texto alternativo");
-  await boton(pagina, "Página 1").click();
+  await cambiarPagina(pagina, "Página 1");
 
   // MOD-09: ocultar.
   const av = tarj(pagina, ID_AVISTAMIENTO_VISIBLE);
@@ -742,58 +815,88 @@ async function moderacionAvistamientos(navegador: Browser) {
   await abrir.click();
   await dlg.getByLabel(/^Motivo \(obligatorio\)/).fill("Contiene información personal de un tercero.");
   await boton(dlg, "Confirmar").click();
+  await hasta(async () => (await boton(av, /^Restaurar/).count()) > 0);
   ver(!(await dialogoAbierto(pagina)) && (await av.getByText("Oculto", { exact: true }).isVisible()) && /Motivo de moderación: Contiene información personal de un tercero\./.test(await av.innerText()) && /Ocultado el \d+ \w+ 2026/.test(await av.innerText()) && (await boton(av, /^Restaurar/).isEnabled()) && (await boton(av, /^Ocultar/).count()) === 0 && (await pagina.getByRole("status").getByText(/Avistamiento 201 ocultado/).isVisible()), "MOD-09: «Confirmar» oculta el avistamiento: chip «Oculto», motivo y fecha a la vista, aparece «Restaurar» y el resultado se anuncia", "MOD-09: el ocultamiento no se reflejó");
   await boton(av, /^Restaurar/).click();
+  await hasta(async () => (await boton(av, /^Ocultar/).count()) > 0);
   ver((await av.getByText("Visible", { exact: true }).isVisible()) && !/Motivo de moderación/.test(await av.innerText()) && (await boton(av, /^Ocultar/).isEnabled()), "«Restaurar» devuelve el avistamiento a «Visible» y limpia el motivo de moderación (D12)", "«Restaurar»: no limpió el motivo");
   await abrir.click();
   ver((await dlg.getByLabel(/^Motivo \(obligatorio\)/).inputValue()) === "", "al ocultar de nuevo, el campo de motivo empieza vacío (no conserva el anterior)", "MOD-09: el motivo anterior quedó en el campo");
   await pagina.keyboard.press("Escape");
 
   // Detalle de solo lectura.
-  await boton(av, /^Ver detalle/).click();
+  await enlace(av, /^Ver detalle/).click();
   dlg = pagina.getByRole("dialog", { name: "Detalle del avistamiento" });
+  await dlg.waitFor();
+  ver(new RegExp(`[?&]detalle=${ID_AVISTAMIENTO_VISIBLE}`).test(pagina.url()), `ADM-05: «Ver detalle» abre el detalle por la URL (?detalle=${ID_AVISTAMIENTO_VISIBLE})`, `ADM-05: la URL no lleva el detalle (${pagina.url()})`);
   const t101 = await dlg.innerText();
   const a101 = AVISTAMIENTOS.find((a) => a.id === ID_AVISTAMIENTO_VISIBLE)!;
   const reservadas = [a101.direccionAproximada, a101.referencias].filter((v): v is string => Boolean(v));
   ver((await dlg.locator("img").count()) === 1 && ["ID", "Folio", "Fecha y hora", "Alcaldía"].every((e) => t101.includes(e)) && /Integridad física y salud/.test(t101) && /Contención y ubicación/.test(t101) && /Conducta/.test(t101) && /Identificación visible/.test(t101) && /Corría entre los autos/.test(t101) && /Visible/.test(t101) && !/Dirección|Referencias/.test(t101) && reservadas.every((r) => !t101.includes(r)) && (await boton(dlg, "Cerrar").isVisible()), "ADM-05 «Ver detalle»: modal de solo lectura con foto, ID, folio, fecha y hora, alcaldía, estados por categoría, comentario y estatus; sin dirección ni referencias", `ADM-05 detalle: ${t101.slice(0, 200)}`);
   await focoAtrapado(pagina, "ADM-05 «Ver detalle»");
   await pagina.keyboard.press("Escape");
-  await viasDeCierre(pagina, boton(av, /^Ver detalle/), "Detalle del avistamiento", "ADM-05 «Ver detalle»", async () => (await av.getByText("Visible", { exact: true }).isVisible()), "Cerrar");
+  await viasDeCierre(pagina, enlace(av, /^Ver detalle/), "Detalle del avistamiento", "ADM-05 «Ver detalle»", async () => (await av.getByText("Visible", { exact: true }).isVisible()), "Cerrar");
   await pagina.goto(`${base}/admin/avistamientos`, { waitUntil: "load" });
   const htmlLista = await pagina.content();
   const fugasDir = AVISTAMIENTOS.flatMap((a) => [a.direccionAproximada, a.referencias]).filter((v): v is string => Boolean(v)).filter((v) => htmlLista.includes(v));
   ver(fugasDir.length === 0, "ADM-05: la dirección aproximada y las referencias de los avistamientos no aparecen en ninguna parte de la pantalla (reservadas a la persona tutora, TUT-10)", `ADM-05: fugas → ${fugasDir.join(" | ")}`);
   await contexto.close();
 
-  // «Fallecido»: la fotografía permanece oculta con aviso previo hasta «Ver fotografía».
+  // «Fallecido» (patrón de la foto sensible de P4): el detalle se abre por la URL y la DIRECCIÓN de la foto solo existe con ?foto=visible.
   ({ contexto, pagina } = await nuevaPagina(navegador, 390));
-  await irA(pagina, "/admin/avistamientos?modal=detalle-fallecido");
+  const ID_FALL = ID_AVISTAMIENTO_FALLECIDO;
+  await irA(pagina, `/admin/avistamientos?detalle=${ID_FALL}&foto=visible`);
   dlg = pagina.getByRole("dialog", { name: "Detalle del avistamiento" });
-  ver((await dlg.locator("img").count()) === 0 && (await dlg.getByText("Esta imagen puede resultar sensible").isVisible()) && /perro sin vida/.test(await dlg.innerText()) && (await boton(dlg, "Ver fotografía").isVisible()) && /Conducta: no aplica con «Fallecido»/.test(await dlg.innerText()) && !/Dirección|Referencias/.test(await dlg.innerText()), "ADM-05 detalle «Fallecido»: la imagen no se dibuja, hay aviso previo y «Ver fotografía»; Conducta no aplica; sin dirección ni referencias", "ADM-05 detalle «Fallecido»: muestra la imagen o falta el aviso");
-  await boton(dlg, "Ver fotografía").click();
+  await dlg.waitFor();
+  const imgListaParaVer = () => dlg.locator("img").evaluateAll((l) => l.map((i) => ({ src: i.getAttribute("src") ?? "", ok: (i as HTMLImageElement).complete && (i as HTMLImageElement).naturalWidth > 0 })));
+  await hasta(async () => (await imgListaParaVer()).some((i) => i.ok));
+  const imgs = await imgListaParaVer();
+  const srcFoto = imgs[0]?.src ?? "";
+  ver(imgs.length === 1 && imgs[0].ok && srcFoto.length > 0, `?detalle=${ID_FALL}&foto=visible: la fotografía se muestra y CARGA (naturalWidth > 0)`, "?foto=visible: la imagen no cargó o no hay imagen");
+  ver(await hasta(async () => (await pagina.evaluate(() => document.activeElement?.getAttribute("aria-label"))) === "Fotografía del avistamiento"), "al mostrar la fotografía el foco pasa a su región", `el foco no pasó a la región de la imagen (${await foco(pagina)})`);
+  const textoRevelada = await dlg.innerText();
   const avisoOculta = /La fotografía permanece oculta hasta que decidas verla/;
   const avisoRevelada = /La fotografía se muestra porque decidiste verla/;
-  ver((await dlg.locator("img").count()) === 1 && (await boton(dlg, "Ocultar fotografía").isVisible()), "ADM-05 detalle «Fallecido»: «Ver fotografía» la revela y permite volver a ocultarla", "ADM-05 detalle «Fallecido»: no reveló la fotografía");
-  const textoRevelada = await dlg.innerText();
-  ver(avisoRevelada.test(textoRevelada) && !avisoOculta.test(textoRevelada) && /Este avistamiento reporta un perro sin vida/.test(textoRevelada), "ADM-05 detalle «Fallecido» con la foto revelada: el aviso dice «La fotografía se muestra porque decidiste verla» y ya no dice que permanece oculta", `ADM-05 aviso con la foto revelada: ${textoRevelada.slice(0, 220)}`);
-  await boton(dlg, "Ocultar fotografía").click();
+  ver(avisoRevelada.test(textoRevelada) && !avisoOculta.test(textoRevelada) && /Este avistamiento reporta un perro sin vida/.test(textoRevelada) && (await enlace(dlg, "Ocultar fotografía").isVisible()), "con la foto revelada: el aviso dice «La fotografía se muestra porque decidiste verla», ya no dice que permanece oculta y hay «Ocultar fotografía»", "aviso o enlace incorrectos con la foto revelada");
+  // Sin ?foto=visible la dirección NO está en el HTML crudo (que incluye los datos de Next), ni en el listado, ni en el DOM, ni se pidió por la red.
+  const peticiones: string[] = [];
+  pagina.on("request", (r) => peticiones.push(r.url()));
+  await irA(pagina, `/admin/avistamientos?detalle=${ID_FALL}`);
+  dlg = pagina.getByRole("dialog", { name: "Detalle del avistamiento" });
+  await dlg.waitFor();
+  await pagina.waitForTimeout(1200); // si los enlaces se precargaran (prefetch), la petición ya habría salido
+  const crudoSin = await (await fetchComo(base, "admin", `/admin/avistamientos?detalle=${ID_FALL}`)).text();
+  const crudoLista = [await (await fetchComo(base, "admin", "/admin/avistamientos")).text(), await (await fetchComo(base, "admin", "/admin/avistamientos?pagina=2")).text(), await (await fetchComo(base, "admin", "/admin/avistamientos?pagina=3")).text()];
+  const dom = await pagina.content();
+  ver(!crudoSin.includes(srcFoto) && !dom.includes(srcFoto) && crudoLista.every((h) => !h.includes(srcFoto)) && (await dlg.locator("img").count()) === 0, `sin ?foto=visible la dirección de la foto (${srcFoto.slice(0, 40)}…) no está en el HTML crudo, ni en los datos de Next (self.__next_f), ni en el DOM, ni en el listado (3 páginas)`, "la dirección de la foto del «Fallecido» aparece sin ?foto=visible");
+  ver(!peticiones.some((u) => u.includes("foto=visible") || u.includes(srcFoto)), `«Ver fotografía» no se precarga: durante 1,2 s no hubo ninguna petición a ?foto=visible ni a la imagen (prefetch={false})`, "«Ver fotografía» se precargó");
+  ver((await dlg.getByText("Esta imagen puede resultar sensible").isVisible()) && /perro sin vida/.test(await dlg.innerText()) && avisoOculta.test(await dlg.innerText()) && /Conducta: no aplica con «Fallecido»/.test(await dlg.innerText()) && /[?&]foto=visible/.test((await enlace(dlg, "Ver fotografía").getAttribute("href")) ?? ""), "aviso «Esta imagen puede resultar sensible» siempre visible y «Ver fotografía» como enlace a ?foto=visible", "aviso o enlace «Ver fotografía» incorrectos");
+  await enlace(dlg, "Ver fotografía").click();
+  await hasta(async () => (await dlg.locator("img").count()) === 1);
+  ver((await dlg.locator("img").count()) === 1 && /[?&]foto=visible/.test(pagina.url()), "«Ver fotografía» revela la imagen (la URL gana ?foto=visible)", "«Ver fotografía» no reveló la imagen");
+  await enlace(dlg, "Ocultar fotografía").click();
+  await hasta(async () => (await dlg.locator("img").count()) === 0);
   const textoVuelta = await dlg.innerText();
-  ver((await dlg.locator("img").count()) === 0 && avisoOculta.test(textoVuelta) && !avisoRevelada.test(textoVuelta), "«Ocultar fotografía» la vuelve a ocultar y el aviso vuelve a decir que permanece oculta hasta que decidas verla", "«Ocultar fotografía»: el aviso no volvió a su texto");
-  await irA(pagina, "/admin/avistamientos?modal=detalle-fallecido&foto=visible");
-  ver(avisoRevelada.test(await pagina.getByRole("dialog", { name: "Detalle del avistamiento" }).innerText()), "?foto=visible: el aviso ya dice «La fotografía se muestra porque decidiste verla»", "?foto=visible: el aviso no coincide con la foto revelada");
-  ver((await pagina.getByRole("dialog", { name: "Detalle del avistamiento" }).locator("img").count()) === 1, "?foto=visible revela la fotografía del detalle «Fallecido» (variante de captura)", "?foto=visible: no reveló la fotografía");
-  await irA(pagina, "/admin/avistamientos?estado=cargando");
-  ver((await pagina.getByRole("status").count()) === 3 && (await pagina.locator("li[data-avistamiento]").count()) === 0, "ADM-05 cargando: 3 esqueletos con role=\"status\"", "ADM-05 cargando: incorrecto");
-  await irA(pagina, "/admin/avistamientos?estado=vacio");
-  ver(await pagina.getByText("Aún no hay avistamientos").isVisible(), "ADM-05 vacío: «Aún no hay avistamientos»", "ADM-05 vacío: incorrecto");
-  await irA(pagina, "/admin/avistamientos?modal=ocultar");
-  ver(await pagina.getByRole("dialog", { name: "Ocultar avistamiento" }).isVisible(), "ADM-05 ?modal=ocultar: abre MOD-09 al cargar", "ADM-05 ?modal=ocultar: no abrió");
-  await irA(pagina, "/admin/avistamientos?modal=ocultar&error=motivo");
-  ver(/Escribe el motivo para continuar/.test(await textoDescrito(pagina.getByRole("dialog", { name: "Ocultar avistamiento" }).getByLabel(/^Motivo \(obligatorio\)/))), "ADM-05 ?modal=ocultar&error=motivo: abre MOD-09 con el error de motivo vacío asociado al campo (variante de captura)", "ADM-05 ?error=motivo: no mostró el error");
-  await irA(pagina, "/admin/avistamientos?modal=detalle-oculto");
+  ver((await dlg.locator("img").count()) === 0 && avisoOculta.test(textoVuelta) && !avisoRevelada.test(textoVuelta) && !/foto=visible/.test(pagina.url()), "«Ocultar fotografía» la vuelve a ocultar, el aviso vuelve a decir que permanece oculta y la URL pierde ?foto=visible", "«Ocultar fotografía»: el aviso o la URL no volvieron a su estado");
+
+  // Un avistamiento OCULTO: el Administrador sigue viendo su foto (y el motivo), sin dirección.
+  await irA(pagina, "/admin/avistamientos?detalle=105");
   const dOculto = pagina.getByRole("dialog", { name: "Detalle del avistamiento" });
+  await dOculto.waitFor();
+  await hasta(async () => (await dOculto.locator("img").evaluateAll((l) => l.filter((i) => (i as HTMLImageElement).complete && (i as HTMLImageElement).naturalWidth > 0).length)) === 1);
   const tOculto = await dOculto.innerText();
-  ver(/Oculto/.test(tOculto) && /Motivo de moderación: El comentario incluía un número telefónico/.test(tOculto) && /Ocultado el 9 oct 2026/.test(tOculto) && !/Dirección|Referencias/.test(tOculto), "ADM-05 detalle de un avistamiento oculto: estatus «Oculto», motivo de moderación y fecha; sin dirección ni referencias", `ADM-05 detalle oculto: ${tOculto.slice(0, 160)}`);
+  ver((await dOculto.locator("img").count()) === 1 && /Oculto/.test(tOculto) && /Motivo de moderación: El comentario incluía un número telefónico/.test(tOculto) && /Ocultado el 9 oct 2026/.test(tOculto) && !/Dirección|Referencias/.test(tOculto), "detalle de un avistamiento oculto: estatus «Oculto», motivo y fecha, su foto SÍ carga para el Administrador y no hay dirección ni referencias", "detalle de un avistamiento oculto incorrecto");
+  const ocultoEnTutora = await (await fetchComo(base, "tutor1", "/tutor/casos/RUPE-Y9F4LK2E/avistamientos")).text();
+  ver(!ocultoEnTutora.includes("Texto con datos de contacto de un tercero."), "el avistamiento oculto sigue sin verse en el historial de la persona tutora", "el avistamiento oculto aparece a la persona tutora");
+
+  // Variantes del maquetado RETIRADAS: la URL ya no fija esqueletos, vacíos, modales ni errores.
+  for (const v of ["?estado=cargando", "?estado=vacio", "?modal=ocultar", "?modal=ocultar&error=motivo", "?modal=detalle-oculto", "?modal=detalle-fallecido&foto=visible"]) {
+    await irA(pagina, `/admin/avistamientos${v}`);
+    ver((await pagina.locator("li[data-avistamiento]").count()) === 5 && !(await dialogoAbierto(pagina)) && (await pagina.getByRole("status").count()) === 0, `ADM-05 /admin/avistamientos${v}: variante retirada, se ignora (lista real de 5 tarjetas, sin esqueletos ni modal)`, `ADM-05 ${v}: la variante sigue activa`);
+  }
+  // El servidor valida el detalle pedido: uno inexistente no abre nada y la lista sigue.
+  await irA(pagina, "/admin/avistamientos?detalle=99999");
+  ver(!(await dialogoAbierto(pagina)) && (await pagina.locator("li[data-avistamiento]").count()) === 5, "?detalle=99999 (inexistente): no abre ningún detalle y la lista sigue", "?detalle inexistente: abrió algo o rompió la lista");
   await irA(pagina, "/admin/avistamientos?pagina=2");
   ver((await pagina.locator("li[data-avistamiento]").count()) === 5 && (await pagina.locator(`li[data-avistamiento="${ID_AVISTAMIENTO_FALLECIDO}"]`).count()) === 1 && (await pagina.locator(`li[data-avistamiento="${ID_AVISTAMIENTO_FALLECIDO}"] img`).count()) === 0, "ADM-05 ?pagina=2: la lista abre en la página 2, donde está el «Fallecido» sin su fotografía (variante de captura)", "ADM-05 ?pagina=2: incorrecta");
   await contexto.close();
@@ -803,19 +906,20 @@ async function moderacionAvistamientos(navegador: Browser) {
   await irA(pagina, "/admin/avistamientos");
   const cab = await pagina.locator("table[data-tabla-compacta] thead th").allTextContents();
   ver(JSON.stringify(cab) === JSON.stringify(["Avistamiento", "Fecha y hora", "Alcaldía", "Estatus", "Moderación", "Acciones"]) && (await pagina.locator("table[data-tabla-compacta]").getAttribute("data-excepcion-tactil")) === "compacto", "ADM-05 en escritorio: tabla con Avistamiento, Fecha y hora, Alcaldía, Estatus, Moderación y Acciones, marcada como compacta", `ADM-05 escritorio: columnas ${cab}`);
-  await pagina.getByLabel("Estatus", { exact: true }).selectOption("Oculto");
-  await boton(pagina, "Aplicar filtros").click();
+  await pagina.getByLabel("Estatus", { exact: true }).selectOption({ label: "Oculto" });
+  await navegando(pagina, () => boton(pagina, "Aplicar filtros").click());
   await pagina.goto(`${base}/admin/avistamientos?pagina=2`, { waitUntil: "load" });
   const filaFallecido = pagina.locator(`tr[data-avistamiento="${ID_AVISTAMIENTO_FALLECIDO}"]`);
   ver((await filaFallecido.locator("img").count()) === 0 && (await filaFallecido.getByRole("img", { name: "Fotografía oculta: contenido sensible", exact: true }).count()) === 1, "avistamiento «Fallecido» (tabla en escritorio): sin fotografía y con el texto alternativo «Fotografía oculta: contenido sensible»", "avistamiento «Fallecido» en la tabla: muestra una imagen o no tiene texto alternativo");
   await pagina.goto(`${base}/admin/avistamientos`, { waitUntil: "load" });
-  await pagina.getByLabel("Estatus", { exact: true }).selectOption("Oculto");
-  await boton(pagina, "Aplicar filtros").click();
+  await pagina.getByLabel("Estatus", { exact: true }).selectOption({ label: "Oculto" });
+  await navegando(pagina, () => boton(pagina, "Aplicar filtros").click());
   const filaOculta = pagina.locator('tr[data-avistamiento="303"]');
   ver((await boton(filaOculta, /^Restaurar/).isEnabled()) && /La fotografía no corresponde a un perro\./.test(await filaOculta.innerText()), "ADM-05 en escritorio: la fila oculta muestra su motivo y «Restaurar»", "ADM-05 escritorio: fila oculta incorrecta");
   await boton(filaOculta, /^Restaurar/).click();
+  await hasta(async () => (await filaOculta.count()) === 0);
   ver((await filaOculta.count()) === 0, "ADM-05 en escritorio: «Restaurar» saca el avistamiento del filtro «Oculto»", "ADM-05 escritorio: el restaurado sigue en «Oculto»");
-  await boton(pagina, "Limpiar filtros").click();
+  await navegando(pagina, () => enlace(pagina, "Limpiar filtros").click());
   const filaRestaurada = pagina.locator('tr[data-avistamiento="303"]');
   ver((await filaRestaurada.getByText("Visible", { exact: true }).isVisible()) && !/Motivo de moderación/.test(await filaRestaurada.innerText()), "ADM-05 en escritorio: tras restaurar, la fila queda «Visible» y sin motivo de moderación (D12)", "ADM-05 escritorio: la fila restaurada conserva el motivo");
   await contexto.close();
@@ -1295,57 +1399,100 @@ async function parametros(navegador: Browser) {
   ver(SECRETOS_TUTOR_5C.every((v) => !html.includes(v)), "ADM-11: ningún dato de la persona tutora en la página", "ADM-11: hay datos de la persona tutora");
 }
 
+/** Las 5 reactivaciones de catálogo que el seed agrega a las 25 del mock (posteriores a las desactivaciones del mismo elemento). */
+const REACTIVACIONES_SEMBRADAS = [
+  { fechaHora: "2026-10-18T11:05:00Z", idEntidad: "Alcaldías · 12", detalle: "Inactiva → Activa" },
+  { fechaHora: "2026-10-18T11:10:00Z", idEntidad: "Razas · 6", detalle: "Inactivo → Activo" },
+  { fechaHora: "2026-10-18T11:15:00Z", idEntidad: "Motivos · 2", detalle: "Inactivo → Activo" },
+  { fechaHora: "2026-10-18T11:20:00Z", idEntidad: "Estados del animal · 16", detalle: "Inactivo → Activo" },
+  { fechaHora: "2026-10-18T11:25:00Z", idEntidad: "Estados del animal · 17", detalle: "Inactivo → Activo" },
+].map((r) => ({ ...r, tipo: "edición de catálogo" as const, entidad: "catálogo" as const, administrador: "Ricardo Vega Ficticio", motivo: undefined as string | undefined }));
+/** Oráculo de la bitácora REAL: las 25 acciones del mock más las 5 reactivaciones, de la más reciente a la más antigua. */
+const BITACORA_ESPERADA = [...BITACORA.map((a) => ({ fechaHora: a.fechaHora, tipo: a.tipo, entidad: a.entidad, idEntidad: a.idEntidad, motivo: a.motivo, detalle: a.detalle, administrador: a.administrador })), ...REACTIVACIONES_SEMBRADAS].sort((a, b) => b.fechaHora.localeCompare(a.fechaHora));
+/** ¿La entidad que MUESTRA la pantalla corresponde a la del oráculo? (folio tal cual; «Avistamiento N · folio»; nombre (id) de usuario; «Catálogo · nombre (id)»; clave del parámetro). */
+function entidadCorresponde(mostrada: string, e: { entidad: string; idEntidad: string }): boolean {
+  if (e.entidad === "caso" || e.entidad === "parámetro") return mostrada === e.idEntidad;
+  if (e.entidad === "avistamiento") return new RegExp(`^Avistamiento ${e.idEntidad} · RUPE-[A-Z0-9]{8}$`).test(mostrada) && mostrada.endsWith(AVISTAMIENTOS_MODERACION.find((a) => String(a.id) === e.idEntidad)?.folio ?? "?");
+  if (e.entidad === "usuario") return new RegExp(`^.+ \\(${e.idEntidad}\\)$`).test(mostrada) && mostrada.startsWith(USUARIOS_INICIALES.find((u) => String(u.id) === e.idEntidad)?.nombreCompleto ?? "?");
+  const [etiqueta, id] = e.idEntidad.split(" · ");
+  return mostrada.startsWith(`${etiqueta} · `) && mostrada.endsWith(`(${id})`);
+}
+const filasDeBitacora = (p: Page) => p.locator("tbody tr").evaluateAll((trs) => trs.map((tr) => [...tr.children].map((c) => c.textContent!.trim())));
+const POR_PAGINA_BITACORA = 8;
+
 async function bitacora(navegador: Browser) {
-  const tiposPresentes = new Set(BITACORA.map((a) => a.tipo));
-  ver(TIPOS_ACCION.length === 11 && tiposPresentes.size === 11 && BITACORA.every((a, i, l) => a.entidad === ENTIDAD_DE_TIPO[a.tipo] && (i === 0 || l[i - 1].fechaHora > a.fechaHora && l[i - 1].id > a.id)), `bitácora: los ${TIPOS_ACCION.length} tipos de acción tienen registros (${BITACORA.length}), la entidad se deriva del tipo y el orden es del más reciente al más antiguo`, "bitácora: tipos faltantes, entidad mal derivada o desordenada");
-  ver(BITACORA.every((a) => (a.motivo !== undefined) === TIPOS_CON_MOTIVO.includes(a.tipo) && (a.detalle !== undefined) === TIPOS_CON_DETALLE.includes(a.tipo) && (a.detalle === undefined || a.tipo === "alta de catálogo" || a.tipo === "cambiar rol" || a.detalle.includes("→"))) && BITACORA.filter((a) => TIPOS_CON_MOTIVO.includes(a.tipo)).every((a) => a.motivo!.length > 0 && a.motivo!.length <= 300), "bitácora: el motivo solo en «deshabilitar caso» y «ocultar avistamiento» (obligatorio) y el detalle anterior → nuevo solo en rol, parámetros y catálogos", "bitácora: motivo o detalle fuera de lugar");
-  const folios = BITACORA.filter((a) => a.entidad === "caso").map((a) => a.idEntidad);
-  ver(folios.every((f) => /^RUPE-[A-HJ-NP-Z2-9]{8}$/.test(f)) && folios.every((f) => CASOS_MODERACION.some((c) => c.folio === f)) && BITACORA.filter((a) => a.entidad === "avistamiento").every((a) => AVISTAMIENTOS_MODERACION.some((v) => String(v.id) === a.idEntidad)) && BITACORA.filter((a) => a.entidad === "usuario").every((a) => USUARIOS_INICIALES.some((u) => String(u.id) === a.idEntidad)) && BITACORA.every((a) => USUARIOS_INICIALES.some((u) => u.rol === "Administrador" && u.nombreCompleto === a.administrador)), "bitácora coherente con 5a y 5b: folios, avistamientos y usuarios existen; los administradores son los de ADM-03", "bitácora: referencias a folios, avistamientos, usuarios o administradores que no existen");
+  const tiposPresentes = new Set(BITACORA_ESPERADA.map((a) => a.tipo));
+  ver(BITACORA_ESPERADA.length === 30 && TIPOS_ACCION.length === 11 && tiposPresentes.size === 11, "bitácora (oráculo): 25 acciones del mock + 5 reactivaciones sembradas = 30, con los 11 tipos de acción", "bitácora (oráculo): conteo o tipos incorrectos");
+  const posteriores = REACTIVACIONES_SEMBRADAS.every((r) => BITACORA.some((a) => a.tipo === "desactivación de catálogo" && a.idEntidad === r.idEntidad && a.fechaHora < r.fechaHora));
+  ver(posteriores, "cada reactivación sembrada es POSTERIOR a la desactivación del mismo elemento (el historial no se contradice)", "una reactivación sembrada es anterior a su desactivación");
 
   let { contexto, pagina } = await nuevaPagina(navegador, 1280);
   await irA(pagina, "/admin/bitacora");
-  const form = pagina.getByRole("form", { name: "Filtrar la bitácora" });
-  const tipo = form.getByLabel("Tipo de acción");
-  const desde = form.getByLabel("Desde");
-  const hasta = form.getByLabel("Hasta");
-  ver((await pagina.getByText("La bitácora es de solo consulta: los registros no pueden editarse ni eliminarse.").isVisible()) && JSON.stringify(await tipo.locator("option").allInnerTexts()) === JSON.stringify(["Todos", ...TIPOS_ACCION]), "ADM-12: aviso de solo consulta y filtro con los 11 tipos de acción", "ADM-12: sin aviso o sin los 11 tipos");
+  const form = () => pagina.getByRole("form", { name: "Filtrar la bitácora" });
+  const tipo = () => form().getByLabel("Tipo de acción");
+  const desde = () => form().getByLabel("Desde");
+  const hasta = () => form().getByLabel("Hasta");
+  ver((await pagina.getByText("La bitácora es de solo consulta: los registros no pueden editarse ni eliminarse.").isVisible()) && JSON.stringify(await tipo().locator("option").allInnerTexts()) === JSON.stringify(["Todos", ...TIPOS_ACCION]), "ADM-12: aviso de solo consulta y filtro «Tipo de acción» con los 11 tipos", "ADM-12: falta el aviso o los 11 tipos");
   const heads = await pagina.locator("thead th").allInnerTexts();
-  ver(JSON.stringify(heads.map((h) => h.toLowerCase())) === JSON.stringify(["id", "fecha y hora", "tipo de acción", "entidad", "id de la entidad", "motivo", "detalle", "administrador"]), "ADM-12 (1280): tabla de 8 columnas (ID, fecha y hora, tipo, entidad, ID de la entidad, motivo, detalle, administrador)", `ADM-12: columnas ${heads}`);
+  ver(JSON.stringify(heads.map((h) => h.toLowerCase())) === JSON.stringify(["id", "fecha y hora", "tipo de acción", "entidad", "id de la entidad", "motivo", "detalle", "administrador"]), "ADM-12 (1280): tabla de 8 columnas (ID, fecha y hora, tipo, entidad, ID de la entidad, motivo, detalle, administrador)", `ADM-12: encabezados ${heads}`);
   const accionesMain = await pagina.locator("main").getByRole("button").allInnerTexts();
-  ver(accionesMain.every((t) => /^(Limpiar filtros|Aplicar filtros|Anterior|Siguiente)$/.test(t)) && (await pagina.locator("main tbody").getByRole("button").count()) === 0 && (await pagina.locator("main tbody a").count()) === 0, "ADM-12 inmutable: sin botones ni enlaces para editar o eliminar registros", `ADM-12: botones ${accionesMain}`);
-  const ids1 = await pagina.locator("tbody tr").evaluateAll((trs) => trs.map((tr) => tr.children[0].textContent!.trim()));
-  const total = Math.ceil(BITACORA.length / 8);
-  ver(JSON.stringify(ids1) === JSON.stringify(BITACORA.slice(0, 8).map((a) => String(a.id))) && (await pagina.getByText(`Página 1 de ${total}`).isVisible()) && (await boton(pagina, "Anterior").isDisabled()) && (await boton(pagina, "Siguiente").isEnabled()), `ADM-12: 8 acciones por página, «Página 1 de ${total}» y «Anterior» deshabilitado`, `ADM-12: página 1 → ${ids1}`);
-  const ultima = BITACORA.slice(8 * (total - 1));
+  ver(accionesMain.every((t) => /^(Aplicar filtros|Anterior|Siguiente)$/.test(t)) && (await pagina.locator("main tbody").getByRole("button").count()) === 0 && (await pagina.locator("main tbody a").count()) === 0, "ADM-12 inmutable: sin botones ni enlaces para editar o eliminar en las filas; solo filtros y paginación", "ADM-12: hay controles de edición");
+  // Página 1: las 8 más recientes, con lo que muestra la pantalla igual al oráculo.
+  const total = Math.ceil(BITACORA_ESPERADA.length / POR_PAGINA_BITACORA);
+  const filas1 = await filasDeBitacora(pagina);
+  const igualOraculo = (filas: string[][], desdeIdx: number) =>
+    filas.every((f, i) => {
+      const e = BITACORA_ESPERADA[desdeIdx + i];
+      return f[1] === formatearFechaHora(e.fechaHora) && f[2] === e.tipo && f[3] === e.entidad && entidadCorresponde(f[4], e) && f[5] === (e.motivo ?? "—") && f[6] === (e.detalle ?? "—") && f[7] === e.administrador;
+    });
+  const idsDe = (filas: string[][]) => filas.map((f) => Number(f[0]));
+  ver(filas1.length === 8 && igualOraculo(filas1, 0) && JSON.stringify(idsDe(filas1)) === JSON.stringify([30, 29, 28, 27, 26, 25, 24, 23]) && (await pagina.getByText(`Página 1 de ${total}`).isVisible()) && (await boton(pagina, "Anterior").isDisabled()) && (await boton(pagina, "Siguiente").isEnabled()), `ADM-12: 8 acciones por página del ALMACÉN (ids 30 a 23, las 5 reactivaciones primero), más reciente primero, «Página 1 de ${total}», «Anterior» deshabilitado`, `ADM-12: página 1 incorrecta (${idsDe(filas1)})`);
+  const ultimaPag = BITACORA_ESPERADA.length - POR_PAGINA_BITACORA * (total - 1);
   await irA(pagina, `/admin/bitacora?pagina=${total}`);
-  ver(JSON.stringify(await pagina.locator("tbody tr").evaluateAll((trs) => trs.map((tr) => tr.children[0].textContent!.trim()))) === JSON.stringify(ultima.map((a) => String(a.id))) && (await boton(pagina, "Siguiente").isDisabled()) && (await boton(pagina, "Anterior").isEnabled()), `ADM-12: ?pagina=${total} abre la última página (${ultima.length} acciones) con «Siguiente» deshabilitado`, "ADM-12: ?pagina=N no abre esa página");
+  const filasU = await filasDeBitacora(pagina);
+  ver(filasU.length === ultimaPag && igualOraculo(filasU, POR_PAGINA_BITACORA * (total - 1)) && (await boton(pagina, "Siguiente").isDisabled()) && (await boton(pagina, "Anterior").isEnabled()) && idsDe(filasU).at(-1) === 1, `ADM-12: la última página trae ${ultimaPag} acciones (hasta la id 1) y «Siguiente» se deshabilita`, `ADM-12: última página incorrecta (${filasU.length} filas)`);
   await boton(pagina, "Anterior").click();
-  ver((await pagina.getByText(`Página ${total - 1} de ${total}`).isVisible()) && (await pagina.locator("tbody tr").count()) === 8, "ADM-12: «Anterior» retrocede una página", "ADM-12: «Anterior» no funcionó");
-  await irA(pagina, "/admin/bitacora");
-  // Cada tipo de acción filtra sus registros; entidad, motivo y detalle salen del dato.
+  await hasta2(pagina, `Página ${total - 1} de ${total}`);
+  ver((await pagina.getByText(`Página ${total - 1} de ${total}`).isVisible()) && (await pagina.locator("tbody tr").count()) === 8 && new RegExp(`pagina=${total - 1}`).test(pagina.url()), "ADM-12: «Anterior» retrocede una página y la URL lo refleja", "ADM-12: «Anterior» no funcionó");
+  await irA(pagina, "/admin/bitacora?pagina=99");
+  ver((await pagina.getByText(`Página ${total} de ${total}`).isVisible()) && (await pagina.locator("tbody tr").count()) === ultimaPag, "?pagina=99 (fuera de rango): el servidor lleva a la última página", "?pagina=99: no llevó a la última página");
+  await irA(pagina, "/admin/bitacora?pagina=abc");
+  ver(await pagina.getByText(`Página 1 de ${total}`).isVisible(), "?pagina=abc (no numérica): el servidor usa la página 1", "?pagina=abc: no usó la página 1");
+  // Cada tipo de acción filtra sus registros (formulario GET): conteo y filas contra el oráculo.
   const malos: string[] = [];
   for (const t of TIPOS_ACCION) {
-    await tipo.selectOption(t);
-    await boton(form, "Aplicar filtros").click();
-    const esperadas = filtrarBitacora({ tipo: t, desde: "", hasta: "" });
-    const hay = await pagina.locator("tbody tr").evaluateAll((trs) => trs.map((tr) => [...tr.children].map((c) => c.textContent!.trim())));
+    await irA(pagina, "/admin/bitacora");
+    await tipo().selectOption(t);
+    await navegando(pagina, () => boton(form(), "Aplicar filtros").click());
+    const esperadas = BITACORA_ESPERADA.filter((a) => a.tipo === t);
+    const hay = await filasDeBitacora(pagina);
     const primeras = esperadas.slice(0, 8);
-    const ok = hay.length === primeras.length && hay.every((f, i) => f[0] === String(primeras[i].id) && f[2] === t && f[3] === ENTIDAD_DE_TIPO[t] && f[4] === primeras[i].idEntidad && f[5] === (primeras[i].motivo ?? "—") && f[6] === (primeras[i].detalle ?? "—") && f[7] === primeras[i].administrador && f[1] === formatearFechaHora(primeras[i].fechaHora));
+    const textoTotal = await pagina.getByText(/de \d+ acciones/).innerText();
+    const ok = hay.length === primeras.length && textoTotal.includes(`de ${esperadas.length} acciones`) && igualOraculoLista(hay, primeras) && hay.every((f) => f[3] === ENTIDAD_DE_TIPO[t]) && new RegExp(`tipo=${encodeURIComponent(t).replace(/%20/g, "(?:%20|\\+)")}`).test(pagina.url());
     if (!ok) malos.push(`${t}: ${hay.length}/${primeras.length}`);
   }
-  ver(malos.length === 0, "ADM-12: los 11 tipos de acción filtran bien y cada fila muestra ID, fecha, tipo, entidad, ID de la entidad, motivo (solo caso y avistamiento), detalle (rol, parámetro y catálogos) y administrador", `ADM-12: ${malos.join(" | ")}`);
-  await boton(form, "Limpiar filtros").click();
-  ver((await tipo.inputValue()) === "" && (await pagina.getByText("Página 1 de").isVisible()) && (await pagina.locator("tbody tr").count()) === 8, "ADM-12: «Limpiar filtros» vuelve a todas las acciones", "ADM-12: Limpiar filtros no funcionó");
-  await desde.fill("2026-10-10");
-  await hasta.fill("2026-10-04");
-  await boton(form, "Aplicar filtros").click();
-  ver(/no puede ser anterior a «Desde»/.test(await textoDescrito(hasta)) && (await hasta.getAttribute("aria-invalid")) === "true", "ADM-12: «Hasta» anterior a «Desde» da error bajo «Hasta»", "ADM-12: rango invertido sin error");
-  await hasta.fill("2026-10-13");
-  await boton(form, "Aplicar filtros").click();
-  const enRango = filtrarBitacora({ tipo: "", desde: "2026-10-10", hasta: "2026-10-13" });
-  ver((await pagina.locator("tbody tr").count()) === Math.min(8, enRango.length) && (await pagina.getByText(`de ${enRango.length} acciones`).isVisible()) && enRango.length > 0 && enRango.length < BITACORA.length && enRango.every((a) => fechaLocalISO(a.fechaHora) >= "2026-10-10" && fechaLocalISO(a.fechaHora) <= "2026-10-13"), `ADM-12: el filtro por fechas (10 a 13 oct) deja ${enRango.length} acciones`, "ADM-12: el filtro por fechas no coincide");
-  await irA(pagina, "/admin/bitacora?estado=vacio");
-  ver((await pagina.getByRole("heading", { name: "Sin resultados" }).isVisible()) && (await pagina.getByText("No hay acciones registradas con los filtros seleccionados.").isVisible()) && (await pagina.locator("table").count()) === 0 && (await tipo.inputValue()) === "modificar parámetro", "ADM-12 sin resultados: mensaje «Sin resultados» y sin tabla; los filtros siguen visibles", "ADM-12: estado vacío incorrecto");
+  ver(malos.length === 0, "ADM-12: los 11 tipos de acción filtran bien (conteo, fila a fila contra el oráculo, entidad del tipo y filtro en la URL); motivo solo en caso y avistamiento, detalle en rol, parámetro y catálogos", `ADM-12: ${malos.join(" | ")}`);
+  await irA(pagina, "/admin/bitacora?tipo=cambiar%20rol");
+  await navegando(pagina, () => enlace(pagina, "Limpiar filtros").click());
+  ver((await tipo().inputValue()) === "" && (await pagina.getByText("Página 1 de").isVisible()) && (await pagina.locator("tbody tr").count()) === 8, "ADM-12: «Limpiar filtros» vuelve a todas las acciones y vacía el formulario", "ADM-12: Limpiar filtros no funcionó");
+  await desde().fill("2026-10-10");
+  await hasta().fill("2026-10-04");
+  await navegando(pagina, () => boton(form(), "Aplicar filtros").click());
+  ver(/no puede ser anterior a «Desde»/.test(await textoDescrito(hasta())) && (await hasta().getAttribute("aria-invalid")) === "true" && (await desde().inputValue()) === "2026-10-10", "ADM-12: «Hasta» anterior a «Desde» da error bajo «Hasta» (validado en el servidor) y conserva lo escrito", "ADM-12: rango invertido sin error");
+  await desde().fill("2026-10-10");
+  await hasta().fill("2026-10-13");
+  await navegando(pagina, () => boton(form(), "Aplicar filtros").click());
+  const enRango = BITACORA_ESPERADA.filter((a) => fechaLocalISO(a.fechaHora) >= "2026-10-10" && fechaLocalISO(a.fechaHora) <= "2026-10-13");
+  ver((await pagina.locator("tbody tr").count()) === Math.min(8, enRango.length) && (await pagina.getByText(`de ${enRango.length} acciones`).isVisible()) && enRango.length > 0 && enRango.length < BITACORA_ESPERADA.length, `ADM-12: el rango 10 a 13 oct (día de la Ciudad de México) filtra ${enRango.length} acciones`, "ADM-12: el rango de fechas no filtró bien");
+  // Estado vacío REAL: un tipo y un rango sin acciones (reemplaza a ?estado=vacio).
+  await irA(pagina, `/admin/bitacora?tipo=${encodeURIComponent(TIPOS_ACCION[7])}&desde=2026-10-17&hasta=2026-10-18`);
+  ver((await pagina.getByRole("heading", { name: "Sin resultados" }).isVisible()) && (await pagina.getByText("No hay acciones registradas con los filtros seleccionados.").isVisible()) && (await pagina.locator("table").count()) === 0 && (await tipo().inputValue()) === TIPOS_ACCION[7], `ADM-12: sin acciones de «${TIPOS_ACCION[7]}» el 17 y 18 oct → «Sin resultados» (estado vacío real, filtros conservados)`, "ADM-12: el estado vacío real no apareció");
+  await irA(pagina, "/admin/bitacora?tipo=inventado&desde=2026-13-45");
+  ver((await pagina.locator("tbody tr").count()) === 8 && (await pagina.getByText("de 30 acciones").isVisible()) && (await hasta().getAttribute("aria-invalid")) !== "true" && (await desde().getAttribute("aria-invalid")) === "true", "?tipo=inventado&desde=2026-13-45: el servidor informa lo inválido (sin aplicarlo) y muestra las 30 acciones", "la URL inválida no se validó en el servidor");
+  for (const v of ["?estado=cargando", "?estado=vacio"]) {
+    await irA(pagina, `/admin/bitacora${v}`);
+    ver((await pagina.locator("tbody tr").count()) === 8 && !/Cargando/.test(await pagina.locator("main").innerText()), `ADM-12 /admin/bitacora${v}: variante retirada, se ignora (tabla real de 8 filas, sin esqueletos)`, `ADM-12 ${v}: la variante sigue activa`);
+  }
   await irA(pagina, "/admin/bitacora");
   const m = await pagina.evaluate(() => {
     const tabla = document.querySelector("table")!;
@@ -1355,29 +1502,27 @@ async function bitacora(navegador: Browser) {
     for (const f of document.querySelectorAll("tbody span.whitespace-nowrap")) if (f.getClientRects().length !== 1) malos.push(f.textContent!);
     return { dentro: t.left >= caja.left - 1 && t.right <= caja.right + 1 && tabla.scrollWidth <= tabla.clientWidth + 1, ancho: Math.round(t.width), rotos: malos, folios: document.querySelectorAll("tbody span.whitespace-nowrap").length };
   });
-  ver(m.dentro && m.rotos.length === 0, `ADM-12 (1280): la tabla de 8 columnas cabe en su contenedor (${m.ancho} px) y los ${m.folios} identificadores de la página no se cortan`, `ADM-12 (1280): tabla ${m.dentro ? "" : "desborda; "}rotos ${m.rotos}`);
-  // Ninguna palabra de las columnas «Tipo de acción» y «Entidad» queda partida (solo los identificadores largos de «ID de la entidad» pueden partirse).
+  ver(m.dentro && m.rotos.length === 0, `ADM-12 (1280): la tabla de 8 columnas cabe en su contenedor (${m.ancho} px) y los ${m.folios} identificadores con folio de la página no se cortan`, `ADM-12 (1280): tabla ${m.dentro ? "" : "desborda; "}rotos ${m.rotos}`);
+  // Ninguna palabra de las columnas «Tipo de acción» y «Entidad» queda partida.
   const palabras = (p: Page) =>
     p.evaluate(() => {
       const partidas: string[] = [];
-      const vistas = new Set<string>();
       let total = 0;
       for (const fila of document.querySelectorAll("tbody tr")) {
         for (const celda of [fila.children[2], fila.children[3]]) {
           const nodo = celda.firstChild;
           if (!nodo || nodo.nodeType !== 3) continue;
           const texto = nodo.textContent ?? "";
-          for (const m of texto.matchAll(/\S+/g)) {
+          for (const mm of texto.matchAll(/\S+/g)) {
             const rango = document.createRange();
-            rango.setStart(nodo, m.index!);
-            rango.setEnd(nodo, m.index! + m[0].length);
+            rango.setStart(nodo, mm.index!);
+            rango.setEnd(nodo, mm.index! + mm[0].length);
             total++;
-            vistas.add(m[0]);
-            if (rango.getClientRects().length > 1) partidas.push(m[0]);
+            if (rango.getClientRects().length > 1) partidas.push(mm[0]);
           }
         }
       }
-      return { partidas, total, entidades: [...document.querySelectorAll("tbody tr")].map((f) => f.children[3].textContent!.trim()), vistas: [...vistas] };
+      return { partidas, total, entidades: [...document.querySelectorAll("tbody tr")].map((f) => f.children[3].textContent!.trim()) };
     });
   const entidades = new Set<string>();
   let partidas: string[] = [];
@@ -1389,7 +1534,7 @@ async function bitacora(navegador: Browser) {
     totalPalabras += r.total;
     r.entidades.forEach((e) => entidades.add(e));
   }
-  ver(partidas.length === 0 && ["usuario", "caso", "avistamiento", "parámetro", "catálogo"].every((e) => entidades.has(e)), `ADM-12 (1280): «Entidad» (${[...entidades].join(", ")}) y «Tipo de acción» se ven enteras en una línea por palabra (${totalPalabras} palabras revisadas en ${total} páginas)`, `ADM-12 (1280): palabras partidas → ${partidas.join(", ")} · entidades ${[...entidades]}`);
+  ver(partidas.length === 0 && ["usuario", "caso", "avistamiento", "parámetro", "catálogo"].every((e) => entidades.has(e)), `ADM-12 (1280): «Entidad» (${[...entidades].join(", ")}) y «Tipo de acción» se ven enteras en una línea por palabra (${totalPalabras} palabras revisadas en las ${total} páginas)`, `ADM-12 (1280): palabras partidas → ${[...new Set(partidas)].join(", ")}`);
   await irA(pagina, "/admin/bitacora");
   await pagina.addStyleTag({ content: "tbody td:nth-child(4) { display: block; width: 3rem; white-space: normal !important; overflow-wrap: anywhere; }" });
   const roto = await palabras(pagina);
@@ -1398,18 +1543,101 @@ async function bitacora(navegador: Browser) {
   ({ contexto, pagina } = await nuevaPagina(navegador, 390));
   await irA(pagina, "/admin/bitacora");
   const tarjetas = await pagina.locator("ul > li[data-accion]").allInnerTexts();
-  const primera = BITACORA[0];
-  ver(tarjetas.length === 8 && (await pagina.locator("table").isHidden()) && tarjetas[0].includes(`Acción ${primera.id}`) && tarjetas[0].includes(primera.tipo) && tarjetas[0].includes(`Entidad afectada: ${primera.entidad}`) && tarjetas[0].includes(primera.idEntidad) && tarjetas[0].includes(primera.administrador) && (primera.detalle ? tarjetas[0].includes(`Detalle`) : true), "ADM-12 (390): 8 tarjetas con ID, tipo, fecha, administrador, entidad y su ID; la tabla se oculta", `ADM-12 (390): ${tarjetas.length} tarjetas`);
+  const primera = BITACORA_ESPERADA[0];
+  ver(tarjetas.length === 8 && (await pagina.locator("table").isHidden()) && tarjetas[0].includes("Acción 30") && tarjetas[0].includes(primera.tipo) && tarjetas[0].includes("Entidad afectada: catálogo") && tarjetas[0].includes("Estados del animal · Sin accesorios (17)") && tarjetas[0].includes(primera.administrador), "ADM-12 (390): 8 tarjetas del almacén con ID, tipo, fecha, administrador, entidad y su ID; la tabla no se muestra", "ADM-12 (390): tarjetas incorrectas");
   const ms = await pagina.evaluate(() => [...document.querySelectorAll("li[data-accion] span.whitespace-nowrap")].filter((f) => f.getClientRects().length !== 1).map((f) => f.textContent));
-  ver(ms.length === 0, "ADM-12 (390): los identificadores de entidad no se cortan en dos líneas", `ADM-12 (390): cortados ${ms}`);
-  const conMotivo = BITACORA.find((a) => a.motivo)!;
-  await irA(pagina, `/admin/bitacora?pagina=${Math.floor(BITACORA.indexOf(conMotivo) / 8) + 1}`);
-  ver((await pagina.locator(`li[data-accion='${conMotivo.id}']`).innerText()).includes(`Motivo ${conMotivo.motivo}`), "ADM-12 (390): la tarjeta de «deshabilitar caso» u «ocultar avistamiento» muestra el motivo", "ADM-12 (390): la tarjeta no muestra el motivo");
+  ver(ms.length === 0, "ADM-12 (390): los identificadores con folio no se cortan en dos líneas", `ADM-12 (390): cortados ${ms}`);
+  await irA(pagina, "/admin/bitacora?tipo=ocultar%20avistamiento");
+  const conMotivo = BITACORA_ESPERADA.find((a) => a.tipo === "ocultar avistamiento" && a.motivo)!;
+  ver((await pagina.locator("ul > li[data-accion]").first().innerText()).includes(`Motivo ${conMotivo.motivo}`), "ADM-12 (390): la tarjeta de «ocultar avistamiento» muestra el motivo", "ADM-12 (390): la tarjeta no muestra el motivo");
   await contexto.close();
-  const html = await (await fetchComo(base, "admin", "/admin/bitacora")).text();
-  ver(SECRETOS_TUTOR_5C.every((v) => !html.includes(v)) && !html.includes("@example.org"), "ADM-12: ningún dato de la persona tutora (nombre, correo, teléfono, token) en la página", "ADM-12: hay datos de la persona tutora");
+
+  // La bitácora CRECE con cada acción real: se ejecutan 3 acciones por la API y aparecen arriba, con folio, «Avistamiento N · folio» y nombres.
+  const orig = { Origin: ORIGEN_ADMIN, "Content-Type": "application/json" };
+  const accion = (ruta: string, metodo: string, cuerpo: unknown) => fetchComo(base, "admin", ruta, { method: metodo, headers: orig, body: JSON.stringify(cuerpo) });
+  const r1 = await accion("/api/admin/registros/RUPE-K7M4XQ9T/moderacion", "POST", { accion: "deshabilitar", motivo: "Prueba de la bitácora." });
+  const r2 = await accion("/api/admin/avistamientos/101/moderacion", "POST", { accion: "ocultar", motivo: "Contiene un dato de contacto." });
+  const r3 = await accion("/api/admin/usuarios/6/rol", "PUT", { rol: "Administrador" });
+  ver([r1, r2, r3].every((r) => r.status === 200), "tres acciones reales del Administrador (deshabilitar caso, ocultar avistamiento, cambiar rol)", `acciones: ${[r1, r2, r3].map((r) => r.status)}`);
+  ({ contexto, pagina } = await nuevaPagina(navegador, 1280));
+  await irA(pagina, "/admin/bitacora");
+  const filasN = await filasDeBitacora(pagina);
+  ver(filasN.length === 8 && filasN[0][2] === "cambiar rol" && /\(6\)$/.test(filasN[0][4]) && filasN[0][6] === "Tutor → Administrador" && filasN[0][7] === "Ricardo Vega Ficticio" && filasN[1][2] === "ocultar avistamiento" && /^Avistamiento 101 · RUPE-[A-Z0-9]{8}$/.test(filasN[1][4]) && filasN[1][5] === "Contiene un dato de contacto." && filasN[2][2] === "deshabilitar caso" && filasN[2][4] === "RUPE-K7M4XQ9T" && filasN[2][5] === "Prueba de la bitácora." && (await pagina.getByText("de 33 acciones").isVisible()) && (await pagina.getByText("Página 1 de 5").isVisible()), "la bitácora creció: 33 acciones en 5 páginas y las 3 nuevas van arriba (folio como entidad del caso, «Avistamiento 101 · folio», nombre y id del usuario, motivo, «Tutor → Administrador» y quién la ejecutó)", `la bitácora no reflejó las acciones: ${JSON.stringify(filasN.slice(0, 3))}`);
+  const htmlB = await (await fetchComo(base, "admin", "/admin/bitacora")).text();
+  const correos = [...USUARIOS_INICIALES.map((u) => u.correo), credencial("tutor1").correo, credencial("tutor2").correo, CASOS_ORIGEN[0].tutor.telefono, ...CASOS_ORIGEN.map((c) => c.tokenPublico)];
+  ver(correos.every((v) => !htmlB.includes(v)) && !htmlB.includes("@example.org") && !/vistoPorTutora|relevante|ubicacionSimulada/.test(htmlB), "ADM-12: ningún correo, teléfono ni token de la persona tutora, ni marcas internas, en la página (solo el nombre del usuario como entidad de la acción)", "ADM-12: hay datos de la persona tutora o marcas internas");
+  await contexto.close();
 }
 
+/** Compara filas de la tabla con entradas del oráculo (todas las columnas menos el ID). */
+function igualOraculoLista(filas: string[][], esperadas: typeof BITACORA_ESPERADA): boolean {
+  return filas.length === esperadas.length && filas.every((f, i) => f[1] === formatearFechaHora(esperadas[i].fechaHora) && f[2] === esperadas[i].tipo && entidadCorresponde(f[4], esperadas[i]) && f[5] === (esperadas[i].motivo ?? "—") && f[6] === (esperadas[i].detalle ?? "—") && f[7] === esperadas[i].administrador);
+}
+const ORIGEN_ADMIN = new URL(base).origin;
+/** Espera (hasta 8 s) a que el texto aparezca en la página (navegación del cliente). */
+async function hasta2(pagina: Page, texto: string) {
+  await hasta(() => pagina.getByText(texto).isVisible());
+}
+
+
+/**
+ * Flujo COMPLETO con interfaz real y datos reales: el Administrador deshabilita un caso con motivo desde su pantalla; la dueña lo ve «Cerrado» (sin el motivo ni quién actuó); la ficha pública
+ * y el estatus dan 404 idéntico a un folio inexistente; el Administrador lo restaura y todo vuelve a lo de antes; la bitácora muestra ambas entradas con el folio.
+ */
+async function flujoCompleto(navegador: Browser) {
+  const FOLIO = "RUPE-K7M4XQ9T"; // Max, de Rosa (tutor1), «En búsqueda»
+  const MOTIVO = "ZXQ motivo del flujo completo";
+  // Huella del CONTENIDO ÍNTEGRO de cada canal público. Solo se normaliza lo que cambia por derecho propio al restaurar: el folio (para comparar contra otro folio) y la FECHA-HORA del último
+  // cambio (R12: tras restaurar es la de la restauración), tanto en ISO (datos de Next y API) como ya formateada («9 oct 2026, 14:05»). Nada más se toca.
+  const normalizarFecha = (t: string) => t.replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z/g, "FECHA").replace(/\d{1,2} [a-záéíóú]{3,4} \d{4}, \d{2}:\d{2}/g, "FECHA");
+  const huellaPublica = async (folio: string) => {
+    const rutas = [`/ficha/${folio}`, `/estatus/${folio}`, `/api/fichas/${folio}`, `/api/estatus/${folio}`];
+    const salida: string[] = [];
+    for (const r of rutas) {
+      const t = await fetchComo(base, null, r);
+      const cuerpo = normalizarFecha((await t.text()).split(folio).join("FOLIO"));
+      salida.push(`${t.status}:${createHash("sha256").update(cuerpo).digest("hex").slice(0, 12)}`);
+    }
+    return salida;
+  };
+  const antes = await huellaPublica(FOLIO);
+  const inexistente = await huellaPublica("RUPE-ZZZZZZZZ");
+  ver(antes.every((x) => x.startsWith("200")) && inexistente.every((x) => x.startsWith("404")), `antes: la ficha y el estatus públicos de ${FOLIO} responden 200 (y un folio inexistente, 404)`, `antes del flujo: ${antes} / ${inexistente}`);
+
+  const admin = await nuevaPagina(navegador, 1280);
+  await irA(admin.pagina, `/admin/registros/${FOLIO}`);
+  await boton(admin.pagina, "Deshabilitar registro").click();
+  const dlg = admin.pagina.getByRole("dialog", { name: "Deshabilitar registro" });
+  await dlg.getByLabel(/^Motivo \(obligatorio\)/).fill(MOTIVO);
+  await boton(dlg, "Confirmar").click();
+  await hasta(async () => (await boton(admin.pagina, "Restaurar registro").count()) > 0);
+  ver(/Cerrado \(deshabilitado\)/.test(await admin.pagina.locator("main").innerText()) && (await admin.pagina.locator("section[aria-labelledby=historial-titulo]").innerText()).includes(`Motivo: ${MOTIVO}`), "el Administrador deshabilita el caso con motivo desde su pantalla: «Cerrado (deshabilitado)» y el motivo en su historial", "el Administrador no vio el caso deshabilitado");
+
+  const tutora = await nuevaPagina(navegador, 390, "light", "tutor1");
+  await irA(tutora.pagina, `/tutor/casos/${FOLIO}`);
+  const textoT = await tutora.pagina.locator("main").innerText();
+  const htmlT = await tutora.pagina.content();
+  ver(/Cerrado/.test(textoT) && /Caso deshabilitado/.test(textoT) && !textoT.includes(MOTIVO) && !htmlT.includes(MOTIVO) && !/Ricardo|Vega Ficticio/.test(textoT), "la dueña lo ve «Cerrado» con el movimiento «Caso deshabilitado», SIN el motivo del Administrador ni su nombre (texto visible ni HTML)", "la dueña no ve «Cerrado», o se expone el motivo o el administrador");
+  await irA(tutora.pagina, "/tutor");
+  ver(await tutora.pagina.getByText(FOLIO).first().isVisible(), "y el caso sigue en su lista de registros", "el caso desapareció de la lista de la dueña");
+
+  const durante = await huellaPublica(FOLIO);
+  ver(JSON.stringify(durante) === JSON.stringify(inexistente), `la ficha pública y el estatus (página y API) dan 404 IDÉNTICO a un folio inexistente (${durante.join(", ")})`, `deshabilitado difiere de un folio inexistente: ${durante} vs ${inexistente}`);
+
+  await boton(admin.pagina, "Restaurar registro").click();
+  await hasta(async () => (await boton(admin.pagina, "Deshabilitar registro").count()) > 0);
+  ver(!/Cerrado \(deshabilitado\)/.test(await admin.pagina.locator("main").innerText()) && /En búsqueda/.test(await admin.pagina.locator("main").innerText()), "el Administrador lo restaura: vuelve a «En búsqueda»", "la restauración no devolvió el caso a «En búsqueda»");
+  const despues = await huellaPublica(FOLIO);
+  ver(JSON.stringify(despues) === JSON.stringify(antes), `todo vuelve a lo de antes: la huella del contenido ÍNTEGRO de la ficha y el estatus públicos (página y API) es idéntica a la del inicio (${despues.join(", ")})`, `tras restaurar difiere de antes: ${despues} vs ${antes}`);
+  await irA(tutora.pagina, `/tutor/casos/${FOLIO}`);
+  ver(/En búsqueda/.test(await tutora.pagina.locator("main").innerText()) && /Caso restaurado/.test(await tutora.pagina.locator("main").innerText()), "la dueña vuelve a ver su caso «En búsqueda» con el movimiento «Caso restaurado»", "la dueña no ve el caso restaurado");
+
+  await irA(admin.pagina, "/admin/bitacora");
+  const filas = await filasDeBitacora(admin.pagina);
+  ver(filas.length >= 2 && filas[0][2] === "restaurar caso" && filas[0][4] === FOLIO && filas[1][2] === "deshabilitar caso" && filas[1][4] === FOLIO && filas[1][5] === MOTIVO && filas[0][7] === "Ricardo Vega Ficticio", "la bitácora muestra las dos entradas (deshabilitar con su motivo y restaurar), con el folio como entidad y quién las ejecutó", `bitácora: ${JSON.stringify(filas.slice(0, 2))}`);
+  await admin.contexto.close();
+  await tutora.contexto.close();
+}
 
 /** Las exportaciones de «sin datos» están deshabilitadas de verdad (atributo, no clicables) y se ven distintas de las activas, en claro y en oscuro. */
 async function exportacionDeshabilitada(navegador: Browser) {
@@ -1453,7 +1681,7 @@ async function exportacionDeshabilitada(navegador: Browser) {
 /** Esqueletos de carga de pantallas sin fotografías: sin el recuadro de la foto. */
 async function esqueletosSinFoto(navegador: Browser) {
   const { contexto, pagina } = await nuevaPagina(navegador, 390);
-  for (const r of ["/admin/reportes?estado=cargando", "/admin/parametros?estado=cargando", "/admin/bitacora?estado=cargando", "/admin/usuarios?estado=cargando"]) {
+  for (const r of ["/admin/reportes?estado=cargando", "/admin/parametros?estado=cargando"]) {
     await irA(pagina, r);
     const n = await pagina.locator("[role=status][aria-busy=true]").count();
     const fotos = await pagina.locator("[role=status][aria-busy=true] > span.size-20").count();
@@ -1621,7 +1849,7 @@ function autopruebaBitacora() {
 
 // ---------- enlaces y geometría ----------
 async function enlacesYGeometria(navegador: Browser) {
-  const rutas = ["/admin", `/admin?desde=2026-09-01&hasta=2026-09-30`, "/admin/usuarios", "/admin/usuarios?modal=rol", "/admin/usuarios?modal=deshabilitar", "/admin/usuarios?modal=habilitar", "/admin/usuarios?estado=cargando", "/admin/usuarios?estado=vacio", "/admin/reportes", "/admin/reportes?desde=2026-10-01&hasta=2026-10-18", "/admin/reportes?estado=vacio", "/admin/reportes?estado=cargando", "/admin/reportes?generar=1", "/admin/estados-caso", "/admin/parametros", "/admin/parametros?variante=aviso", "/admin/parametros?variante=errores", "/admin/parametros?modal=restablecer", "/admin/parametros?estado=cargando", "/admin/bitacora", "/admin/bitacora?pagina=2", "/admin/bitacora?estado=vacio", "/admin/bitacora?estado=cargando", "/admin/registros", "/admin/registros?modal=deshabilitar", "/admin/registros?estado=cargando", "/admin/registros?estado=vacio", `/admin/registros/${FOLIO_MODERACION_ACTIVO}`, `/admin/registros/${FOLIO_MODERACION_ACTIVO}?modal=deshabilitar`, `/admin/registros/${FOLIO_MODERACION_DESHABILITADO}`, `/admin/registros/${FOLIO_MODERACION_CANCELADO}`, "/admin/avistamientos", "/admin/avistamientos?modal=ocultar", "/admin/avistamientos?modal=detalle", "/admin/avistamientos?modal=detalle-fallecido", "/admin/avistamientos?modal=detalle-fallecido&foto=visible", "/admin/avistamientos?estado=cargando", "/admin/avistamientos?estado=vacio", ...["alcaldias", "razas", "motivos", "estados-animal"].flatMap((c) => [`/admin/${c}`, `/admin/${c}?modal=nuevo`, `/admin/${c}?modal=editar`, `/admin/${c}?modal=desactivar`]), "/admin/alcaldias?estado=cargando"];
+  const rutas = ["/admin/usuarios", "/admin/usuarios?pagina=2", "/admin/usuarios?q=hector", "/admin/usuarios?estatus=inactivo", "/admin/usuarios?estatus=raro", "/admin/bitacora", "/admin/bitacora?pagina=2", "/admin/bitacora?tipo=cambiar%20rol", "/admin/bitacora?tipo=inventado&desde=2026-13-45", "/admin/registros", "/admin/registros?estado=Cerrado", "/admin/registros?alcaldia=999", `/admin/registros/${FOLIO_MODERACION_ACTIVO}`, `/admin/registros/${FOLIO_MODERACION_DESHABILITADO}`, `/admin/registros/${FOLIO_MODERACION_CANCELADO}`, "/admin/avistamientos", "/admin/avistamientos?pagina=2", "/admin/avistamientos?estatus=oculto", "/admin/avistamientos?desde=2026-10-10&hasta=2026-10-01", "/admin/avistamientos?detalle=101", "/admin/avistamientos?detalle=102", "/admin/avistamientos?detalle=102&foto=visible", "/admin/avistamientos?detalle=105", "/admin", `/admin?desde=2026-09-01&hasta=2026-09-30`, "/admin/reportes", "/admin/reportes?desde=2026-10-01&hasta=2026-10-18", "/admin/reportes?estado=vacio", "/admin/reportes?estado=cargando", "/admin/reportes?generar=1", "/admin/estados-caso", "/admin/parametros", "/admin/parametros?variante=aviso", "/admin/parametros?variante=errores", "/admin/parametros?modal=restablecer", "/admin/parametros?estado=cargando", ...["alcaldias", "razas", "motivos", "estados-animal"].flatMap((c) => [`/admin/${c}`, `/admin/${c}?modal=nuevo`, `/admin/${c}?modal=editar`, `/admin/${c}?modal=desactivar`]), "/admin/alcaldias?estado=cargando"];
   const vistos = new Set<string>();
   const { contexto, pagina } = await nuevaPagina(navegador, 1280);
   for (const r of rutas) {
@@ -1645,6 +1873,27 @@ async function enlacesYGeometria(navegador: Browser) {
       await p.contexto.close();
     }
   }
+  // Los modales de moderación (ya no hay ?modal=) se abren con clics reales y se miden igual: sin desborde y con controles de 44 px.
+  const modales: Array<[string, (p: Page) => Locator, string]> = [
+    ["/admin/usuarios", (p) => boton(p, /^Cambiar rol de Rosa/), "Cambiar rol"],
+    ["/admin/usuarios", (p) => boton(p, /^Deshabilitar a Rosa/), "Deshabilitar cuenta"],
+    ["/admin/usuarios", (p) => boton(p, /^Habilitar a Mateo/), "Habilitar cuenta"],
+    ["/admin/usuarios", (p) => boton(p, /^Deshabilitar a Luis/), "Deshabilitar cuenta"],
+    ["/admin/registros", (p) => boton(p, /^Deshabilitar RUPE-K7M4XQ9T/), "Deshabilitar registro"],
+    [`/admin/registros/${FOLIO_MODERACION_ACTIVO}`, (p) => boton(p, "Deshabilitar registro"), "Deshabilitar registro"],
+    ["/admin/avistamientos", (p) => boton(p, /^Ocultar el avistamiento 201/), "Ocultar avistamiento"],
+  ];
+  for (const [r, abrir, nombre] of modales) {
+    for (const ancho of ANCHOS) {
+      const p = await nuevaPagina(navegador, ancho);
+      await irA(p.pagina, r);
+      await abrir(p.pagina).click();
+      await p.pagina.getByRole("dialog", { name: nombre }).waitFor();
+      await desborde(p.pagina, `${r} con «${nombre}» abierto ${ancho}px`);
+      await areasTactiles(p.pagina, `${r} con «${nombre}» abierto ${ancho}px`);
+      await p.contexto.close();
+    }
+  }
 }
 
 async function main() {
@@ -1664,28 +1913,38 @@ async function main() {
   try {
     if (servidor) await esperarServidor(servidor);
     navegador = await abrirNavegador();
-    coloresFijos();
-    await armazon(navegador);
-    await tablero(navegador);
-    await usuarios(navegador);
-    await moderacionRegistros(navegador);
-    await rotulosDelDetalle(navegador);
-    await foliosEnUnaLinea(navegador);
-    await moderacionAvistamientos(navegador);
-    reglasDeCatalogos();
-    await catalogos(navegador);
-    await chipValorProtegido(navegador);
-    await reportes(navegador);
-    await estadosDelCaso(navegador);
-    await parametros(navegador);
-    await bitacora(navegador);
-    bitacoraCoherente();
-    autopruebaBitacora();
-    await autopruebaCeldas(navegador);
-    await exportacionDeshabilitada(navegador);
-    await esqueletosSinFoto(navegador);
-    await sinDatosDeUsuarios();
-    await enlacesYGeometria(navegador);
+    const solo = process.argv.find((a) => a.startsWith("--solo="))?.split("=")[1]?.split(",");
+    // Cada sección corre con sus conteos; las que usan datos reales parten de datos REINICIADOS (cada una deja su rastro y la siguiente no lo hereda).
+    const corre = async (nombre: string, f: () => unknown, { reiniciar = false }: { reiniciar?: boolean } = {}) => {
+      if (solo && !solo.includes(nombre)) return;
+      if (reiniciar) await reiniciarDatos(base);
+      const antes = total;
+      await f();
+      console.log(`  ▸ ${nombre}: ${total - antes} comprobaciones`);
+    };
+    await corre("coloresFijos", () => coloresFijos());
+    await corre("armazon", () => armazon(navegador!));
+    await corre("tablero", () => tablero(navegador!));
+    await corre("usuarios", () => usuarios(navegador!), { reiniciar: true });
+    await corre("moderacionRegistros", () => moderacionRegistros(navegador!), { reiniciar: true });
+    await corre("rotulosDelDetalle", () => rotulosDelDetalle(navegador!), { reiniciar: true });
+    await corre("foliosEnUnaLinea", () => foliosEnUnaLinea(navegador!), { reiniciar: true });
+    await corre("moderacionAvistamientos", () => moderacionAvistamientos(navegador!), { reiniciar: true });
+    await corre("reglasDeCatalogos", () => reglasDeCatalogos());
+    await corre("catalogos", () => catalogos(navegador!));
+    await corre("chipValorProtegido", () => chipValorProtegido(navegador!));
+    await corre("reportes", () => reportes(navegador!));
+    await corre("estadosDelCaso", () => estadosDelCaso(navegador!));
+    await corre("parametros", () => parametros(navegador!));
+    await corre("bitacora", () => bitacora(navegador!), { reiniciar: true });
+    await corre("bitacoraCoherente", () => bitacoraCoherente());
+    await corre("autopruebaBitacora", () => autopruebaBitacora());
+    await corre("autopruebaCeldas", () => autopruebaCeldas(navegador!));
+    await corre("exportacionDeshabilitada", () => exportacionDeshabilitada(navegador!));
+    await corre("esqueletosSinFoto", () => esqueletosSinFoto(navegador!));
+    await corre("sinDatosDeUsuarios", () => sinDatosDeUsuarios());
+    await corre("flujoCompleto", () => flujoCompleto(navegador!), { reiniciar: true });
+    await corre("enlacesYGeometria", () => enlacesYGeometria(navegador!), { reiniciar: true });
   } finally {
     await navegador?.close();
     apagar();

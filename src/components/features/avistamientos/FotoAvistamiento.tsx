@@ -2,9 +2,8 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef } from "react";
 import { Alerta } from "@/components/ui/Alerta";
-import { Boton } from "@/components/ui/Boton";
 import { clasesBoton } from "@/components/ui/clasesBoton";
 import { Icono } from "@/components/ui/Icono";
 
@@ -16,12 +15,10 @@ type Props = {
   src?: string;
   /** Avistamiento «Fallecido»: la fotografía permanece oculta con un aviso previo hasta que la persona tutora decide verla (HU 040). */
   sensible: boolean;
-  /** Modo por enlace (TUT-10): «Ver fotografía» es un enlace a esta ruta (con ?foto=visible) y el servidor entrega `src` solo entonces. */
-  hrefRevelar?: string;
-  /** Modo por enlace: «Ocultar fotografía» vuelve a esta ruta (sin el parámetro) con `replace`. */
+  /** «Ver fotografía» es un enlace a esta ruta (con ?foto=visible) y el servidor entrega `src` solo entonces (TUT-10 y detalle del Administrador). */
+  hrefRevelar: string;
+  /** «Ocultar fotografía» vuelve a esta ruta (sin el parámetro) con `replace`. */
   hrefOcultar?: string;
-  /** Modo con estado (moderación del Administrador, con datos del maquetado): empieza con la fotografía revelada. P6: pasará al modo por enlace. */
-  reveladaInicial?: boolean;
   /** Redacción del aviso para quien consulta con la fotografía oculta (por defecto, la de la persona tutora). */
   aviso?: string;
   /** Redacción del aviso con la fotografía ya revelada; por defecto, la misma. */
@@ -34,11 +31,9 @@ const REDACCION_SOBRIA = "Se reportó un perro sin vida que podría ser el tuyo.
  * Fotografía del avistamiento (TUT-10). Si es sensible, la imagen ni siquiera se dibuja hasta pedir «Ver fotografía». El foco pasa a la región de la imagen al revelarla
  * y vuelve a «Ver fotografía» al ocultarla. La imagen lleva `unoptimized`: la dirección es una ruta protegida por sesión y el optimizador de Next no la puede leer.
  */
-export function FotoAvistamiento({ src, sensible, hrefRevelar, hrefOcultar, reveladaInicial = false, aviso = REDACCION_SOBRIA, avisoRevelada = aviso }: Props) {
+export function FotoAvistamiento({ src, sensible, hrefRevelar, hrefOcultar, aviso = REDACCION_SOBRIA, avisoRevelada = aviso }: Props) {
   const id = useId();
-  const porEnlace = hrefRevelar !== undefined;
-  const [revelada, setRevelada] = useState(reveladaInicial);
-  const estaRevelada = porEnlace ? src !== undefined : revelada;
+  const estaRevelada = src !== undefined;
   const mostrar = !sensible || estaRevelada;
   const region = useRef<HTMLDivElement>(null);
   const zonaVer = useRef<HTMLDivElement>(null);
@@ -66,27 +61,17 @@ export function FotoAvistamiento({ src, sensible, hrefRevelar, hrefOcultar, reve
           </h2>
           <p className="text-small">La fotografía de este avistamiento permanece oculta. Puedes verla cuando lo decidas.</p>
           <div ref={zonaVer} className="w-full">
-            {porEnlace ? (
-              <Link href={hrefRevelar} prefetch={false} scroll={false} className={clasesBoton({ anchoCompleto: true })}>
-                Ver fotografía
-              </Link>
-            ) : (
-              <Boton anchoCompleto onClick={() => setRevelada(true)}>
-                Ver fotografía
-              </Boton>
-            )}
+            <Link href={hrefRevelar} prefetch={false} scroll={false} className={clasesBoton({ anchoCompleto: true })}>
+              Ver fotografía
+            </Link>
           </div>
         </section>
       )}
-      {sensible && estaRevelada && (porEnlace ? (
+      {sensible && estaRevelada && (
         <Link href={hrefOcultar ?? hrefRevelar} replace prefetch={false} scroll={false} className={clasesBoton({ variante: "secundario", anchoCompleto: true })}>
           Ocultar fotografía
         </Link>
-      ) : (
-        <Boton variante="secundario" anchoCompleto onClick={() => setRevelada(false)}>
-          Ocultar fotografía
-        </Boton>
-      ))}
+      )}
       {sensible && (
         <Alerta tipo="info" titulo="Aviso">
           {estaRevelada ? avisoRevelada : aviso}

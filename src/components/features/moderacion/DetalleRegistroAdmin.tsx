@@ -8,43 +8,32 @@ import { Boton } from "@/components/ui/Boton";
 import { ChipEstado } from "@/components/ui/ChipEstado";
 import { Icono } from "@/components/ui/Icono";
 import { Toast } from "@/components/ui/Toast";
-import { deshabilitar, esDeshabilitado, estadoActual, estadoPrevioADeshabilitacion, motivoCasoCerrado, puedeDeshabilitar, puedeRestaurar, restaurar } from "@/lib/moderacion";
-import type { RegistroAdmin } from "@/mocks/moderacion";
-import type { MovimientoHistorial } from "@/mocks/tipos";
+import type { RegistroAdminDetalle } from "@/server/serializadores/admin";
 import { DatosDelExtravio, DatosDelPerro, DatosReservados } from "../DatosCaso";
 import { HistorialEstados } from "../HistorialEstados";
 import { ModalMotivo } from "./ModalMotivo";
+import { useAccionRegistro } from "./useAccionRegistro";
 
-type Props = {
-  caso: RegistroAdmin;
-  /** Capturas y pruebas: abre MOD-08 al cargar. */
-  modalInicial?: boolean;
-};
+type Props = { caso: RegistroAdminDetalle };
+
+const motivoNoDisponible = (c: RegistroAdminDetalle) =>
+  c.puedeDeshabilitar || c.puedeRestaurar ? undefined : c.cierre === "cancelación" ? "Cancelado por la persona tutora: no puede deshabilitarse ni restaurarse." : "Cerrado tras una localización confirmada: no puede deshabilitarse ni restaurarse.";
 
 /**
- * TUT-05 en variante Administrador: la misma pantalla que ve la persona tutora, en solo lectura (HU 016 y lámina 2.5), con los mismos bloques de
- * datos (perro, extravío y reservados) y el historial de estados; nunca datos de la persona tutora. La única acción es la de moderación
- * (lámina 3.4): deshabilitar (con motivo) o restaurar.
+ * TUT-05 en variante Administrador: la misma pantalla que ve la persona tutora, en solo lectura (HU 016 y lámina 2.5), con los mismos bloques de datos (perro, extravío y reservados) y el historial
+ * de estados; nunca datos de la persona tutora. Sin «Editar» ni «Cancelar». La única acción es la de moderación (lámina 3.4): deshabilitar (con motivo) o restaurar, por /api/admin y con el estado
+ * real del servidor. La foto sale de la ruta exclusiva del Administrador.
  */
-export function DetalleRegistroAdmin({ caso, modalInicial = false }: Props) {
-  const [historial, setHistorial] = useState<MovimientoHistorial[]>(caso.historial);
-  const [abierto, setAbierto] = useState(modalInicial);
-  const [aviso, setAviso] = useState<string>();
-  const estado = estadoActual(historial);
-  const noDisponible = motivoCasoCerrado(historial);
+export function DetalleRegistroAdmin({ caso }: Props) {
+  const { accionar, aviso, setAviso } = useAccionRegistro();
+  const [abierto, setAbierto] = useState(false);
+  const noDisponible = motivoNoDisponible(caso);
 
-  function confirmar(motivo: string) {
-    setHistorial((h) => deshabilitar(h, motivo, new Date().toISOString()));
-    setAviso(`Registro ${caso.folio} deshabilitado: pasó a «Cerrado»`);
-    setAbierto(false);
-    setTimeout(() => document.getElementById("detalle-folio")?.focus(), 0);
-  }
-
-  function restaurarRegistro() {
-    const previo = estadoPrevioADeshabilitacion(historial);
-    setHistorial((h) => restaurar(h, new Date().toISOString()));
-    setAviso(`Registro ${caso.folio} restaurado: volvió a «${previo}»`);
-    setTimeout(() => document.getElementById("detalle-folio")?.focus(), 0);
+  async function confirmar(motivo: string) {
+    if (await accionar(caso.folio, { accion: "deshabilitar", motivo })) {
+      setAbierto(false);
+      setTimeout(() => document.getElementById("detalle-folio")?.focus(), 0);
+    }
   }
 
   return (
@@ -60,7 +49,7 @@ export function DetalleRegistroAdmin({ caso, modalInicial = false }: Props) {
             {caso.folio}
           </h1>
         </div>
-        <ChipEstado estado={estado} texto={esDeshabilitado(historial) ? "Cerrado (deshabilitado)" : undefined} />
+        <ChipEstado estado={caso.estado} texto={caso.cierre === "deshabilitación" ? "Cerrado (deshabilitado)" : undefined} />
       </div>
       <p className="rounded-campo border-2 border-dashed border-border-strong bg-surface-raised p-3 text-small">Vista de la persona Administrador: solo consulta.</p>
       <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start xl:grid-cols-[minmax(0,1fr)_24rem]">
@@ -82,16 +71,21 @@ export function DetalleRegistroAdmin({ caso, modalInicial = false }: Props) {
         </div>
         <div className="contents lg:flex lg:flex-col lg:gap-4">
           <div className="order-5 lg:order-none">
-            <HistorialEstados historial={historial} />
+            <HistorialEstados historial={caso.historial} />
           </div>
           <div className="order-6 flex flex-col gap-4 lg:order-none">
-            {puedeRestaurar(historial) ? (
-              <Boton anchoCompleto onClick={restaurarRegistro}>
+            {caso.puedeRestaurar ? (
+              <Boton
+                anchoCompleto
+                onClick={async () => {
+                  if (await accionar(caso.folio, { accion: "restaurar" })) setTimeout(() => document.getElementById("detalle-folio")?.focus(), 0);
+                }}
+              >
                 Restaurar registro
               </Boton>
             ) : (
               <>
-                <Boton variante="secundario" anchoCompleto disabled={!puedeDeshabilitar(historial)} aria-describedby={noDisponible ? "motivo-detalle" : undefined} className={noDisponible ? "border-dashed" : undefined} onClick={() => setAbierto(true)}>
+                <Boton variante="secundario" anchoCompleto disabled={!caso.puedeDeshabilitar} aria-describedby={noDisponible ? "motivo-detalle" : undefined} className={noDisponible ? "border-dashed" : undefined} onClick={() => setAbierto(true)}>
                   Deshabilitar registro
                 </Boton>
                 {noDisponible && (

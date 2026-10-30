@@ -1,7 +1,7 @@
 import "server-only";
 // HU 018 y 016 (P6a): moderación de registros de extravío por el Administrador. Cada servicio llama PRIMERO a `exigirAdministrador` (401 sin sesión, 403 con otro rol); el folio mal formado o inexistente
 // es el mismo 404. Deshabilitar y restaurar son UNA transacción con su entrada de bitácora (R24). Las respuestas salen de `serializadores/admin.ts`: nunca llevan datos de la persona tutora ni el token del QR.
-import { ESTADOS_CASO, PATRON_FOLIO, type EstadoCaso } from "../../../mocks/tipos";
+import { ESTADOS_CASO, PATRON_FOLIO, type Alcaldia, type EstadoCaso } from "../../../mocks/tipos";
 import { normalizarFolio } from "../../dominio/folio";
 import { puedeDeshabilitar, puedeRestaurar, cierreDelCaso } from "../../dominio/moderacion";
 import { sanearMotivo } from "../../dominio/motivo";
@@ -15,6 +15,12 @@ import type { CasoExtravio } from "../../tipos";
 import { contextoPorDefecto, historialDe, type Contexto } from "../contexto";
 
 const POR_PAGINA = 5;
+
+/** Motivo y fecha de la deshabilitación vigente (el último movimiento es una deshabilitación); si no, nada. */
+const moderacionVigente = (h: { tipo: string; motivo?: string; fechaHora: string }[]) => {
+  const m = h[h.length - 1];
+  return m && m.tipo === "deshabilitación" ? { motivo: m.motivo ?? "", fechaHora: m.fechaHora } : undefined;
+};
 
 async function casoPorFolio(folio: string, ctx: Contexto): Promise<CasoExtravio> {
   const f = normalizarFolio(folio);
@@ -36,6 +42,7 @@ async function vistaDeLista(caso: CasoExtravio, ctx: Contexto): Promise<Registro
   return aRegistroAdminLista({
     folio: caso.folio, nombre: perro.nombre, fotografiaUrl: await urlDeFoto(caso, perro.idFotografia, ctx), fechaRegistro: caso.fechaRegistro, alcaldia: alcaldias.find((a) => a.idAlcaldia === caso.idAlcaldia)?.nombre ?? "",
     estado, puedeDeshabilitar: puedeDeshabilitar(estado), puedeRestaurar: puedeRestaurar(historial), cierre: cierreDelCaso(historial),
+    moderacion: moderacionVigente(historial),
   });
 }
 
@@ -77,7 +84,7 @@ export async function detalleRegistro(sesion: SesionActual | undefined, folio: s
     ...lista, sexo: perro.sexo, raza: razas.find((r) => r.idRaza === perro.idRaza)?.nombre ?? "", razaEspecificada: perro.razaEspecificada, edadValor: perro.edadValor, edadUnidad: perro.edadUnidad, tamano: perro.tamano, color: perro.color,
     caracteristicasDistintivas: perro.caracteristicasDistintivas, fechaExtravio: caso.fechaExtravio, coloniaZona: caso.coloniaZona, momentoDelDia: caso.momentoDelDia, direccionAproximada: caso.direccionAproximada,
     referenciasDelLugar: caso.referenciasDelLugar, motivo: motivos.find((m) => m.idMotivo === caso.idMotivo)?.nombre ?? "", descripcionCircunstancias: caso.descripcionCircunstancias, historial,
-    alcaldia: alcaldias.find((a) => a.idAlcaldia === caso.idAlcaldia)?.nombre ?? lista.alcaldia,
+    alcaldia: (alcaldias.find((a) => a.idAlcaldia === caso.idAlcaldia)?.nombre ?? lista.alcaldia) as Alcaldia,
   });
 }
 

@@ -157,13 +157,23 @@ async function pruebas() {
   const detalle = await como("admin", `/admin/registros/${MAX}`);
   console.log(`  (la pantalla /admin/registros/‹folio› sigue siendo la del maquetado en esta etapa: ${detalle.estado})`);
 
-  console.log("\n— C) Lo que ve la persona dueña de su caso deshabilitado —");
-  const lista = await como("tutor1", "/tutor/registros");
+  console.log("\n— C) Lo que ve la persona dueña de su caso deshabilitado (rutas reales: /tutor y /tutor/casos/‹folio›) —");
+  const SECRETO = "ZXQ-motivo-del-administrador";
+  await restaurar(MAX);
+  const d2 = await deshabilitar(MAX, SECRETO);
+  const lista = await como("tutor1", "/tutor");
   const detalleT = await como("tutor1", `/tutor/casos/${MAX}`);
+  const datosRsc = await como("tutor1", `/tutor/casos/${MAX}`, { headers: { RSC: "1" } });
   const fichaT = await como("tutor1", `/api/casos/${MAX}/ficha?hoja=carta`);
+  const estadoT = await enviar("tutor1", `/api/casos/${MAX}/estado`, { accion: "cancelar", motivo: "Intento" });
   const ajena = await como("tutor2", `/tutor/casos/${MAX}`);
-  console.log(`  lista /tutor/registros ${lista.estado} (aparece el folio: ${lista.texto.includes(MAX)}) · detalle ${detalleT.estado} (dice «Cerrado»: ${/Cerrado/.test(detalleT.texto)}, muestra la deshabilitación: ${/[Dd]eshabilit/.test(detalleT.texto)}) · PDF de la ficha ${fichaT.estado} ${codigo(fichaT) ?? ""} · otra tutora ${ajena.estado}`);
-  ver(detalleT.estado === 200 && /Cerrado/.test(detalleT.texto) && fichaT.estado !== 200 && ajena.estado === 404, "la dueña ve su caso como Cerrado y no puede generar la ficha; otra persona recibe 404", "lo que ve la dueña no es lo esperado");
+  const salidas: Array<[string, Resp]> = [["lista /tutor", lista], ["detalle (HTML y datos de Next)", detalleT], ["detalle (flujo RSC)", datosRsc], ["PDF de la ficha", fichaT], ["cambio de estado", estadoT]];
+  const fuga = salidas.filter(([, r]) => r.texto.includes(SECRETO) || /Ricardo|Vega Ficticio/.test(r.texto)).map(([n]) => n);
+  console.log(`  lista ${lista.estado} (el folio aparece: ${lista.texto.includes(MAX)}) · detalle ${detalleT.estado} · ficha ${fichaT.estado} ${codigo(fichaT) ?? ""} · cambio de estado ${estadoT.estado} ${codigo(estadoT) ?? ""} · otra tutora ${ajena.estado}`);
+  ver(d2.estado === 200 && lista.estado === 200 && lista.texto.includes(MAX), "la lista /tutor sigue mostrando el caso deshabilitado a su dueña", `lista /tutor: ${lista.estado}`);
+  ver(detalleT.estado === 200 && /Cerrado/.test(detalleT.texto) && detalleT.texto.includes("Caso deshabilitado"), "el detalle lo muestra «Cerrado» con el movimiento «Caso deshabilitado» en su historial", "el detalle no muestra Cerrado + «Caso deshabilitado»");
+  ver(fuga.length === 0 && !detalleT.texto.includes(SECRETO), "NO se expone el motivo del Administrador ni su nombre (HTML, datos de Next, flujo RSC y API de la tutora)", `se expone en: ${fuga.join(", ")}`);
+  ver(fichaT.estado === 409 && estadoT.estado === 409 && ajena.estado === 404, "no puede generar la ficha ni cambiarle el estado (409) y otra persona recibe 404", `ficha ${fichaT.estado} · estado ${estadoT.estado} · ajena ${ajena.estado}`);
   const tr = await restaurar(MAX);
   ver(tr.estado === 200, "MAX restaurado para seguir", linea(tr));
 

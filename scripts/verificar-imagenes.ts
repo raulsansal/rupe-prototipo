@@ -4,7 +4,7 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { CASOS_ORIGEN, FOLIO_EN_CURSO } from "../src/mocks/casos";
-import { agregarSesion, reiniciarDatos } from "./sesion-pruebas";
+import { agregarSesion, fetchComo, reiniciarDatos } from "./sesion-pruebas";
 
 const PUERTO = 3138;
 const baseExterna = process.argv.find((a) => a.startsWith("--base="))?.split("=")[1];
@@ -22,7 +22,7 @@ const TOBY = "RUPE-B6R2TZ7C"; // Localizado
 const MAX = FOLIO_EN_CURSO;
 const TOKEN_MAX = CASOS_ORIGEN.find((c) => c.folio === MAX)!.tokenPublico;
 
-type Pantalla = { ruta: string; rol: "tutor1" | null; etiqueta: string };
+type Pantalla = { ruta: string; rol: "tutor1" | "admin" | null; etiqueta: string };
 const PANTALLAS: Pantalla[] = [
   { ruta: "/", rol: null, etiqueta: "Inicio" },
   { ruta: `/ficha/${MAX}`, rol: null, etiqueta: "Ficha pública por folio" },
@@ -41,6 +41,26 @@ const PANTALLAS: Pantalla[] = [
   { ruta: `/tutor/casos/RUPE-B6R2TZ7C`, rol: "tutor1", etiqueta: "Detalle de un caso Localizado" },
   { ruta: `/tutor/casos/${NALA}/avistamientos/101`, rol: "tutor1", etiqueta: "Detalle de un avistamiento" },
   { ruta: `/tutor/casos/${NALA}/avistamientos/102?foto=visible`, rol: "tutor1", etiqueta: "Detalle del avistamiento «Fallecido» con la foto revelada" },
+  // Pantallas del Administrador (P6a): fotos de los perros por su ruta exclusiva y de los avistamientos por /api/fotografias.
+  { ruta: "/admin/registros", rol: "admin", etiqueta: "Admin · moderación de registros (página 1)" },
+  { ruta: "/admin/registros?pagina=2", rol: "admin", etiqueta: "Admin · moderación de registros (página 2, con un caso deshabilitado)" },
+  { ruta: "/admin/registros?pagina=3", rol: "admin", etiqueta: "Admin · moderación de registros (página 3)" },
+  { ruta: `/admin/registros/${MAX}`, rol: "admin", etiqueta: "Admin · detalle de un registro" },
+  { ruta: "/admin/registros/RUPE-D5W2QK8X", rol: "admin", etiqueta: "Admin · detalle de un registro deshabilitado (sembrado)" },
+  { ruta: "/admin/avistamientos", rol: "admin", etiqueta: "Admin · moderación de avistamientos (página 1)" },
+  { ruta: "/admin/avistamientos?pagina=2", rol: "admin", etiqueta: "Admin · moderación de avistamientos (página 2, con el «Fallecido» y un oculto)" },
+  { ruta: "/admin/avistamientos?pagina=3", rol: "admin", etiqueta: "Admin · moderación de avistamientos (página 3)" },
+  { ruta: "/admin/avistamientos?detalle=101", rol: "admin", etiqueta: "Admin · detalle de un avistamiento" },
+  { ruta: "/admin/avistamientos?detalle=105", rol: "admin", etiqueta: "Admin · detalle de un avistamiento OCULTO (su foto sí se ve)" },
+  { ruta: "/admin/avistamientos?detalle=102", rol: "admin", etiqueta: "Admin · detalle del «Fallecido» sin revelar (marcador, sin imagen)" },
+  { ruta: "/admin/avistamientos?detalle=102&foto=visible", rol: "admin", etiqueta: "Admin · detalle del «Fallecido» con la foto revelada" },
+];
+/** Tras DESHABILITAR el caso de Max (acción real del Administrador): su foto sigue cargando para el Administrador y para su dueña, aunque la ficha pública ya no exista. */
+const TRAS_DESHABILITAR: Pantalla[] = [
+  { ruta: "/admin/registros", rol: "admin", etiqueta: "Admin · lista con un caso recién deshabilitado" },
+  { ruta: `/admin/registros/${MAX}`, rol: "admin", etiqueta: "Admin · detalle de un caso recién deshabilitado" },
+  { ruta: "/tutor", rol: "tutor1", etiqueta: "Mis registros con un caso deshabilitado" },
+  { ruta: `/tutor/casos/${MAX}`, rol: "tutor1", etiqueta: "Detalle de un caso deshabilitado (su dueña)" },
 ];
 
 /** Recorre la página para que carguen las imágenes diferidas y devuelve las <img> visibles que no cargaron (naturalWidth 0). */
@@ -80,21 +100,25 @@ async function abrirNavegador(): Promise<Browser> {
 }
 
 async function pruebas(navegador: Browser) {
-  await reiniciarDatos(base);
   for (const ancho of [390, 1280]) {
+    await reiniciarDatos(base); // cada ancho parte de datos limpios (la sección de abajo deshabilita un caso)
     const sesiones = new Map<string, BrowserContext>();
-    for (const rol of [null, "tutor1"] as const) {
+    for (const rol of [null, "tutor1", "admin"] as const) {
       const contexto = await navegador.newContext({ viewport: { width: ancho, height: 900 } });
       if (rol) await agregarSesion(contexto, base, rol);
       sesiones.set(String(rol), contexto);
     }
-    for (const pantalla of PANTALLAS) {
+    const revisar = async (pantalla: Pantalla) => {
       const pagina = await sesiones.get(String(pantalla.rol))!.newPage();
       await pagina.goto(`${base}${pantalla.ruta}`, { waitUntil: "load" });
       const r = await imagenesRotas(pagina);
       ver(r.rotas.length === 0, `${pantalla.etiqueta} (${ancho} px): ${r.visibles} imagen(es) visible(s), todas cargan`, `${pantalla.etiqueta} (${ancho} px): imagen(es) rota(s) → ${r.rotas.join(" | ")}`);
       await pagina.close();
-    }
+    };
+    for (const pantalla of PANTALLAS) await revisar(pantalla);
+    const desh = await fetchComo(base, "admin", `/api/admin/registros/${MAX}/moderacion`, { method: "POST", headers: { "Content-Type": "application/json", Origin: new URL(base).origin }, body: JSON.stringify({ accion: "deshabilitar", motivo: "Prueba de imágenes." }) });
+    ver(desh.status === 200, `(${ancho} px) el Administrador deshabilita el caso de Max para revisar sus fotos`, `no se pudo deshabilitar el caso de Max: HTTP ${desh.status}`);
+    for (const pantalla of TRAS_DESHABILITAR) await revisar(pantalla);
     for (const c of sesiones.values()) await c.close();
   }
   await reiniciarDatos(base);

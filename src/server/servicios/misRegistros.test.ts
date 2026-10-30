@@ -6,6 +6,7 @@ import { ErrorApp, respuestaDeError } from "../errores";
 import { nuevoContexto } from "../pruebas/auxiliares";
 import { jpeg } from "../pruebas/imagenes";
 import type { SesionActual } from "../sesion/guardas";
+import { deshabilitarCaso } from "./admin/moderacionRegistros";
 import { registrarExtravio } from "./extravio";
 import { avistamientoDelCaso, avistamientosDelCaso, casoDelTutor, exigirCasoPropio, fichaDelTutor, listarCasosDelTutor, puntosDelMapa } from "./misRegistros";
 
@@ -175,11 +176,13 @@ test("Nombres de catálogo · raza, alcaldía y motivo salen del catálogo (o la
   assert.ok(detalle.alcaldia.length > 0 && detalle.motivo.length > 0);
 });
 
-test("Historial · es el real del caso, con el motivo de la cancelación o deshabilitación (Lola) y consecutivos ordenados", async () => {
+test("Historial · es el real del caso, con el motivo de la cancelación (Simba, de Luis) y SIN el de la deshabilitación (Lola), y consecutivos ordenados", async () => {
   const { ctx } = nuevoContexto();
   const lola = await casoDelTutor(ROSA, "RUPE-C2J9RK6Z", ctx);
   assert.ok(lola.historial.length >= 2);
-  assert.ok(lola.historial.some((m) => typeof m.motivo === "string" && m.motivo.length > 0), "algún movimiento trae su motivo");
+  assert.ok(lola.historial.some((m) => m.tipo === "deshabilitación") && lola.historial.every((m) => m.tipo !== "deshabilitación" || !("motivo" in m)), "la deshabilitación no trae motivo");
+  const simba = await casoDelTutor(LUIS, "RUPE-F7L3MN6Y", ctx);
+  assert.ok(simba.historial.some((m) => m.tipo === "cancelación" && typeof m.motivo === "string" && m.motivo.length > 0), "el motivo de su propia cancelación sí lo ve");
   const fechas = lola.historial.map((m) => m.fechaHora);
   assert.deepEqual(fechas, [...fechas].sort());
   const nuevo = await registrarExtravio(ROSA, NUEVO, ctx);
@@ -234,4 +237,21 @@ test("Mocks retirados · ningún código de src/ lee casosDeLaPersonaTutora, avi
     for (const m of readFileSync(ruta, "utf8").matchAll(/import[^;]*\bavistamientosDelCaso\b[^;]*from\s+["']([^"']+)["']/g)) assert.match(m[1], /misRegistros$/, `${ruta} importa avistamientosDelCaso de ${m[1]}`);
   }
   assert.ok(fuentes.length > 100);
+});
+
+test("Mis registros · la dueña ve su caso deshabilitado como «Cerrado», con el movimiento, pero sin el motivo del Administrador ni quién actuó (sembrado y recién deshabilitado)", async () => {
+  const { ctx, almacen } = nuevoContexto();
+  const SECRETO = "ZXQ motivo escrito por el Administrador";
+  await deshabilitarCaso(ADMIN, MAX, SECRETO, ctx);
+  const vistas = [await casoDelTutor(ROSA, MAX, ctx), await casoDelTutor(LUIS, KIRA, ctx)];
+  for (const v of vistas) {
+    assert.equal(v.estado, "Cerrado");
+    const mov = v.historial.filter((m) => m.tipo === "deshabilitación");
+    assert.ok(mov.length >= 1);
+    assert.ok(mov.every((m) => !("motivo" in m) && m.estado === "Cerrado"));
+    const texto = JSON.stringify(v);
+    assert.ok(!texto.includes(SECRETO) && !/Ricardo|idUsuario/.test(texto));
+  }
+  const sembrado = almacen.historial.find((h) => h.tipoMovimiento === "deshabilitación" && h.idCasoExtravio === 7)!;
+  if (sembrado.motivo) assert.ok(!JSON.stringify(vistas[1]).includes(sembrado.motivo));
 });

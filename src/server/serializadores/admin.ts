@@ -1,14 +1,14 @@
 // Lo que el ADMINISTRADOR recibe (P6a). Igual que `publico.ts`: listas permitidas campo por campo; nada se copia con `...resto`, para que una columna nueva del almacén no llegue a una respuesta sin
 // decidirlo aquí. NUNCA llevan: datos de la persona tutora (nombre, correo, teléfono, id), el token del QR, `vistoPorTutora`, `relevante`, `ubicacionSimulada`, ni la dirección, colonia, referencias
 // o coordenadas de un avistamiento. El comentario de un avistamiento SÍ se ve (HU 037). La lista de usuarios es gestión de cuentas: solo lo estrictamente necesario.
-import type { EstadoCaso, MovimientoHistorial } from "../../mocks/tipos";
+import type { Alcaldia, EdadUnidad, EstadoCaso, MomentoDelDia, MovimientoHistorial, Sexo, Tamano } from "../../mocks/tipos";
 import type { Rol } from "../../mocks/usuarios";
 import type { TipoAccion, Entidad } from "../../mocks/bitacora";
 
-export const CAMPOS_REGISTRO_ADMIN_LISTA = ["folio", "nombre", "fotografiaUrl", "fechaRegistro", "alcaldia", "estado", "puedeDeshabilitar", "puedeRestaurar", "cierre"] as const;
+export const CAMPOS_REGISTRO_ADMIN_LISTA = ["folio", "nombre", "fotografiaUrl", "fechaRegistro", "alcaldia", "estado", "puedeDeshabilitar", "puedeRestaurar", "cierre", "moderacion"] as const;
 export const CAMPOS_REGISTRO_ADMIN_DETALLE = [
   "folio", "nombre", "sexo", "raza", "razaEspecificada", "edadValor", "edadUnidad", "tamano", "color", "caracteristicasDistintivas", "fotografiaUrl", "fechaRegistro", "fechaExtravio", "alcaldia", "coloniaZona",
-  "momentoDelDia", "direccionAproximada", "referenciasDelLugar", "motivo", "descripcionCircunstancias", "estado", "historial", "puedeDeshabilitar", "puedeRestaurar", "cierre",
+  "momentoDelDia", "direccionAproximada", "referenciasDelLugar", "motivo", "descripcionCircunstancias", "estado", "historial", "puedeDeshabilitar", "puedeRestaurar", "cierre", "moderacion",
 ] as const;
 export const CAMPOS_AVISTAMIENTO_ADMIN = ["id", "folio", "fechaHora", "alcaldia", "estadosAnimal", "comentario", "fotografiaUrl", "fallecido", "visible", "motivoModeracion", "fechaModeracion"] as const;
 export const CAMPOS_ENTRADA_BITACORA = ["id", "fechaHora", "tipo", "entidad", "idAfectada", "entidadAfectada", "motivo", "detalle", "administrador"] as const;
@@ -24,9 +24,11 @@ const elegir = <T extends object, K extends readonly string[]>(origen: T, campos
 };
 
 export type CierreDeCaso = "cierre confirmado" | "cancelación" | "deshabilitación";
-export type RegistroAdminLista = { folio: string; nombre: string; fotografiaUrl: string; fechaRegistro: string; alcaldia: string; estado: EstadoCaso; puedeDeshabilitar: boolean; puedeRestaurar: boolean; cierre?: CierreDeCaso };
-export type RegistroAdminDetalle = RegistroAdminLista & {
-  sexo: string; raza: string; razaEspecificada?: string; edadValor: number; edadUnidad: string; tamano: string; color: string; caracteristicasDistintivas?: string; fechaExtravio: string; coloniaZona: string; momentoDelDia: string;
+export type RegistroAdminLista = { folio: string; nombre: string; fotografiaUrl: string; fechaRegistro: string; alcaldia: string; estado: EstadoCaso; puedeDeshabilitar: boolean; puedeRestaurar: boolean; cierre?: CierreDeCaso;
+  /** Solo si el caso está cerrado por deshabilitación: el motivo escrito por el Administrador y cuándo. */ moderacion?: { motivo: string; fechaHora: string } };
+export type RegistroAdminDetalle = Omit<RegistroAdminLista, "alcaldia"> & {
+  /** Nombre del catálogo (las pantallas lo tratan como una alcaldía del catálogo). */ alcaldia: Alcaldia;
+  sexo: Sexo; raza: string; razaEspecificada?: string; edadValor: number; edadUnidad: EdadUnidad; tamano: Tamano; color: string; caracteristicasDistintivas?: string; fechaExtravio: string; coloniaZona: string; momentoDelDia: MomentoDelDia;
   /** Reservados del extravío: solo en el detalle (HU 016). */
   direccionAproximada?: string; referenciasDelLugar?: string; motivo: string; descripcionCircunstancias?: string; historial: MovimientoHistorial[];
 };

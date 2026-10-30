@@ -1,7 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useRef, useState } from "react";
 import { Boton } from "@/components/ui/Boton";
+import { clasesBoton } from "@/components/ui/clasesBoton";
 import { CampoTexto } from "@/components/ui/CampoTexto";
 import { ChipEstatus } from "@/components/ui/ChipEstatus";
 import { EstadoVacio } from "@/components/ui/EstadoVacio";
@@ -11,85 +14,84 @@ import { Paginacion } from "@/components/ui/Paginacion";
 import { Selector } from "@/components/ui/Selector";
 import { Toast } from "@/components/ui/Toast";
 import { cx } from "@/lib/clases";
-import { fechaLocalISO, formatearFechaHora } from "@/lib/formato";
-import { esFallecido } from "@/mocks/avistamientos";
-import type { AvistamientoAdmin } from "@/mocks/moderacion";
+import { enviarAdmin, MENSAJE_YA_CAMBIO, urlConPagina } from "@/lib/clienteAdmin";
+import { formatearFechaHora } from "@/lib/formato";
+import type { ListadoDeAvistamientos } from "@/server/servicios/admin/moderacionAvistamientos";
 import { ModalDetalleAvistamiento } from "./ModalDetalleAvistamiento";
 import { ModalMotivo } from "./ModalMotivo";
 
-const POR_PAGINA = 5;
+type Avistamiento = ListadoDeAvistamientos["items"][number];
 
-type Filtro = { estatus: "" | "Visible" | "Oculto"; desde: string; hasta: string };
-const SIN_FILTRO: Filtro = { estatus: "", desde: "", hasta: "" };
-
-type Modal = { id: number; tipo: "ocultar" | "detalle" };
 type Props = {
-  avistamientos: readonly AvistamientoAdmin[];
-  /** Capturas y pruebas: abre ese modal para ese avistamiento al cargar. */
-  modalInicial?: Modal;
-  /** Capturas y pruebas: el detalle de un «Fallecido» empieza con la fotografía revelada. */
-  fotoVisible?: boolean;
-  /** Capturas y pruebas: MOD-09 abre con el error de motivo vacío. */
-  errorInicial?: boolean;
-  /** Capturas y pruebas: página con la que abre la lista. */
-  paginaInicial?: number;
+  listado: ListadoDeAvistamientos;
+  /** Lo que llegó en la URL (texto tal cual) para repetirlo en el formulario. */
+  valores: { estatus: string; desde: string; hasta: string };
+  /** Avistamiento cuyo detalle pide la URL (?detalle=): lo entrega el servicio de Administrador; la dirección de la foto de un «Fallecido» viene solo con ?foto=visible. */
+  detalle?: Avistamiento;
 };
 
 /**
- * ADM-05 (HU 037): avistamientos de todos los casos como tarjetas en móvil y tabla compacta en escritorio. «Ocultar» pide el motivo (MOD-09);
- * lo oculto se restaura con su propio botón y la restauración limpia el motivo (decisión D12). Un avistamiento «Fallecido» nunca muestra
- * su fotografía en la lista ni en la tabla. Los cambios solo viven en esta pantalla.
+ * ADM-05 (HU 037): avistamientos de todos los casos como tarjetas en móvil y tabla compacta en escritorio. Datos, filtros (GET, validados en el servidor) y páginas vienen del servidor; el
+ * detalle se abre por la URL (?detalle=ID). «Ocultar» pide el motivo (MOD-09) y llama a /api/admin/avistamientos/[id]/moderacion; lo oculto se restaura con su propio botón y la restauración limpia
+ * el motivo (decisión D12). Un avistamiento «Fallecido» nunca muestra su fotografía en la lista ni en la tabla.
  */
-export function ModeracionAvistamientos({ avistamientos: iniciales, modalInicial, fotoVisible, errorInicial, paginaInicial = 1 }: Props) {
-  const [lista, setLista] = useState<AvistamientoAdmin[]>([...iniciales]);
-  const [borrador, setBorrador] = useState<Filtro>(SIN_FILTRO);
-  const [filtro, setFiltro] = useState<Filtro>(SIN_FILTRO);
-  const [errorFechas, setErrorFechas] = useState<string>();
-  const [pagina, setPagina] = useState(paginaInicial);
-  // Los modales quedan montados (cerrados) con el último avistamiento: así el foco regresa al botón que los abrió.
-  const [ultimo, setUltimo] = useState<number>(modalInicial?.id ?? iniciales[0].id);
-  const [modal, setModal] = useState<Modal["tipo"] | null>(modalInicial?.tipo ?? null);
+export function ModeracionAvistamientos({ listado, valores, detalle }: Props) {
+  const router = useRouter();
+  const enviando = useRef(false);
+  const { items, pagina, totalPaginas, total, porPagina, errores, filtros } = listado;
+  const hayFiltros = Boolean(valores.estatus || valores.desde || valores.hasta);
+  const parametros = { estatus: filtros.estatus, desde: filtros.desde, hasta: filtros.hasta };
+  const base = urlConPagina("/admin/avistamientos", parametros, pagina);
+  const conDetalle = (id: number, foto = false) => `${base}${base.includes("?") ? "&" : "?"}detalle=${id}${foto ? "&foto=visible" : ""}`;
+  // El modal de ocultar queda montado (cerrado) con el último avistamiento: así el foco regresa al botón que lo abrió.
+  const [ultimo, setUltimo] = useState<number>(items[0]?.id ?? 0);
+  const [ocultando, setOcultando] = useState(false);
   const [aviso, setAviso] = useState<string>();
+  const actual = items.find((a) => a.id === ultimo) ?? items[0];
 
-  const filtrados = lista.filter((a) => {
-    const dia = fechaLocalISO(a.fechaHora);
-    return (!filtro.estatus || (filtro.estatus === "Visible") === a.visible) && (!filtro.desde || dia >= filtro.desde) && (!filtro.hasta || dia <= filtro.hasta);
-  });
-  const total = Math.max(1, Math.ceil(filtrados.length / POR_PAGINA));
-  const paginaActual = Math.min(pagina, total);
-  const visibles = filtrados.slice((paginaActual - 1) * POR_PAGINA, paginaActual * POR_PAGINA);
-  const actual = lista.find((a) => a.id === ultimo)!;
-
-  const abrir = (id: number, tipo: Modal["tipo"]) => {
-    setUltimo(id);
-    setModal(tipo);
-  };
-
-  function aplicar() {
-    if (borrador.desde && borrador.hasta && borrador.hasta < borrador.desde) {
-      setErrorFechas("«Hasta» no puede ser anterior a «Desde».");
-      return document.getElementById("filtro-av-hasta")?.focus();
+  async function enviar(id: number, cuerpo: { accion: "ocultar"; motivo: string } | { accion: "restaurar" }): Promise<boolean> {
+    if (enviando.current) return false; // doble clic o Enter repetido: una sola petición
+    enviando.current = true;
+    try {
+      const r = await enviarAdmin(`/api/admin/avistamientos/${id}/moderacion`, "POST", cuerpo);
+      if (r.ok) {
+        setAviso(cuerpo.accion === "ocultar" ? `Avistamiento ${id} ocultado: dejó de verse en el historial de la persona tutora` : `Avistamiento ${id} restaurado: vuelve a verse en el historial de la persona tutora`);
+        router.refresh();
+        return true;
+      }
+      if (r.estado === 409) {
+        setAviso(`El avistamiento ${id}: ${MENSAJE_YA_CAMBIO.charAt(0).toLowerCase()}${MENSAJE_YA_CAMBIO.slice(1)}`);
+        router.refresh();
+        return true;
+      }
+      if (r.estado === 401 || r.estado === 403 || r.estado === 404) {
+        router.refresh();
+        return true;
+      }
+      setAviso(r.mensaje ?? "No se pudo completar la acción.");
+      return false;
+    } finally {
+      enviando.current = false;
     }
-    setErrorFechas(undefined);
-    setFiltro(borrador);
-    setPagina(1);
   }
 
-  function ocultar(motivo: string) {
-    setLista((l) => l.map((a) => (a.id === ultimo ? { ...a, visible: false, motivoModeracion: motivo, fechaModeracion: new Date().toISOString() } : a)));
-    setAviso(`Avistamiento ${ultimo} ocultado: dejó de verse en el historial de la persona tutora`);
-    setModal(null);
+  const abrirOcultar = (id: number) => {
+    setUltimo(id);
+    setOcultando(true);
+  };
+  async function ocultar(motivo: string) {
+    if (await enviar(ultimo, { accion: "ocultar", motivo })) setOcultando(false);
   }
 
-  function restaurar(id: number) {
-    // Restaurar limpia el motivo de moderación (D12).
-    setLista((l) => l.map((a) => (a.id === id ? { ...a, visible: true, motivoModeracion: undefined, fechaModeracion: undefined } : a)));
-    setAviso(`Avistamiento ${id} restaurado: vuelve a verse en el historial de la persona tutora`);
+  function cerrarDetalle() {
+    const id = detalle?.id;
+    router.push(base);
+    setTimeout(() => document.querySelector<HTMLElement>(`[data-avistamiento="${id}"] [data-ver-detalle]`)?.focus(), 150); // el foco vuelve al enlace que lo abrió
   }
 
-  function miniatura(a: AvistamientoAdmin, lado: number) {
+  function miniatura(a: Avistamiento, lado: number) {
     // La fotografía de un «Fallecido» nunca se muestra en listas: solo en el detalle, tras «Ver fotografía».
-    if (esFallecido(a))
+    if (a.fallecido || !a.fotografiaUrl)
       return (
         <span aria-label="Fotografía oculta: contenido sensible" role="img" className="flex shrink-0 items-center justify-center rounded-campo border border-border bg-disabled-bg text-text-muted" style={{ width: lado, height: lado }}>
           <Icono nombre="visibility_off" tamano={lado > 60 ? 28 : 20} />
@@ -98,7 +100,7 @@ export function ModeracionAvistamientos({ avistamientos: iniciales, modalInicial
     return <FotoPerro src={a.fotografiaUrl} alt="Fotografía del avistamiento" lado={lado} atenuada={!a.visible} />;
   }
 
-  function moderacion(a: AvistamientoAdmin) {
+  function moderacion(a: Avistamiento) {
     if (a.visible) return null;
     return (
       <div className="text-small">
@@ -110,19 +112,19 @@ export function ModeracionAvistamientos({ avistamientos: iniciales, modalInicial
     );
   }
 
-  function acciones(a: AvistamientoAdmin, compacto: boolean) {
+  function acciones(a: Avistamiento, compacto: boolean) {
     const tamano = compacto ? "compacto" : "estandar";
     return (
       <>
-        <Boton variante="secundario" tamano={tamano} aria-label={`Ver detalle del avistamiento ${a.id}`} onClick={() => abrir(a.id, "detalle")}>
+        <Link href={conDetalle(a.id)} prefetch={false} scroll={false} data-ver-detalle aria-label={`Ver detalle del avistamiento ${a.id}`} className={clasesBoton({ variante: "secundario", tamano, className: "text-center" })}>
           Ver detalle
-        </Boton>
+        </Link>
         {a.visible ? (
-          <Boton variante="secundario" tamano={tamano} aria-label={`Ocultar el avistamiento ${a.id}`} onClick={() => abrir(a.id, "ocultar")}>
+          <Boton variante="secundario" tamano={tamano} aria-label={`Ocultar el avistamiento ${a.id}`} onClick={() => abrirOcultar(a.id)}>
             Ocultar
           </Boton>
         ) : (
-          <Boton tamano={tamano} aria-label={`Restaurar el avistamiento ${a.id}`} onClick={() => restaurar(a.id)}>
+          <Boton tamano={tamano} aria-label={`Restaurar el avistamiento ${a.id}`} onClick={() => enviar(a.id, { accion: "restaurar" })}>
             Restaurar
           </Boton>
         )}
@@ -133,53 +135,42 @@ export function ModeracionAvistamientos({ avistamientos: iniciales, modalInicial
   return (
     <div className="flex flex-col gap-4">
       <h1 className="text-h1">Moderación de avistamientos</h1>
-      <form
-        aria-label="Filtrar avistamientos"
-        onSubmit={(e) => {
-          e.preventDefault();
-          aplicar();
-        }}
-        className="grid gap-3 rounded-tarjeta border border-border bg-surface p-4 lg:grid-cols-[14rem_minmax(0,1fr)_auto_auto] lg:items-start"
-      >
+      <form key={`${valores.estatus}|${valores.desde}|${valores.hasta}`} method="get" action="/admin/avistamientos" noValidate aria-label="Filtrar avistamientos" className="grid gap-3 rounded-tarjeta border border-border bg-surface p-4 lg:grid-cols-[14rem_minmax(0,1fr)_auto_auto] lg:items-start">
         <Selector
+          name="estatus"
           etiqueta="Estatus"
           marcador="Todos"
           opciones={[
-            { valor: "Visible", etiqueta: "Visible" },
-            { valor: "Oculto", etiqueta: "Oculto" },
+            { valor: "visible", etiqueta: "Visible" },
+            { valor: "oculto", etiqueta: "Oculto" },
           ]}
-          value={borrador.estatus}
-          onChange={(e) => setBorrador({ ...borrador, estatus: e.target.value as Filtro["estatus"] })}
+          defaultValue={valores.estatus}
+          error={errores.estatus}
         />
         <fieldset className="grid min-w-0 grid-cols-2 gap-3">
           <legend className="mb-1 text-small font-semibold">Fecha</legend>
-          <CampoTexto etiqueta="Desde" type="date" value={borrador.desde} onChange={(e) => setBorrador({ ...borrador, desde: e.target.value })} />
-          <CampoTexto id="filtro-av-hasta" etiqueta="Hasta" type="date" value={borrador.hasta} onChange={(e) => setBorrador({ ...borrador, hasta: e.target.value })} error={errorFechas} />
+          <CampoTexto name="desde" etiqueta="Desde" type="date" defaultValue={valores.desde} error={errores.desde} />
+          <CampoTexto id="filtro-av-hasta" name="hasta" etiqueta="Hasta" type="date" defaultValue={valores.hasta} error={errores.hasta} />
         </fieldset>
-        <Boton
-          variante="secundario"
-          className="lg:mt-7"
-          onClick={() => {
-            setBorrador(SIN_FILTRO);
-            setFiltro(SIN_FILTRO);
-            setErrorFechas(undefined);
-            setPagina(1);
-          }}
-        >
+        <Link href="/admin/avistamientos" className={clasesBoton({ variante: "secundario", className: "lg:mt-7" })}>
           Limpiar filtros
-        </Boton>
+        </Link>
         <Boton type="submit" className="lg:mt-7">
           Aplicar filtros
         </Boton>
       </form>
 
-      {filtrados.length === 0 ? (
-        <EstadoVacio icono="visibility" titulo="Ningún avistamiento coincide" descripcion="Prueba con otro estatus o rango de fechas, o limpia los filtros." />
+      {total === 0 ? (
+        hayFiltros ? (
+          <EstadoVacio icono="visibility" titulo="Ningún avistamiento coincide" descripcion="Prueba con otro estatus o rango de fechas, o limpia los filtros." />
+        ) : (
+          <EstadoVacio icono="visibility" titulo="Aún no hay avistamientos" descripcion="Cuando alguien reporte un avistamiento, aparecerá aquí." />
+        )
       ) : (
         <div className="@container flex flex-col gap-4">
           {/* Tarjetas (móvil) */}
           <ul className="flex flex-col gap-3 @3xl:hidden">
-            {visibles.map((a) => (
+            {items.map((a) => (
               <li key={a.id} data-avistamiento={a.id} className={cx("flex flex-col gap-3 rounded-tarjeta bg-surface p-4", a.visible ? "border border-border" : "border-2 border-dashed border-border-strong")}>
                 <div className="flex items-center gap-3">
                   {miniatura(a, 80)}
@@ -215,7 +206,7 @@ export function ModeracionAvistamientos({ avistamientos: iniciales, modalInicial
                 </tr>
               </thead>
               <tbody>
-                {visibles.map((a) => (
+                {items.map((a) => (
                   <tr key={a.id} data-avistamiento={a.id} className="border-b border-border align-top last:border-b-0">
                     <td className="px-3 py-2">
                       <div className="flex items-center gap-3">
@@ -242,35 +233,36 @@ export function ModeracionAvistamientos({ avistamientos: iniciales, modalInicial
           </div>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p aria-live="polite" className="text-small text-text-muted">
-              {(paginaActual - 1) * POR_PAGINA + 1}–{(paginaActual - 1) * POR_PAGINA + visibles.length} de {filtrados.length} avistamientos
+              {(pagina - 1) * porPagina + 1}–{(pagina - 1) * porPagina + items.length} de {total} avistamientos
             </p>
-            <Paginacion paginaActual={paginaActual} totalPaginas={total} onCambiarPagina={setPagina} />
+            <Paginacion paginaActual={pagina} totalPaginas={totalPaginas} onCambiarPagina={(n) => router.push(urlConPagina("/admin/avistamientos", parametros, n))} />
           </div>
         </div>
       )}
 
-      <ModalMotivo
-        abierto={modal === "ocultar"}
-        onCerrar={() => setModal(null)}
-        titulo="Ocultar avistamiento"
-        resumen={
-          <div className="flex items-center gap-3">
-            {miniatura(actual, 64)}
-            <div className="min-w-0">
-              <p className="text-h3 font-bold">ID {actual.id}</p>
-              <p className="text-small text-text-muted">
-                <span className="whitespace-nowrap tabular-nums">{actual.folio}</span> · {formatearFechaHora(actual.fechaHora)} · {actual.alcaldia}
-              </p>
+      {actual && (
+        <ModalMotivo
+          abierto={ocultando}
+          onCerrar={() => setOcultando(false)}
+          titulo="Ocultar avistamiento"
+          resumen={
+            <div className="flex items-center gap-3">
+              {miniatura(actual, 64)}
+              <div className="min-w-0">
+                <p className="text-h3 font-bold">ID {actual.id}</p>
+                <p className="text-small text-text-muted">
+                  <span className="whitespace-nowrap tabular-nums">{actual.folio}</span> · {formatearFechaHora(actual.fechaHora)} · {actual.alcaldia}
+                </p>
+              </div>
             </div>
-          </div>
-        }
-        tituloAdvertencia="Aviso"
-        advertencia="Dejará de verse en el historial de la persona tutora; no se elimina."
-        conMotivo
-        errorInicial={errorInicial}
-        onConfirmar={ocultar}
-      />
-      <ModalDetalleAvistamiento avistamiento={actual} abierto={modal === "detalle"} onCerrar={() => setModal(null)} fotoVisible={fotoVisible} />
+          }
+          tituloAdvertencia="Aviso"
+          advertencia="Dejará de verse en el historial de la persona tutora; no se elimina."
+          conMotivo
+          onConfirmar={ocultar}
+        />
+      )}
+      {detalle && <ModalDetalleAvistamiento avistamiento={detalle} abierto onCerrar={cerrarDetalle} hrefRevelar={conDetalle(detalle.id, true)} hrefOcultar={conDetalle(detalle.id)} />}
       {aviso && <Toast mensaje={aviso} onCerrar={() => setAviso(undefined)} />}
     </div>
   );

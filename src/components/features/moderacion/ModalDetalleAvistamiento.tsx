@@ -5,9 +5,9 @@ import { ChipEstatus } from "@/components/ui/ChipEstatus";
 import { Etiqueta } from "@/components/ui/Etiqueta";
 import { Modal } from "@/components/ui/Modal";
 import { formatearFechaHora } from "@/lib/formato";
-import { esFallecido, estadosPorCategoria } from "@/mocks/avistamientos";
+import { estadosPorCategoria } from "@/mocks/avistamientos";
 import { CATEGORIAS_ESTADO_ANIMAL } from "@/mocks/catalogos";
-import type { AvistamientoAdmin } from "@/mocks/moderacion";
+import type { AvistamientoAdmin } from "@/server/serializadores/admin";
 import { FotoAvistamiento } from "../avistamientos/FotoAvistamiento";
 import { TarjetaDatos } from "../TarjetaDatos";
 
@@ -18,8 +18,10 @@ type Props = {
   avistamiento: AvistamientoAdmin;
   abierto: boolean;
   onCerrar: () => void;
-  /** Capturas y pruebas: empieza con la fotografía de un «Fallecido» revelada. */
-  fotoVisible?: boolean;
+  /** «Ver fotografía» de un «Fallecido»: enlace a esta ruta (con ?foto=visible). El servidor entrega la dirección de la foto SOLO con ese parámetro. */
+  hrefRevelar: string;
+  /** «Ocultar fotografía»: la misma ruta sin el parámetro. */
+  hrefOcultar: string;
 };
 
 /**
@@ -27,12 +29,12 @@ type Props = {
  * «Ver fotografía»), ID, folio, fecha y hora, alcaldía, estados del animal por categoría, comentario, estatus y, si está oculto, el motivo.
  * Sin dirección ni referencias: son reservadas a la persona tutora (TUT-10).
  */
-export function ModalDetalleAvistamiento({ avistamiento: a, abierto, onCerrar, fotoVisible = false }: Props) {
-  const fallecido = esFallecido(a);
+export function ModalDetalleAvistamiento({ avistamiento: a, abierto, onCerrar, hrefRevelar, hrefOcultar }: Props) {
+  const fallecido = a.fallecido;
   const grupos = estadosPorCategoria(a.estadosAnimal);
   return (
     <Modal abierto={abierto} onCerrar={onCerrar} titulo="Detalle del avistamiento" tamano="md">
-      <FotoAvistamiento key={a.id} src={a.fotografiaUrl} sensible={fallecido} reveladaInicial={fotoVisible} aviso={AVISO_OCULTA} avisoRevelada={AVISO_REVELADA} />
+      <FotoAvistamiento key={a.id} src={a.fotografiaUrl} sensible={fallecido} hrefRevelar={hrefRevelar} hrefOcultar={hrefOcultar} aviso={AVISO_OCULTA} avisoRevelada={AVISO_REVELADA} />
       <TarjetaDatos
         id="datos-avistamiento-admin"
         titulo="Datos del avistamiento"

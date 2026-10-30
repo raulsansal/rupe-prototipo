@@ -129,6 +129,11 @@ RUTAS.push(
 );
 // P5 · seguimiento de la persona tutora y estatus público. Los casos y avistamientos son los sembrados; las capturas con modal se abren con una interacción real. Se capturan ANTES de abrir el detalle de
 // un avistamiento nuevo (abrirlo lo marca como visto) y el almacén se reinicia al terminar.
+/** Abre un modal pulsando un botón (nombre exacto o patrón) con un clic real; los modales de la moderación ya no se fijan por la URL. */
+const clicYDialogo = (nombre: string | RegExp) => async (p: Page) => {
+  await p.getByRole("button", { name: nombre }).first().click();
+  await p.getByRole("dialog").waitFor();
+};
 const PEND = (nombre: string) => ({ name: nombre, exact: true });
 const abrirModal = (boton: string) => async (p: Page) => {
   await p.getByRole("button", PEND(boton)).click();
@@ -161,35 +166,32 @@ RUTAS.push(
   { ruta: "/admin", archivo: "admin-tablero" },
   { ruta: "/admin?desde=2026-09-01&hasta=2026-09-30", archivo: "admin-tablero-septiembre", anchos: M },
   { ruta: "/admin/usuarios", archivo: "admin-usuarios" },
-  { ruta: "/admin/usuarios?modal=rol", archivo: "admin-usuarios-cambiar-rol", anchos: M, ventana: true },
-  { ruta: "/admin/usuarios?modal=deshabilitar", archivo: "admin-usuarios-deshabilitar", anchos: M, ventana: true },
-  { ruta: "/admin/usuarios?modal=habilitar", archivo: "admin-usuarios-habilitar", anchos: M, ventana: true },
-  { ruta: "/admin/usuarios?estado=cargando", archivo: "admin-usuarios-cargando", anchos: M },
-  { ruta: "/admin/usuarios?estado=vacio", archivo: "admin-usuarios-vacio", anchos: M },
+  { ruta: "/admin/usuarios", archivo: "admin-usuarios-cambiar-rol", anchos: M, ventana: true, preparar: clicYDialogo(/^Cambiar rol de Rosa/) },
+  { ruta: "/admin/usuarios", archivo: "admin-usuarios-deshabilitar", anchos: M, ventana: true, preparar: clicYDialogo(/^Deshabilitar a Rosa/) },
+  { ruta: "/admin/usuarios", archivo: "admin-usuarios-habilitar", anchos: M, ventana: true, preparar: clicYDialogo(/^Habilitar a Mateo/) },
+  { ruta: "/admin/usuarios?q=zzzz", archivo: "admin-usuarios-sin-resultados", anchos: M },
 );
 // Bloque 5b · Administrador: moderación de registros (ADM-04, MOD-08 y TUT-05 variante Administrador), de avistamientos (ADM-05 y MOD-09)
 // y la plantilla de catálogo (ADM-06 a ADM-09 con MOD-11). Los modales se capturan como pantalla de teléfono.
 const REGISTRO = "/admin/registros";
 RUTAS.push(
   { ruta: REGISTRO, archivo: "admin-registros" },
-  { ruta: `${REGISTRO}?modal=deshabilitar`, archivo: "admin-registros-deshabilitar", anchos: M, ventana: true },
-  { ruta: `${REGISTRO}?modal=deshabilitar&error=motivo`, archivo: "admin-registros-deshabilitar-error", anchos: M, ventana: true },
-  { ruta: `${REGISTRO}?estado=cargando`, archivo: "admin-registros-cargando", anchos: M },
-  { ruta: `${REGISTRO}?estado=vacio`, archivo: "admin-registros-vacio", anchos: M },
+  { ruta: REGISTRO, archivo: "admin-registros-deshabilitar", anchos: M, ventana: true, preparar: clicYDialogo(/^Deshabilitar RUPE-K7M4XQ9T/) },
+  { ruta: REGISTRO, archivo: "admin-registros-deshabilitar-error", anchos: M, ventana: true, preparar: async (p) => { await clicYDialogo(/^Deshabilitar RUPE-K7M4XQ9T/)(p); await p.getByRole("button", { name: "Confirmar" }).click(); } },
+  { ruta: `${REGISTRO}?estado=Extraviado`, archivo: "admin-registros-sin-resultados", anchos: M },
   { ruta: `${REGISTRO}/${FOLIO_MODERACION_ACTIVO}`, archivo: "admin-registro-detalle" },
-  { ruta: `${REGISTRO}/${FOLIO_MODERACION_ACTIVO}?modal=deshabilitar`, archivo: "admin-registro-detalle-deshabilitar", anchos: M, ventana: true },
+  { ruta: `${REGISTRO}/${FOLIO_MODERACION_ACTIVO}`, archivo: "admin-registro-detalle-deshabilitar", anchos: M, ventana: true, preparar: clicYDialogo("Deshabilitar registro") },
   { ruta: `${REGISTRO}/${FOLIO_MODERACION_DESHABILITADO}`, archivo: "admin-registro-detalle-deshabilitado", anchos: M },
   { ruta: `${REGISTRO}/${FOLIO_MODERACION_CANCELADO}`, archivo: "admin-registro-detalle-cancelado", anchos: M },
   { ruta: "/admin/avistamientos", archivo: "admin-avistamientos" },
-  { ruta: "/admin/avistamientos?modal=ocultar", archivo: "admin-avistamientos-ocultar", anchos: M, ventana: true },
-  { ruta: "/admin/avistamientos?modal=ocultar&error=motivo", archivo: "admin-avistamientos-ocultar-error", anchos: M, ventana: true },
-  { ruta: "/admin/avistamientos?modal=detalle", archivo: "admin-avistamientos-detalle", anchos: M, ventana: true },
-  { ruta: "/admin/avistamientos?modal=detalle-oculto", archivo: "admin-avistamientos-detalle-oculto", anchos: M, ventana: true },
+  { ruta: "/admin/avistamientos", archivo: "admin-avistamientos-ocultar", anchos: M, ventana: true, preparar: clicYDialogo(/^Ocultar el avistamiento/) },
+  { ruta: "/admin/avistamientos", archivo: "admin-avistamientos-ocultar-error", anchos: M, ventana: true, preparar: async (p) => { await clicYDialogo(/^Ocultar el avistamiento/)(p); await p.getByRole("button", { name: "Confirmar" }).click(); } },
+  { ruta: "/admin/avistamientos?detalle=201", archivo: "admin-avistamientos-detalle", anchos: M, ventana: true },
+  { ruta: "/admin/avistamientos?detalle=105", archivo: "admin-avistamientos-detalle-oculto", anchos: M, ventana: true },
   { ruta: "/admin/avistamientos?pagina=2", archivo: "admin-avistamientos-fallecido-y-oculto" },
-  { ruta: "/admin/avistamientos?modal=detalle-fallecido", archivo: "admin-avistamientos-detalle-fallecido", anchos: M, ventana: true },
-  { ruta: "/admin/avistamientos?modal=detalle-fallecido&foto=visible", archivo: "admin-avistamientos-detalle-fallecido-foto", anchos: M, ventana: true },
-  { ruta: "/admin/avistamientos?estado=cargando", archivo: "admin-avistamientos-cargando", anchos: M },
-  { ruta: "/admin/avistamientos?estado=vacio", archivo: "admin-avistamientos-vacio", anchos: M },
+  { ruta: "/admin/avistamientos?detalle=102", archivo: "admin-avistamientos-detalle-fallecido", anchos: M, ventana: true },
+  { ruta: "/admin/avistamientos?detalle=102&foto=visible", archivo: "admin-avistamientos-detalle-fallecido-foto", anchos: M, ventana: true },
+  { ruta: "/admin/avistamientos?desde=2026-01-01&hasta=2026-01-02", archivo: "admin-avistamientos-sin-resultados", anchos: M },
   { ruta: "/admin/alcaldias", archivo: "admin-alcaldias" },
   { ruta: "/admin/alcaldias?modal=nuevo", archivo: "admin-alcaldias-agregar", anchos: M, ventana: true },
   { ruta: "/admin/alcaldias?modal=editar", archivo: "admin-alcaldias-editar", anchos: M, ventana: true },
@@ -223,8 +225,7 @@ RUTAS.push(
   { ruta: "/admin/registros/RUPE-C2J9RK6Z", archivo: "admin-registro-detalle-restaurado" }, // deshabilitado y restaurado (27 y 28 sep): su historial coincide con la bitácora
   { ruta: "/admin/bitacora", archivo: "admin-bitacora" },
   { ruta: "/admin/bitacora?pagina=2", archivo: "admin-bitacora-pagina-2", anchos: M },
-  { ruta: "/admin/bitacora?estado=vacio", archivo: "admin-bitacora-sin-resultados" },
-  { ruta: "/admin/bitacora?estado=cargando", archivo: "admin-bitacora-cargando", anchos: M },
+  { ruta: "/admin/bitacora?tipo=modificar%20par%C3%A1metro&desde=2026-10-17&hasta=2026-10-18", archivo: "admin-bitacora-sin-resultados" },
 );
 // Prototipo P1 · Acceso. Estados REALES del servidor (no variantes de la URL): cada captura rellena el formulario y lo envía. Tutor y Administrador entran con
 // las cuentas ficticias de .env.local. Los datos se reinician al terminar (bloqueos, aviso de la versión 2.0, sesiones).

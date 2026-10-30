@@ -51,6 +51,12 @@ async function casoPropio(sesion: SesionActual | undefined, folio: string, ctx: 
 }
 
 /** «Localizado el 9 oct»: la fecha del movimiento de localización solo se deriva para los casos «Localizado» (el resto no la muestra). */
+/** El motivo de una deshabilitación lo escribe el Administrador y es suyo (bitácora, HU 058): la dueña ve «Caso deshabilitado» y el estado «Cerrado», sin motivo (el movimiento no trae quién actuó). */
+const paraLaDuena = (m: MovimientoHistorial): MovimientoHistorial => {
+  if (m.tipo !== "deshabilitación") return m;
+  const { motivo: _motivo, ...resto } = m; // eslint-disable-line @typescript-eslint/no-unused-vars
+  return resto;
+};
 const fechaDeLocalizacion = (c: Cargado) => (c.estado === "Localizado" ? c.historial[c.historial.length - 1]?.fechaHora : undefined);
 
 function aFicha(c: Cargado): FichaTutor {
@@ -87,7 +93,7 @@ export async function casoDelTutor(sesion: SesionActual | undefined, folio: stri
     razaEspecificada: perro.razaEspecificada, raza: nombres.raza, fotografiaUrl: c.foto?.referenciaArchivo ?? "",
     folio: caso.folio as CasoTutor["folio"], fechaExtravio: caso.fechaExtravio, momentoDelDia: caso.momentoDelDia, coloniaZona: caso.coloniaZona, direccionAproximada: caso.direccionAproximada,
     referenciasDelLugar: caso.referenciasDelLugar, descripcionCircunstancias: caso.descripcionCircunstancias, alcaldia: nombres.alcaldia, motivo: nombres.motivo, estado,
-    fechaCambioEstado: fechaDeLocalizacion(c), fechaRegistro: caso.fechaRegistro, historial,
+    fechaCambioEstado: fechaDeLocalizacion(c), fechaRegistro: caso.fechaRegistro, historial: historial.map(paraLaDuena),
   };
 }
 
