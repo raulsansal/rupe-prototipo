@@ -1,13 +1,14 @@
+// Base HISTÓRICA sintética del tablero y de Reportes (HU 055 y 056): los datos que seed/baseHistorica.ts asocia a ids y congela. Ya no se calcula nada aquí (el cálculo vive en server/dominio/estadisticas.ts;
+// el del maquetado quedó como oráculo de pruebas, fuera de src).
 // Datos ficticios del tablero del Administrador (HU 055). Se generan con un generador pseudoaleatorio de semilla fija, así que
 // son los mismos en cada carga. Respetan las reglas del diccionario: estados del animal (R3), cierres por tipo, alcaldía propia
 // del avistamiento (con «Fuera de la Ciudad de México») y avistamientos ocultos fuera de las cuentas.
-import { CATEGORIAS_MOTIVO, ESTADOS_ANIMAL } from "./catalogos";
+import { ESTADOS_ANIMAL } from "./catalogos";
 import { ALCALDIAS, FUERA_DE_LA_CIUDAD, type Alcaldia, type AlcaldiaAvistamiento, type EstadoCaso } from "./tipos";
 
-/** «Hoy» de la maqueta (la lámina 4.13 muestra el periodo del 1 al 18 de octubre de 2026). */
+/** Último día de la base sintética (la lámina 4.13 muestra el periodo del 1 al 18 de octubre de 2026). */
 export const HOY_FICTICIO = "2026-10-18";
 export const INICIO_DATOS = "2026-06-01";
-export const PERIODO_PREDETERMINADO = { desde: "2026-10-01", hasta: HOY_FICTICIO } as const;
 
 export type TipoCierre = "Cierre confirmado" | "Cancelación" | "Deshabilitación";
 export type CasoTablero = { fecha: string; categoriaMotivo: number; estado: EstadoCaso; cierre?: TipoCierre; fechaCierre?: string; diasALocalizar?: number; alcaldia: Alcaldia };
@@ -92,61 +93,3 @@ export const AVISTAMIENTOS_TABLERO: readonly AvistamientoTablero[] = generarAvis
   const hasta = CASOS.filter((c) => c.fecha <= a.fecha).length;
   return { ...a, casoIdx: hasta - 1 - (hash(i + 17) % Math.min(hasta, 60)) };
 });
-const AVISTAMIENTOS = AVISTAMIENTOS_TABLERO;
-
-export type Periodo = { desde: string; hasta: string };
-const dentro = (f: string, p: Periodo) => f >= p.desde && f <= p.hasta;
-
-export type Barra = { nombre: string; valor: number };
-export type ResumenTablero = {
-  casosActivos: number;
-  casosLocalizados: number;
-  totalCasos: number;
-  totalAvistamientos: number;
-  /** Días promedio entre el registro y la localización; null si no hay casos localizados en el periodo. */
-  promedioLocalizacion: number | null;
-  avistamientosOcultos: number;
-  porMotivo: Barra[];
-  porEstadoCaso: Barra[];
-  cierres: Barra[];
-  porEstadoAnimal: { categoria: string; barras: Barra[] }[];
-  porAlcaldia: Barra[];
-};
-
-/** Todos los indicadores y gráficas del tablero para un periodo (HU 055). */
-export function calcularTablero(p: Periodo): ResumenTablero {
-  const casos = CASOS.filter((c) => dentro(c.fecha, p));
-  const visibles = AVISTAMIENTOS.filter((a) => a.visible && dentro(a.fecha, p));
-  const activos = ["Extraviado", "En búsqueda", "Avistamiento reportado", "En seguimiento"];
-  // Localizados: «Localizado» o cerrados por cierre confirmado (HU 055, regla 5).
-  const localizados = casos.filter((c) => c.estado === "Localizado" || c.cierre === "Cierre confirmado");
-  const dias = localizados.map((c) => c.diasALocalizar).filter((x): x is number => x !== undefined);
-  const estadosCaso: EstadoCaso[] = ["Extraviado", "En búsqueda", "Avistamiento reportado", "En seguimiento", "Localizado", "Cerrado"];
-  return {
-    casosActivos: casos.filter((c) => activos.includes(c.estado)).length,
-    casosLocalizados: localizados.length,
-    totalCasos: casos.length,
-    totalAvistamientos: visibles.length,
-    promedioLocalizacion: dias.length ? Math.round((dias.reduce((s, x) => s + x, 0) / dias.length) * 10) / 10 : null,
-    avistamientosOcultos: AVISTAMIENTOS.filter((a) => !a.visible && dentro(a.fecha, p)).length,
-    porMotivo: CATEGORIAS_MOTIVO.map((c) => ({ nombre: c.nombre, valor: casos.filter((x) => x.categoriaMotivo === c.id).length })),
-    porEstadoCaso: estadosCaso.map((e) => ({ nombre: e, valor: casos.filter((c) => c.estado === e).length })),
-    // Los cierres son movimientos con fecha (HU 055, regla 6): cuentan los que ocurren en el periodo, aunque el caso se haya registrado antes.
-    cierres: TIPOS_CIERRE.map((t) => ({ nombre: t, valor: MOVIMIENTOS_CIERRE.filter((m) => m.tipo === t && dentro(m.fecha, p)).length })),
-    porEstadoAnimal: [1, 2, 3, 4].map((id) => ({
-      categoria: ["Integridad física y salud", "Contención y ubicación", "Conducta", "Identificación visible"][id - 1],
-      // Un avistamiento con varios estados se cuenta en cada uno (HU 055, regla 4).
-      barras: ESTADOS_ANIMAL.filter((e) => e.idCategoria === id).map((e) => ({ nombre: e.nombre.replace(/ \(.*\)$/, ""), valor: visibles.filter((a) => a.estados.includes(e.nombre)).length })),
-    })),
-    porAlcaldia: PESOS_ALCALDIA.map(([a]) => ({ nombre: a, valor: visibles.filter((v) => v.alcaldia === a).length })).filter((b) => b.valor > 0).sort((x, y) => y.valor - x.valor),
-  };
-}
-
-/** Valida el periodo del selector; devuelve el mensaje de error o undefined. */
-export function errorDePeriodo({ desde, hasta }: Periodo): string | undefined {
-  if (!desde || !hasta) return "Elige las dos fechas del periodo.";
-  if (desde > hasta) return "«Desde» no puede ser posterior a «Hasta».";
-  if (hasta > HOY_FICTICIO) return "El periodo no puede terminar después de hoy.";
-  if (desde < INICIO_DATOS) return "No hay datos anteriores al 1 de junio de 2026.";
-  return undefined;
-}

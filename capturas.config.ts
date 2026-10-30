@@ -163,9 +163,11 @@ RUTAS.push(
 );
 // Bloque 5a · Administrador: tablero (ADM-01) y usuarios (ADM-03 y MOD-10). Los modales se capturan como pantalla de teléfono.
 RUTAS.push(
-  { ruta: "/admin", archivo: "admin-tablero" },
+  { ruta: "/admin", archivo: "admin-tablero", anchos: [390, 768, 1280] }, // 768 px también: el menú lateral del Administrador (encabezados de grupo) se revisa en los tres anchos
   { ruta: "/admin?desde=2026-09-01&hasta=2026-09-30", archivo: "admin-tablero-septiembre", anchos: M },
-  { ruta: "/admin/usuarios", archivo: "admin-usuarios" },
+  { ruta: "/admin?desde=2026-10-10&hasta=2026-10-01", archivo: "admin-tablero-periodo-invalido", anchos: M },
+  { ruta: "/admin?desde=2026-10-19&hasta=2026-10-19", archivo: "admin-tablero-sin-datos", anchos: M },
+  { ruta: "/admin/usuarios", archivo: "admin-usuarios", anchos: [390, 768, 1280] },
   { ruta: "/admin/usuarios", archivo: "admin-usuarios-cambiar-rol", anchos: M, ventana: true, preparar: clicYDialogo(/^Cambiar rol de Rosa/) },
   { ruta: "/admin/usuarios", archivo: "admin-usuarios-deshabilitar", anchos: M, ventana: true, preparar: clicYDialogo(/^Deshabilitar a Rosa/) },
   { ruta: "/admin/usuarios", archivo: "admin-usuarios-habilitar", anchos: M, ventana: true, preparar: clicYDialogo(/^Habilitar a Mateo/) },
@@ -207,14 +209,20 @@ RUTAS.push(
   { ruta: "/admin/estados-animal?pagina=3", archivo: "admin-estados-animal-bloqueada" },
 );
 // Bloque 5c · Administrador: reportes, estados del caso, parámetros y bitácora (390 y 1280 px; las variantes, solo 390).
-const PERIODO_REPORTE = "desde=2026-10-01&hasta=2026-10-18";
+// P6c: Reportes ya no tiene variantes por URL: cada estado se alcanza con acciones reales (rellenar y pulsar «Generar reporte»). Todas comparten la ruta /admin/reportes (se capturan con --rutas-exactas=/admin/reportes).
+const generarReporte = (desde: string, hasta: string, extra?: (p: Page) => Promise<void>) => async (p: Page) => {
+  await p.locator("#reporte-desde").fill(desde);
+  await p.locator("#reporte-hasta").fill(hasta);
+  await extra?.(p);
+  await p.getByRole("button", { name: "Generar reporte" }).click();
+};
 RUTAS.push(
   { ruta: "/admin/reportes", archivo: "admin-reportes" },
-  { ruta: "/admin/reportes?generar=1", archivo: "admin-reportes-error-rango", anchos: M },
-  { ruta: `/admin/reportes?${PERIODO_REPORTE}`, archivo: "admin-reportes-resultados" },
-  { ruta: `/admin/reportes?${PERIODO_REPORTE}&alcaldia=Coyoacán&estadoCaso=Localizado`, archivo: "admin-reportes-filtrado", anchos: M },
-  { ruta: "/admin/reportes?estado=vacio", archivo: "admin-reportes-sin-datos" },
-  { ruta: "/admin/reportes?estado=cargando", archivo: "admin-reportes-cargando", anchos: M },
+  { ruta: "/admin/reportes", archivo: "admin-reportes-error-rango", anchos: M, preparar: async (p) => { await p.getByRole("button", { name: "Generar reporte" }).click(); await p.getByText("El rango de fechas es obligatorio: indica «Desde».").waitFor(); } },
+  { ruta: "/admin/reportes", archivo: "admin-reportes-resultados", preparar: async (p) => { await generarReporte("2026-10-01", "2026-10-18")(p); await p.locator("section[aria-label='Resultados del reporte']").waitFor(); } },
+  { ruta: "/admin/reportes", archivo: "admin-reportes-filtrado", anchos: M, preparar: async (p) => { await generarReporte("2026-10-01", "2026-10-18", async (q) => { await q.getByLabel("Alcaldía · opcional").selectOption({ label: "Coyoacán" }); await q.getByLabel("Estado del caso · opcional").selectOption("Localizado"); })(p); await p.locator("section[aria-label='Resultados del reporte']").waitFor(); } },
+  { ruta: "/admin/reportes", archivo: "admin-reportes-sin-datos", preparar: async (p) => { await generarReporte("2026-10-19", "2026-10-31")(p); await p.getByText("No hay datos en el periodo y filtros seleccionados").waitFor(); } },
+  { ruta: "/admin/reportes", archivo: "admin-reportes-cargando", anchos: M, preparar: async (p) => { await p.route("**/api/admin/reportes?*", () => undefined); await generarReporte("2026-10-01", "2026-10-18")(p); await p.locator("[role=status][aria-busy=true]").first().waitFor(); } },
   { ruta: "/admin/estados-caso", archivo: "admin-estados-caso" },
   { ruta: "/admin/parametros", archivo: "admin-parametros" },
   { ruta: "/admin/parametros", archivo: "admin-parametros-aviso", preparar: async (p) => { await p.getByLabel("Versión vigente del aviso de privacidad").fill("2.0"); } },

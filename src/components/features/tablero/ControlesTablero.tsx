@@ -5,8 +5,9 @@ import { useState } from "react";
 import { Boton } from "@/components/ui/Boton";
 import { CampoTexto } from "@/components/ui/CampoTexto";
 import { Toast } from "@/components/ui/Toast";
-import { formatearFechaCorta } from "@/lib/formato";
-import { errorDePeriodo, HOY_FICTICIO, INICIO_DATOS, type Periodo } from "@/mocks/tablero";
+import { formatearFechaCorta, formatearFechaHora } from "@/lib/formato";
+
+type Periodo = { desde: string; hasta: string };
 
 /** «Actualizar tablero» (HU 055): vuelve a pedir los indicadores y lo anuncia. */
 export function BotonActualizarTablero() {
@@ -29,18 +30,17 @@ export function BotonActualizarTablero() {
   );
 }
 
-/** «Filtrar por periodo» (HU 055): el periodo vive en la URL (?desde, ?hasta) y los indicadores y gráficas lo respetan. */
-export function FiltroPeriodo({ periodo }: { periodo: Periodo }) {
+/**
+ * «Filtrar por periodo» (HU 055): el periodo vive en la URL (?desde, ?hasta) y el SERVIDOR lo valida: si no es válido, la página vuelve con el error del servicio bajo el campo. `limites` son el primer día
+ * con datos y hoy (Ciudad de México); `generadoEn` es el instante real del cálculo.
+ */
+export function FiltroPeriodo({ periodo, limites, generadoEn, errores = {} }: { periodo: Partial<Periodo>; limites: Periodo; generadoEn?: string; errores?: { desde?: string; hasta?: string } }) {
   const router = useRouter();
-  const [desde, setDesde] = useState(periodo.desde);
-  const [hasta, setHasta] = useState(periodo.hasta);
-  const [error, setError] = useState<string>();
+  const [desde, setDesde] = useState(periodo.desde ?? "");
+  const [hasta, setHasta] = useState(periodo.hasta ?? "");
 
   function aplicar() {
-    const e = errorDePeriodo({ desde, hasta });
-    setError(e);
-    if (e) return document.getElementById(!desde ? "periodo-desde" : "periodo-hasta")?.focus();
-    router.push(`/admin?desde=${desde}&hasta=${hasta}`);
+    router.push(`/admin?desde=${encodeURIComponent(desde)}&hasta=${encodeURIComponent(hasta)}`);
   }
 
   return (
@@ -49,15 +49,17 @@ export function FiltroPeriodo({ periodo }: { periodo: Periodo }) {
         Filtrar por periodo
       </h2>
       <div className="grid grid-cols-2 gap-3">
-        <CampoTexto id="periodo-desde" etiqueta="Desde" type="date" min={INICIO_DATOS} max={HOY_FICTICIO} value={desde} onChange={(e) => setDesde(e.target.value)} />
-        <CampoTexto id="periodo-hasta" etiqueta="Hasta" type="date" min={INICIO_DATOS} max={HOY_FICTICIO} value={hasta} onChange={(e) => setHasta(e.target.value)} error={error} />
+        <CampoTexto id="periodo-desde" etiqueta="Desde" type="date" min={limites.desde} max={limites.hasta} value={desde} onChange={(e) => setDesde(e.target.value)} error={errores.desde} />
+        <CampoTexto id="periodo-hasta" etiqueta="Hasta" type="date" min={limites.desde} max={limites.hasta} value={hasta} onChange={(e) => setHasta(e.target.value)} error={errores.hasta} />
       </div>
       <Boton anchoCompleto onClick={aplicar}>
         Aplicar periodo
       </Boton>
-      <p className="text-caption text-text-muted">
-        Periodo mostrado: {formatearFechaCorta(periodo.desde)} – {formatearFechaCorta(periodo.hasta)} · Última actualización: hoy, 10:42
-      </p>
+      {generadoEn && periodo.desde && periodo.hasta && (
+        <p className="text-caption text-text-muted">
+          Periodo mostrado: {formatearFechaCorta(periodo.desde)} – {formatearFechaCorta(periodo.hasta)} · Última actualización: {formatearFechaHora(generadoEn)}
+        </p>
+      )}
     </section>
   );
 }

@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { generarReporte as reporteOraculo } from "../../../lib/reportes";
-import { AVISTAMIENTOS_TABLERO, calcularTablero as tableroOraculo, CASOS_TABLERO } from "../../../mocks/tablero";
+import { AVISTAMIENTOS_TABLERO, CASOS_TABLERO, reporteOraculo, tableroOraculo } from "../../../../scripts/mocks-de-prueba";
 import { ALCALDIAS } from "../../../mocks/tipos";
 import { ErrorApp } from "../../errores";
 import { almacenVacio } from "../../memoria/almacen";

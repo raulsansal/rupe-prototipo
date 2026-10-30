@@ -42,6 +42,8 @@
   --text-muted: #475569;
   --disabled-text: #475569;
   --disabled-bg: #e2e8f0;
+  /* Fondo de los ENCABEZADOS de grupo del menú del Administrador (no son botones): gris tenue que los separa de las opciones. */
+  --menu-encabezado: #edf1f5;
 
   --success: #15803d;
   --warning: #b45309;
@@ -112,6 +114,7 @@
   --text-muted: #a7d8cd;
   --disabled-text: #d5efe9;
   --disabled-bg: #0f6153;
+  --menu-encabezado: #07463c;
 
   --success: #86efac;
   --warning: #fcd34d;
@@ -199,6 +202,7 @@
   --color-text-muted: var(--text-muted);
   --color-disabled-text: var(--disabled-text);
   --color-disabled-bg: var(--disabled-bg);
+  --color-menu-encabezado: var(--menu-encabezado);
 
   --color-success: var(--success);
   --color-warning: var(--warning);

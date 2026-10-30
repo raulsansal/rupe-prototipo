@@ -300,8 +300,13 @@ async function pruebas() {
 
   console.log("\n— G) Cifras del tablero y de Reportes, y claves de respuesta —");
   await reiniciarDatos(base);
-  const pagina = async (ruta: string) => huellaDe((await como("admin", ruta)).texto.replace(/\s+/g, " "));
-  const [tab0, rep0] = [await pagina("/admin"), await pagina("/admin/reportes?desde=2026-06-01&hasta=2026-10-18")];
+  // P6c: las cifras se cuentan por IDENTIFICADOR; renombrar cambia el rótulo (nombre vigente), no las cifras. Se compara la huella de las CIFRAS por id (sin rótulos ni hora; un valor nuevo del catálogo añade su fila en 0).
+  const cifrasTablero = async () => {
+    const t = (await como("admin", "/api/admin/tablero")).json!;
+    return huellaDe(JSON.stringify([t.casosActivos, t.casosLocalizados, t.totalCasos, t.totalAvistamientos, t.promedioLocalizacion, t.avistamientosOcultos, t.porMotivo.map((x: Datos) => [x.id, x.valor]), t.porEstadoCaso.map((x: Datos) => x.valor), t.cierres.map((x: Datos) => x.valor), t.porEstadoAnimal.flatMap((g: Datos) => g.barras).filter((x: Datos) => x.valor > 0).map((x: Datos) => [x.id, x.valor]), t.porAlcaldia.map((x: Datos) => [x.id, x.valor])]));
+  };
+  const pagina = async (ruta: string) => (ruta === "/admin" ? cifrasTablero() : ((await como("admin", ruta)).json!.huella as string).slice(0, 10));
+  const [tab0, rep0] = [await pagina("/admin"), await pagina("/api/admin/reportes?desde=2026-06-01&hasta=2026-10-18")];
   const textoTablero = (await como("admin", "/admin")).texto;
   ver(["163", "141", "19", "199"].every((n) => textoTablero.includes(n)), "el tablero muestra las cifras de siempre (163 casos, 141 activos, 19 localizados, 199 avistamientos)", "faltan cifras en el tablero");
   for (const t of TIPOS) await alta(t, NUEVO[t]);
@@ -310,8 +315,8 @@ async function pruebas() {
   await edita("motivos", 1, { nombre: "Pánico", idCategoria: 1, descripcion: "d" });
   await edita("estados-animal", 2, { nombre: "Herido", idCategoria: 1, descripcion: "d" });
   for (const [t, id] of [["alcaldias", 5], ["razas", 6], ["motivos", 2], ["estados-animal", 16]] as Array<[Tipo, number]>) await desactiva(t, id);
-  const [tab1, rep1] = [await pagina("/admin"), await pagina("/admin/reportes?desde=2026-06-01&hasta=2026-10-18")];
-  ver(tab0 === tab1 && rep0 === rep1, `tras crear, renombrar y desactivar en los 4 catálogos, el tablero (#${tab0}) y Reportes (#${rep0}) son IDÉNTICOS (huella del contenido)`, `tablero #${tab0}→#${tab1} · reportes #${rep0}→#${rep1}`);
+  const [tab1, rep1] = [await pagina("/admin"), await pagina("/api/admin/reportes?desde=2026-06-01&hasta=2026-10-18")];
+  ver(tab0 === tab1 && rep0 === rep1, `tras crear, renombrar y desactivar en los 4 catálogos, las CIFRAS del tablero (#${tab0}) y de Reportes (#${rep0}) son IDÉNTICAS (huella por id; los rótulos sí cambian)`, `tablero #${tab0}→#${tab1} · reportes #${rep0}→#${rep1}`);
   const claves = async (t: Tipo) => {
     const l = await como("admin", `/api/admin/catalogos/${t}`);
     return (l.json?.items as Datos[]).every((x) => Object.keys(x).every((k) => (CAMPOS_CATALOGO_ADMIN as readonly string[]).includes(k))) && !l.texto.includes("estatus") && !l.texto.includes("claveGeoestadistica") && Object.keys(l.json ?? {}).sort().join() === "categorias,filtros,items,pagina,porPagina,tipo,total,totalPaginas";

@@ -11,26 +11,39 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { chromium, type Browser, type BrowserContext, type Locator, type Page } from "playwright";
 import { CASOS_ORIGEN } from "../src/mocks/casos";
-import { calcularTablero, CASOS_TABLERO, MOVIMIENTOS_CIERRE, PERIODO_PREDETERMINADO, type ResumenTablero } from "../src/mocks/tablero";
+import { CASOS_TABLERO, MOVIMIENTOS_CIERRE, reporteOraculo, tableroOraculo, type ResumenTableroOraculo } from "./mocks-de-prueba";
 import { USUARIOS_INICIALES } from "../src/mocks/usuarios";
 import { CASOS_MODERACION, AVISTAMIENTOS_MODERACION, FOLIO_MODERACION_ACTIVO, FOLIO_MODERACION_CANCELADO, FOLIO_MODERACION_DESHABILITADO, ID_AVISTAMIENTO_FALLECIDO, ID_AVISTAMIENTO_VISIBLE } from "../src/mocks/moderacion";
 import { CATEGORIAS_MOTIVO, ESTADOS_ANIMAL, MOTIVOS, RAZAS } from "../src/mocks/catalogos";
 import { AVISTAMIENTOS } from "../src/mocks/avistamientos";
 import { CLAVE_TEMA } from "../src/lib/tema";
 import { JPEG_REAL } from "../src/server/pruebas/imagenes";
-import { elegirImagenGenerada } from "./imagenes-pruebas";
+import { elegirImagenGenerada, registrarPorLaInterfaz } from "./imagenes-pruebas";
+import { filasDeHoja, leerXlsx } from "./lib/leerXlsx";
 import { textoDePdf } from "./lib/textoPdf";
 import { agregarSesion, credencial, fetchComo, NOMBRE_COOKIE, olvidarSesiones, reiniciarDatos, rolDeRuta, valorDeSesion, type RolPrueba } from "./sesion-pruebas";
 import { BITACORA, ENTIDAD_DE_TIPO, TIPOS_ACCION } from "../src/mocks/bitacora";
-import { generarReporte } from "../src/lib/reportes";
 import { esDeshabilitado } from "../src/lib/moderacion";
 import { ALCALDIAS, ESTADOS_CASO, FUERA_DE_LA_CIUDAD } from "../src/mocks/tipos";
-import { fechaLocalISO, formatearFechaHora } from "../src/lib/formato";
+import { fechaLocalISO, formatearFechaCorta, formatearFechaHora } from "../src/lib/formato";
 
 const PUERTO = 3108;
 const baseExterna = process.argv.find((a) => a.startsWith("--base="))?.split("=")[1];
 const base = baseExterna ?? `http://localhost:${PUERTO}`;
 const ANCHOS = [390, 768, 1280];
+/** Hoy en la Ciudad de México (UTC−6) según el reloj de esta máquina (el servidor corre aquí). El periodo predeterminado del tablero es 1 oct → HOY; la base sintética termina el 18 de octubre. */
+const hoyCDMX = (masDias = 0) => new Date(Date.now() - 6 * 3600_000 + masDias * 86_400_000).toISOString().slice(0, 10);
+const PERIODO_BASE = { desde: "2026-10-01", hasta: "2026-10-18" } as const;
+/** Registra un caso NUEVO como la persona tutora 1, por la API real (multipart «datos» + «fotografia»). Devuelve el folio. */
+async function crearCasoPorApi(extra: Record<string, unknown> = {}): Promise<string> {
+  const f = new FormData();
+  f.set("datos", JSON.stringify({ nombre: "Nuevo", sexo: "Hembra", idRaza: 1, edad: { valor: 3, unidad: "años" }, tamano: "pequeño", color: "Blanco", fechaExtravio: hoyCDMX(), momento: "tarde", alcaldia: "Coyoacán", colonia: "Del Carmen", calle: "Calle Reservada 99", idMotivo: 1, ...extra }));
+  f.set("fotografia", new Blob([JPEG_REAL as BlobPart], { type: "image/jpeg" }), "fotografia.jpg");
+  const r = await fetch(`${base}/api/casos`, { method: "POST", headers: { Origin: new URL(base).origin, Cookie: `${NOMBRE_COOKIE}=${await valorDeSesion(base, "tutor1")}` }, body: f, redirect: "manual" });
+  const j = (await r.json().catch(() => ({}))) as { folio?: string };
+  if (r.status !== 201 || !j.folio) throw new Error(`No se pudo registrar el caso de prueba por la API: HTTP ${r.status}`);
+  return j.folio;
+}
 
 let fallos = 0;
 let total = 0;
@@ -179,18 +192,72 @@ async function armazon(navegador: Browser) {
   await contexto.close();
 }
 
+// ---------- encabezados de grupo del menú ----------
+/** Mide los encabezados (h2) y las opciones (enlaces) del menú que cuelga de `raiz`: fondo EFECTIVO de cada uno (el primer ancestro con color), token, foco y cursor. */
+const medirMenu = (pagina: Page, raiz: string) =>
+  pagina.evaluate<{ encabezado: string; opcion: string; activa: string; tokenEncabezado: string; tokenSuperficie: string; tokenPrimario: string; tokenSoft: string; etiqueta: string; tabIndex: number; rol: string | null; cursor: string; altoOpcion: number; enlace: string }>(
+    `(function(){
+      var nav = document.querySelector(${JSON.stringify(raiz)});
+      var h = nav.querySelector("h2");
+      var opcion = Array.prototype.find.call(nav.querySelectorAll("a"), function(a){ return a.getAttribute("aria-current") !== "page"; });
+      var activa = nav.querySelector("a[aria-current=page]");
+      function efectivo(el){ for (var e = el; e; e = e.parentElement) { var c = getComputedStyle(e).backgroundColor; if (!/^rgba\\(0, 0, 0, 0\\)$|^transparent$/.test(c)) return c; } return "?"; }
+      function token(n){ var d = document.createElement("div"); document.body.append(d); d.style.backgroundColor = "var(--" + n + ")"; var c = getComputedStyle(d).backgroundColor; d.remove(); return c; }
+      return { encabezado: efectivo(h), opcion: efectivo(opcion), activa: efectivo(activa), tokenEncabezado: token("menu-encabezado"), tokenSuperficie: token("surface"), tokenPrimario: token("primary"), tokenSoft: token("primary-soft"),
+        etiqueta: h.tagName, tabIndex: h.tabIndex, rol: h.getAttribute("role"), cursor: getComputedStyle(h).cursor, altoOpcion: opcion.getBoundingClientRect().height, enlace: opcion.textContent.trim() };
+    })()`,
+  );
+
+/** Los ENCABEZADOS de grupo del menú del Administrador se distinguen de las opciones (fondo gris tenue del token --menu-encabezado, en claro y en oscuro) y no son interactivos; las opciones conservan activo, hover y foco. */
+async function menuEncabezados(navegador: Browser) {
+  for (const tema of ["light", "dark"] as const) {
+    const nombreTema = tema === "light" ? "claro" : "oscuro";
+    let { contexto, pagina } = await nuevaPagina(navegador, 1280, tema);
+    await irA(pagina, "/admin");
+    const raiz = "aside nav[aria-label='Administración']";
+    const m = await medirMenu(pagina, raiz);
+    ver(m.encabezado === m.tokenEncabezado && m.encabezado !== m.opcion && m.opcion === m.tokenSuperficie, `menú lateral (${nombreTema}): el fondo del encabezado (${m.encabezado}, token --menu-encabezado) difiere del de una opción (${m.opcion}, la superficie del menú)`, `menú lateral (${nombreTema}): encabezado ${m.encabezado} · opción ${m.opcion} · token ${m.tokenEncabezado}`);
+    const h = pagina.locator(`${raiz} h2`).first();
+    await h.hover();
+    const trasHover = (await medirMenu(pagina, raiz)).encabezado;
+    await pagina.mouse.move(700, 600);
+    const enfocados: string[] = [];
+    await pagina.locator("body").click({ position: { x: 700, y: 600 } });
+    for (let i = 0; i < 45; i++) {
+      await pagina.keyboard.press("Tab");
+      enfocados.push(await pagina.evaluate(() => document.activeElement?.tagName ?? "?"));
+    }
+    ver(m.etiqueta === "H2" && m.tabIndex === -1 && m.rol === null && m.cursor !== "pointer" && trasHover === m.encabezado && !enfocados.includes("H2") && enfocados.includes("A"), `menú lateral (${nombreTema}): el encabezado no es un botón ni se enfoca (h2, tabIndex -1, sin rol, cursor «${m.cursor}», sin cambio al pasar el puntero; 45 Tab sin enfocarlo y sí a los enlaces)`, `menú lateral (${nombreTema}): etiqueta ${m.etiqueta} tabIndex ${m.tabIndex} rol ${m.rol} cursor ${m.cursor} hover ${m.encabezado}→${trasHover} Tab ${[...new Set(enfocados)]}`);
+    const opcion = pagina.locator(`${raiz} a`).filter({ hasText: m.enlace }).first();
+    await opcion.hover();
+    const hover = await pagina.evaluate<string>(`(function(){ var a = Array.prototype.find.call(document.querySelectorAll(${JSON.stringify(raiz + " a")}), function(x){ return x.textContent.trim() === ${JSON.stringify(m.enlace)}; }); return getComputedStyle(a).backgroundColor; })()`);
+    await opcion.focus();
+    const anillo = await pagina.evaluate<boolean>(`(function(){ var a = document.activeElement; var c = getComputedStyle(a); return a.tagName === "A" && c.outlineStyle !== "none" && c.outlineWidth !== "0px"; })()`);
+    ver(m.activa === m.tokenPrimario && hover === m.tokenSoft && anillo && m.altoOpcion >= 44, `menú lateral (${nombreTema}): las opciones conservan su estilo (activa con --primary, hover con --primary-soft, anillo de foco visible, ${Math.round(m.altoOpcion)} px de alto ≥ 44)`, `menú lateral (${nombreTema}): activa ${m.activa} · hover ${hover} (esperado ${m.tokenSoft}) · anillo ${anillo} · alto ${m.altoOpcion}`);
+    await contexto.close();
+    ({ contexto, pagina } = await nuevaPagina(navegador, 390, tema));
+    await irA(pagina, "/admin");
+    await pagina.getByRole("button", { name: "Menú", exact: true }).click();
+    await pagina.getByRole("dialog", { name: "Menú de administración" }).waitFor();
+    const c = await medirMenu(pagina, "dialog nav");
+    ver(c.encabezado === c.tokenEncabezado && c.encabezado !== c.opcion && c.tabIndex === -1 && c.altoOpcion >= 44, `cajón móvil (${nombreTema}): el mismo componente: encabezado ${c.encabezado} ≠ opción ${c.opcion}, sin foco y con opciones de ${Math.round(c.altoOpcion)} px`, `cajón móvil (${nombreTema}): encabezado ${c.encabezado} · opción ${c.opcion} · tabIndex ${c.tabIndex}`);
+    await contexto.close();
+  }
+}
+
 // ---------- tablero ----------
 const valorDe = (p: Page, titulo: string) => p.locator("article", { has: p.getByRole("heading", { name: titulo, exact: true }) }).locator("p.text-cifra").innerText();
 const fmtProm = (n: number | null) => (n === null ? "—" : `${n.toFixed(1)} días`);
 
-async function comprobarKpis(pagina: Page, t: ResumenTablero, etiqueta: string) {
+async function comprobarKpis(pagina: Page, t: ResumenTableroOraculo, etiqueta: string) {
   const real = [await valorDe(pagina, "Casos activos"), await valorDe(pagina, "Casos localizados"), await valorDe(pagina, "Total de avistamientos"), await valorDe(pagina, "Promedio de tiempo de localización"), await valorDe(pagina, "Avistamientos ocultos")];
   const esperado = [String(t.casosActivos), String(t.casosLocalizados), String(t.totalAvistamientos), fmtProm(t.promedioLocalizacion), String(t.avistamientosOcultos)];
   ver(JSON.stringify(real) === JSON.stringify(esperado), `${etiqueta}: indicadores ${real.join(" · ")}`, `${etiqueta}: indicadores ${real.join(" · ")}; se esperaba ${esperado.join(" · ")}`);
 }
 
 async function tablero(navegador: Browser) {
-  const def = calcularTablero(PERIODO_PREDETERMINADO);
+  const def = tableroOraculo(PERIODO_BASE); // el predeterminado es 1 oct → hoy, pero la base termina el 18: mismas cifras
+  const HOY = hoyCDMX();
   let { contexto, pagina } = await nuevaPagina(navegador, 390);
   await irA(pagina, "/admin");
   const titulos = await pagina.locator("main article h3").allTextContents();
@@ -198,23 +265,27 @@ async function tablero(navegador: Browser) {
   // En móvil el orden visual (de arriba abajo) es el de siempre, aunque el DOM agrupe las tarjetas por columna de escritorio.
   const graficas = await pagina.evaluate(() => [...document.querySelectorAll<HTMLElement>("main figure")].sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top).map((f) => f.querySelector("h3")!.textContent!));
   ver(JSON.stringify(graficas) === JSON.stringify(["Casos por categoría de motivo", "Casos por estado del caso", "Casos cerrados por tipo de cierre", "Avistamientos por estado del animal", "Avistamientos por alcaldía"]), "ADM-01 en móvil: las 5 gráficas en una sola columna y en el orden de siempre (motivo, estado del caso, cierres, estado del animal y alcaldía)", `ADM-01: gráficas ${graficas.join(", ")}`);
-  ver((await pagina.getByText("1 oct 2026 – 18 oct 2026").isVisible()) && (await pagina.getByText(/Última actualización: hoy, 10:42/).isVisible()) && (await boton(pagina, "Actualizar tablero").isVisible()) && (await boton(pagina, "Aplicar periodo").isVisible()), "ADM-01: periodo por defecto «1 oct 2026 – 18 oct 2026», «Aplicar periodo» y «Actualizar tablero»", "ADM-01: faltan el periodo o los botones");
+  const actualizacion = (await pagina.getByText(/Última actualización: /).innerText()).match(/Última actualización: (\d{1,2} [a-z]{3} \d{4}, \d{2}:\d{2})/)?.[1];
+  const esperada = formatearFechaHora(new Date().toISOString());
+  const minutos = (t: string) => Number(t.slice(-5, -3)) * 60 + Number(t.slice(-2));
+  const cerca = !!actualizacion && actualizacion.slice(0, -6) === esperada.slice(0, -6) && Math.abs(minutos(actualizacion) - minutos(esperada)) <= 3;
+  ver((await pagina.getByText(`1 oct 2026 – ${formatearFechaCorta(HOY)}`).isVisible()) && cerca && !(await pagina.getByText(/10:42/).count()) && (await boton(pagina, "Actualizar tablero").isVisible()) && (await boton(pagina, "Aplicar periodo").isVisible()), `ADM-01: periodo por defecto «1 oct 2026 – ${formatearFechaCorta(HOY)}» (hoy), «Última actualización: ${actualizacion}» con la hora REAL del servidor (${esperada} ahora), «Aplicar periodo» y «Actualizar tablero»`, `ADM-01: periodo, hora de actualización (${actualizacion} vs ${esperada}) o botones`);
+  ver(!(await pagina.locator("main").innerText()).includes("Datos ficticios") && (await pagina.locator("#periodo-desde").getAttribute("min")) === "2026-06-01" && (await pagina.locator("#periodo-hasta").getAttribute("max")) === HOY && (await pagina.locator("#periodo-desde").getAttribute("max")) === HOY, `ADM-01: sin «Datos ficticios»; los campos de fecha limitan de 2026-06-01 a hoy (${HOY})`, "ADM-01: queda «Datos ficticios» o los límites de las fechas no son los reales");
   await comprobarKpis(pagina, def, "ADM-01 (periodo por defecto)");
   ver((await pagina.locator("main section[aria-label=Indicadores]").evaluate((e) => getComputedStyle(e).gridTemplateColumns.split(" ").length)) === 2, "ADM-01 en móvil: indicadores en 2 columnas", "ADM-01 en móvil: columnas de indicadores incorrectas");
   await boton(pagina, "Actualizar tablero").click();
   ver(await pagina.getByRole("status").getByText("Tablero actualizado").waitFor({ timeout: 3000 }).then(() => true, () => false), "ADM-01: «Actualizar tablero» lo anuncia (role=\"status\")", "ADM-01: «Actualizar tablero» no respondió");
-
   // Invariantes de las gráficas con el periodo por defecto.
   const suma = (b: { valor: number }[]) => b.reduce((s, x) => s + x.valor, 0);
   ver(suma(def.porMotivo) === def.totalCasos && suma(def.porEstadoCaso) === def.totalCasos && def.casosActivos === def.porEstadoCaso.slice(0, 4).reduce((s, x) => s + x.valor, 0) && suma(def.porAlcaldia) === def.totalAvistamientos && def.porEstadoAnimal.flatMap((g) => g.barras).length === 17, `datos: casos por motivo y por estado suman los ${def.totalCasos} casos, los activos son los 4 estados activos, las alcaldías suman los ${def.totalAvistamientos} avistamientos y hay 17 estados del animal`, "datos del tablero incoherentes");
   // Coherencia de las cifras (HU 055) en varios periodos: los mocks no deben volver a desalinearse.
   // Estados, activos y localizados cuentan casos REGISTRADOS en el periodo; los cierres, movimientos con FECHA de cierre en el periodo (regla 6).
-  const periodos = [PERIODO_PREDETERMINADO, { desde: "2026-09-01", hasta: "2026-09-30" }, { desde: "2026-06-01", hasta: "2026-10-18" }, { desde: "2026-08-10", hasta: "2026-08-16" }, { desde: "2026-10-18", hasta: "2026-10-18" }];
+  const periodos = [PERIODO_BASE, { desde: "2026-09-01", hasta: "2026-09-30" }, { desde: "2026-06-01", hasta: "2026-10-18" }, { desde: "2026-08-10", hasta: "2026-08-16" }, { desde: "2026-10-18", hasta: "2026-10-18" }];
   const incoherentes: string[] = [];
-  const movimientosMal = MOVIMIENTOS_CIERRE.filter((m) => m.fecha < CASOS_TABLERO[m.folioIndice].fecha || m.fecha > PERIODO_PREDETERMINADO.hasta || CASOS_TABLERO[m.folioIndice].estado !== "Cerrado");
+  const movimientosMal = MOVIMIENTOS_CIERRE.filter((m) => m.fecha < CASOS_TABLERO[m.folioIndice].fecha || m.fecha > PERIODO_BASE.hasta || CASOS_TABLERO[m.folioIndice].estado !== "Cerrado");
   if (movimientosMal.length) incoherentes.push(`${movimientosMal.length} movimientos de cierre con fecha anterior al registro, posterior a hoy o de un caso que no está en «Cerrado»`);
   for (const per of periodos) {
-    const r = calcularTablero(per);
+    const r = tableroOraculo(per);
     const est = Object.fromEntries(r.porEstadoCaso.map((e) => [e.nombre, e.valor]));
     const cier = Object.fromEntries(r.cierres.map((e) => [e.nombre, e.valor]));
     const et = `${per.desde}..${per.hasta}`;
@@ -230,7 +301,7 @@ async function tablero(navegador: Browser) {
     }
   }
   ver(incoherentes.length === 0, `coherencia de cifras en ${periodos.length} periodos: los 6 estados suman el total; localizados = Localizado + cierres confirmados de los casos registrados; activos = suma de los 4 estados activos; cada tipo de cierre = movimientos con fecha dentro del periodo (aunque el caso sea anterior)`, `cifras incoherentes → ${incoherentes.join(" | ")}`);
-  ver(def.cierres.map((c) => c.nombre).join() === "Cierre confirmado,Cancelación,Deshabilitación" && suma(def.cierres) === MOVIMIENTOS_CIERRE.filter((m) => m.fecha >= PERIODO_PREDETERMINADO.desde && m.fecha <= PERIODO_PREDETERMINADO.hasta).length, `periodo por defecto: cierres ${def.cierres.map((c) => `${c.nombre} ${c.valor}`).join(" · ")}, derivados de movimientos fechados; Cerrado (estado de los casos registrados) = ${def.porEstadoCaso.find((e) => e.nombre === "Cerrado")!.valor}, otra base`, "periodo por defecto: los cierres no salen de los movimientos fechados");
+  ver(def.cierres.map((c) => c.nombre).join() === "Cierre confirmado,Cancelación,Deshabilitación" && suma(def.cierres) === MOVIMIENTOS_CIERRE.filter((m) => m.fecha >= PERIODO_BASE.desde && m.fecha <= PERIODO_BASE.hasta).length, `periodo por defecto: cierres ${def.cierres.map((c) => `${c.nombre} ${c.valor}`).join(" · ")}, derivados de movimientos fechados; Cerrado (estado de los casos registrados) = ${def.porEstadoCaso.find((e) => e.nombre === "Cerrado")!.valor}, otra base`, "periodo por defecto: los cierres no salen de los movimientos fechados");
   const tablaMotivo = await pagina.locator("figure", { has: pagina.getByRole("heading", { name: "Casos por categoría de motivo" }) }).locator("div.sr-only table tbody tr").evaluateAll((trs) => trs.map((t) => [t.querySelector("th")!.textContent, Number(t.querySelector("td")!.textContent)]));
   ver(JSON.stringify(tablaMotivo) === JSON.stringify(def.porMotivo.map((b) => [b.nombre, b.valor])), "gráfica de motivos: la tabla alternativa para lectores de pantalla trae los mismos valores", "gráfica de motivos: la tabla alternativa no coincide");
   const visibles = await pagina.locator("figure", { has: pagina.getByRole("heading", { name: "Casos por categoría de motivo" }) }).locator("[aria-hidden=true] > div > div").evaluateAll((filas) => filas.map((f) => f.textContent!.trim()));
@@ -246,20 +317,27 @@ async function tablero(navegador: Browser) {
   await pagina.getByLabel("Hasta").fill(otro.hasta);
   await boton(pagina, "Aplicar periodo").click();
   await pagina.waitForURL(`**/admin?desde=${otro.desde}&hasta=${otro.hasta}`);
-  const t2 = calcularTablero(otro);
+  const t2 = tableroOraculo(otro);
   await comprobarKpis(pagina, t2, "ADM-01 (1 al 30 de septiembre)");
   ver(t2.totalCasos !== def.totalCasos && (await pagina.getByText("1 sep 2026 – 30 sep 2026").isVisible()), "ADM-01: el selector de periodo cambia los indicadores y la etiqueta del periodo", "ADM-01: el periodo no cambió los indicadores");
   const sumaMotivo = (await pagina.locator("figure", { has: pagina.getByRole("heading", { name: "Casos por categoría de motivo" }) }).locator("div.sr-only table tbody td").allTextContents()).reduce((s, x) => s + Number(x), 0);
   ver(sumaMotivo === t2.totalCasos, `ADM-01: las gráficas también respetan el periodo (${t2.totalCasos} casos en septiembre)`, "ADM-01: las gráficas no respetaron el periodo");
-  for (const [d, h, msg] of [["2026-10-10", "2026-10-01", "no puede ser posterior"], ["2026-10-01", "2026-10-25", "después de hoy"], ["2026-05-01", "2026-10-01", "1 de junio de 2026"]] as const) {
+  // Un periodo inválido ya no cae en silencio al periodo por defecto: el SERVIDOR lo rechaza y la página muestra su mensaje bajo el campo, sin indicadores.
+  for (const [d, h, msg, campo] of [["2026-10-10", "2026-10-01", "no puede ser posterior", "Hasta"], ["2026-10-01", hoyCDMX(1), "después de hoy", "Hasta"], ["2026-05-01", "2026-10-01", "1 de junio de 2026", "Desde"]] as const) {
     await pagina.getByLabel("Desde").fill(d);
     await pagina.getByLabel("Hasta").fill(h);
     await boton(pagina, "Aplicar periodo").click();
-    const campo = pagina.getByLabel("Hasta");
-    ver((await campo.getAttribute("aria-invalid")) === "true" && (await textoDescrito(campo)).includes(msg) && new URL(pagina.url()).search === `?desde=${otro.desde}&hasta=${otro.hasta}`, `ADM-01: periodo ${d} a ${h} rechazado («…${msg}…»), con el error asociado y sin cambiar la URL`, `ADM-01: periodo inválido ${d} a ${h} no se rechazó`);
+    await pagina.waitForURL(`**/admin?desde=${d}&hasta=${h}`);
+    const entrada = pagina.getByLabel(campo);
+    await entrada.waitFor();
+    ver((await entrada.getAttribute("aria-invalid")) === "true" && (await textoDescrito(entrada)).includes(msg) && (await pagina.locator("main article").count()) === 0 && (await pagina.getByLabel("Desde").inputValue()) === d, `ADM-01: periodo ${d} a ${h} rechazado por el servidor («…${msg}…» bajo «${campo}»), sin indicadores y conservando lo escrito`, `ADM-01: periodo inválido ${d} a ${h} no se rechazó como se esperaba`);
   }
   await irA(pagina, "/admin?desde=basura&hasta=2026-10-01");
-  await comprobarKpis(pagina, def, "ADM-01 (parámetros inválidos → periodo por defecto)");
+  ver((await pagina.getByLabel("Desde").getAttribute("aria-invalid")) === "true" && (await pagina.locator("main article").count()) === 0 && !(await pagina.getByText(/Última actualización/).count()), "ADM-01: ?desde=basura → error del servicio («Elige una fecha válida.») y NO el periodo por defecto en silencio", "ADM-01: un periodo inválido de la URL cayó en silencio al periodo por defecto");
+  // Un periodo sin datos REALES: del 19 de octubre en adelante no hay casos ni avistamientos (la base termina el 18 y esta sección parte de datos reiniciados): ceros y promedio «—».
+  await irA(pagina, "/admin?desde=2026-10-19&hasta=2026-10-19");
+  const ceros = [await valorDe(pagina, "Casos activos"), await valorDe(pagina, "Casos localizados"), await valorDe(pagina, "Total de avistamientos"), await valorDe(pagina, "Promedio de tiempo de localización"), await valorDe(pagina, "Avistamientos ocultos")];
+  ver(JSON.stringify(ceros) === JSON.stringify(["0", "0", "0", "—", "0"]), `ADM-01: periodo sin datos (19 oct 2026): indicadores ${ceros.join(" · ")}`, `ADM-01: periodo sin datos: ${ceros.join(" · ")}`);
   await contexto.close();
 
   // Colores de las gráficas: salen de los tokens, en claro y en oscuro.
@@ -304,6 +382,17 @@ async function tablero(navegador: Browser) {
     if (tema === "dark") ver((await pagina.getAttribute("html", "data-theme")) === "dark", "gráficas: modo oscuro activo", "gráficas: el modo oscuro no se aplicó");
     await contexto.close();
   }
+  // «Actualizar» recalcula DE VERDAD (al final, porque deja un caso nuevo en el almacén): un caso registrado por la API mientras la pantalla está abierta aparece al actualizar, sin recargar.
+  ({ contexto, pagina } = await nuevaPagina(navegador, 1280));
+  await irA(pagina, "/admin");
+  const activosAntes = await valorDe(pagina, "Casos activos");
+  const folioNuevo = await crearCasoPorApi();
+  await boton(pagina, "Actualizar tablero").click();
+  const esperado = String(Number(activosAntes) + 1);
+  await pagina.locator("article", { has: pagina.getByRole("heading", { name: "Casos activos", exact: true }) }).locator("p.text-cifra", { hasText: new RegExp(`^${esperado}$`) }).waitFor({ timeout: 8000 }).catch(() => undefined);
+  const activosDespues = await valorDe(pagina, "Casos activos");
+  ver(activosDespues === esperado && Number(activosAntes) === def.casosActivos, `ADM-01: «Actualizar tablero» recalcula de verdad: «Casos activos» ${activosAntes} → ${activosDespues} tras registrar ${folioNuevo} por la API (sin recargar la página)`, `ADM-01: «Actualizar tablero» no recalculó (activos ${activosAntes} → ${activosDespues})`);
+  await contexto.close();
 }
 
 // ---------- usuarios ----------
@@ -1272,19 +1361,19 @@ const filasDe = (p: Page, titulo: string) =>
 const comoFilas = (barras: { nombre: string; valor: number }[]) => barras.map((b) => [b.nombre, String(b.valor)]);
 
 async function reportes(navegador: Browser) {
-  // Cuadre de los cálculos con el tablero (mismo periodo, sin filtros opcionales): casos, localizados, por motivo y por estado.
-  const vacioF = { desde: PERIODO_PREDETERMINADO.desde, hasta: PERIODO_PREDETERMINADO.hasta, alcaldia: "", categoria: "", estadoCaso: "" };
-  const rep = generarReporte(vacioF)!;
-  const tab = calcularTablero(PERIODO_PREDETERMINADO);
+  // Cuadre de los cálculos con el tablero (mismo periodo, sin filtros opcionales): casos, localizados, por motivo y por estado. El oráculo es el del maquetado (por nombre); la pantalla lee del servidor (por id).
+  const vacioF = { desde: PERIODO_BASE.desde, hasta: PERIODO_BASE.hasta, alcaldia: "", categoria: "", estadoCaso: "" };
+  const rep = reporteOraculo(vacioF)!;
+  const tab = tableroOraculo(PERIODO_BASE);
   // Las cifras del tablero no cambian con los mocks nuevos (alcaldía por caso, avistamiento → caso, movimientos del historial): valores fijos medidos en maquetado-b5b.
   const foto = { totalCasos: tab.totalCasos, casosActivos: tab.casosActivos, casosLocalizados: tab.casosLocalizados, totalAvistamientos: tab.totalAvistamientos, avistamientosOcultos: tab.avistamientosOcultos, porMotivo: tab.porMotivo.map((x) => x.valor), porEstadoCaso: tab.porEstadoCaso.map((x) => x.valor), cierres: tab.cierres.map((x) => x.valor) };
-  ver(JSON.stringify(foto) === JSON.stringify({ totalCasos: 163, casosActivos: 141, casosLocalizados: 19, totalAvistamientos: 199, avistamientosOcultos: 6, porMotivo: [46, 40, 29, 38, 10], porEstadoCaso: [20, 58, 32, 31, 16, 6], cierres: [9, 6, 2] }), "cifras del tablero (1 al 18 de octubre, sin filtros) idénticas a las de maquetado-b5b: 163 casos, 19 localizados, motivo, estado y cierres", `cifras del tablero cambiaron: ${JSON.stringify(foto)}`);
+  ver(JSON.stringify(foto) === JSON.stringify({ totalCasos: 163, casosActivos: 141, casosLocalizados: 19, totalAvistamientos: 199, avistamientosOcultos: 6, porMotivo: [46, 40, 29, 38, 10], porEstadoCaso: [20, 58, 32, 31, 16, 6], cierres: [9, 6, 2] }), "cifras del oráculo (1 al 18 de octubre, sin filtros) idénticas a las de maquetado-b5b: 163 casos, 19 localizados, motivo, estado y cierres", `cifras del oráculo cambiaron: ${JSON.stringify(foto)}`);
   ver(rep.totalCasos === tab.totalCasos && rep.casosLocalizados === tab.casosLocalizados && JSON.stringify(rep.porMotivo) === JSON.stringify(tab.porMotivo) && JSON.stringify(rep.porEstadoCaso) === JSON.stringify(tab.porEstadoCaso), `reporte sin filtros opcionales cuadra con el tablero (${rep.totalCasos} casos, ${rep.casosLocalizados} localizados, motivo y estado iguales)`, "el reporte no cuadra con el tablero");
   const casosP = CASOS_TABLERO.filter((c) => c.fecha >= vacioF.desde && c.fecha <= vacioF.hasta);
   const contables = casosP.filter((c) => c.cierre !== "Cancelación" && c.cierre !== "Deshabilitación").length;
   ver(rep.tasaRecuperacion === Math.round((rep.casosLocalizados / contables) * 1000) / 10 && contables < rep.totalCasos, `tasa de recuperación = localizados / casos sin cancelados ni deshabilitados (${rep.casosLocalizados}/${contables} = ${rep.tasaRecuperacion} %, no ${rep.totalCasos})`, "la tasa de recuperación no excluye cancelados y deshabilitados");
   ver(rep.porEstadoCaso.reduce((s, b) => s + b.valor, 0) === rep.totalCasos && rep.porMotivo.reduce((s, b) => s + b.valor, 0) === rep.totalCasos && rep.cierres.reduce((s, b) => s + b.valor, 0) === rep.porEstadoCaso.find((b) => b.nombre === "Cerrado")!.valor, "los desgloses del reporte suman el total de casos y los cierres suman los casos «Cerrado»", "los desgloses del reporte no suman");
-  ver(rep.porAlcaldiaAvistamiento.some((b) => b.nombre === FUERA_DE_LA_CIUDAD) && generarReporte({ ...vacioF, desde: "2026-10-19", hasta: "2026-10-31" }) === null, "avistamientos por alcaldía incluye «Fuera de la Ciudad de México»; un periodo sin casos no genera reporte", "alcaldía de avistamientos sin «Fuera de la Ciudad de México» o reporte sin datos");
+  ver(rep.porAlcaldiaAvistamiento.some((b) => b.nombre === FUERA_DE_LA_CIUDAD) && reporteOraculo({ ...vacioF, desde: "2026-10-19", hasta: "2026-10-31" }) === null, "avistamientos por alcaldía incluye «Fuera de la Ciudad de México»; un periodo sin casos no genera reporte", "alcaldía de avistamientos sin «Fuera de la Ciudad de México» o reporte sin datos");
 
   let { contexto, pagina } = await nuevaPagina(navegador, 1280);
   const descargas: string[] = [];
@@ -1293,6 +1382,8 @@ async function reportes(navegador: Browser) {
   const form = pagina.getByRole("form", { name: "Filtros del reporte" });
   const opcionesDe = (nombre: string) => form.getByLabel(nombre).locator("option").allInnerTexts();
   ver((await pagina.getByRole("heading", { level: 1 }).innerText()) === "Reportes" && (await form.getByText("Rango de fechas *").isVisible()) && (await opcionesDe("Alcaldía · opcional")).length === 17 && (await opcionesDe("Categoría de motivo · opcional")).length === 6 && JSON.stringify(await opcionesDe("Estado del caso · opcional")) === JSON.stringify(["Todos", ...ESTADOS_CASO]) && (await pagina.getByText("Filtros aplicados", { exact: true }).count()) === 0, "ADM-02: rango de fechas obligatorio (*) y filtros opcionales (16 alcaldías, 5 categorías, 6 estados, vacío = todos); sin resultados al abrir", "ADM-02: filtros incompletos");
+  const valoresAlcaldia = await form.getByLabel("Alcaldía · opcional").locator("option").evaluateAll((os) => os.map((o) => (o as HTMLOptionElement).value));
+  ver(valoresAlcaldia[0] === "" && valoresAlcaldia.slice(1).join() === Array.from({ length: 16 }, (_, i) => String(i + 1)).join() && !(await opcionesDe("Alcaldía · opcional")).includes(FUERA_DE_LA_CIUDAD), "ADM-02: las alcaldías se ofrecen POR ID (1 a 16, nombre vigente del catálogo) y «Fuera de la Ciudad de México» no está (no puede ser la alcaldía de un caso)", `ADM-02: valores de alcaldía ${valoresAlcaldia}`);
   await boton(form, "Generar reporte").click();
   const desde = pagina.locator("#reporte-desde");
   const hasta = pagina.locator("#reporte-hasta");
@@ -1304,6 +1395,7 @@ async function reportes(navegador: Browser) {
   await desde.fill(vacioF.desde);
   await hasta.fill(vacioF.hasta);
   await boton(form, "Generar reporte").click();
+  await pagina.locator("section[aria-label='Resultados del reporte']").waitFor();
   const chips = await pagina.locator("section[aria-label='Resultados del reporte'] ul li").allInnerTexts();
   ver(JSON.stringify(chips) === JSON.stringify(["Periodo: 1 oct 2026 – 18 oct 2026", "Alcaldía: todas", "Categoría: todas", "Estado: todos"]) && (await pagina.getByText("El archivo exportado conserva estos filtros.").isVisible()), "ADM-02: «Filtros aplicados» (periodo, alcaldía, categoría y estado) y la nota de que la exportación los conserva", `ADM-02: filtros aplicados ${chips}`);
   const esperados = [["Número de casos", String(rep.totalCasos)], ["Casos localizados", String(rep.casosLocalizados)], ["Tasa de recuperación", `${rep.tasaRecuperacion!.toFixed(1)} %`], ["Avistamientos ocultos (aparte)", String(rep.avistamientosOcultos)]];
@@ -1320,38 +1412,62 @@ async function reportes(navegador: Browser) {
   const fAnimal = await filasDe(pagina, "Avistamientos por estado del animal");
   const fAlcaldia = await filasDe(pagina, "Avistamientos por alcaldía del avistamiento");
   const animalEsperado = rep.porEstadoAnimal.flatMap((g) => g.barras.map((b) => [`${g.categoria}: ${b.nombre}`, String(b.valor)])).filter((f) => f[1] !== "0");
-  ver(JSON.stringify(fMotivo) === JSON.stringify(comoFilas(rep.porMotivo)) && JSON.stringify(fEstado) === JSON.stringify(comoFilas(rep.porEstadoCaso)) && fEstado.length === 6 && JSON.stringify(fCierre) === JSON.stringify(comoFilas(rep.cierres)) && fCierre.map((f) => f[0]).join() === "Cierre confirmado,Cancelación,Deshabilitación", "ADM-02: casos por motivo (5), por estado (los 6) y cerrados por tipo de cierre (3) coinciden con el cálculo", "ADM-02: desgloses de casos distintos del cálculo");
-  ver(JSON.stringify(fAnimal.map((f) => f[0])) === JSON.stringify(animalEsperado.map((f) => f[0])) && JSON.stringify(fAnimal) === JSON.stringify(animalEsperado) && rep.porEstadoAnimal.length === 4 && JSON.stringify(fAlcaldia) === JSON.stringify(comoFilas(rep.porAlcaldiaAvistamiento)) && fAlcaldia.some((f) => f[0] === FUERA_DE_LA_CIUDAD), "ADM-02: avistamientos por estado del animal (4 categorías) y por alcaldía del avistamiento (con «Fuera de la Ciudad de México») coinciden con el cálculo", "ADM-02: desgloses de avistamientos distintos del cálculo");
-  ver((await pagina.getByText("La tasa no cuenta casos cancelados ni deshabilitados. Las cuentas de avistamientos solo incluyen los visibles.").isVisible()) && (await pagina.getByText("Reporte generado en pantalla: no se almacena en el sistema.").isVisible()) && (await boton(pagina, "Exportar a PDF").isEnabled()) && (await boton(pagina, "Exportar a Excel").isEnabled()), "ADM-02: notas (tasa, solo avistamientos visibles, no se almacena) y exportaciones habilitadas", "ADM-02: faltan notas o exportaciones");
-  await boton(pagina, "Exportar a PDF").click();
-  const t1 = await pagina.getByRole("status").filter({ hasText: "Exportación simulada a PDF" }).innerText();
-  await pagina.getByRole("status").filter({ hasText: "Exportación simulada" }).getByRole("button").first().click().catch(() => undefined);
-  await boton(pagina, "Exportar a Excel").click();
-  ver(/simulada a PDF.*filtros aplicados/.test(t1) && (await pagina.getByRole("status").filter({ hasText: "Exportación simulada a Excel" }).count()) >= 1 && descargas.length === 0, "ADM-02: Exportar a PDF y a Excel son simulados (confirmación ficticia, ninguna descarga)", `ADM-02: exportación ${t1} · descargas ${descargas}`);
+  ver(JSON.stringify(fMotivo) === JSON.stringify(comoFilas(rep.porMotivo)) && JSON.stringify(fEstado) === JSON.stringify(comoFilas(rep.porEstadoCaso)) && fEstado.length === 6 && JSON.stringify(fCierre) === JSON.stringify(comoFilas(rep.cierres)) && fCierre.map((f) => f[0]).join() === "Cierre confirmado,Cancelación,Deshabilitación", "ADM-02: casos por motivo (5), por estado (los 6) y cerrados por tipo de cierre (3) coinciden con el oráculo", "ADM-02: desgloses de casos distintos del oráculo");
+  ver(JSON.stringify(fAnimal.map((f) => f[0])) === JSON.stringify(animalEsperado.map((f) => f[0])) && JSON.stringify(fAnimal) === JSON.stringify(animalEsperado) && rep.porEstadoAnimal.length === 4 && JSON.stringify(fAlcaldia) === JSON.stringify(comoFilas(rep.porAlcaldiaAvistamiento)) && fAlcaldia.some((f) => f[0] === FUERA_DE_LA_CIUDAD), "ADM-02: avistamientos por estado del animal (4 categorías) y por alcaldía del avistamiento (con «Fuera de la Ciudad de México») coinciden con el oráculo", "ADM-02: desgloses de avistamientos distintos del oráculo");
+  const textoPagina = await pagina.locator("main").innerText();
+  ver((await pagina.getByText("La tasa no cuenta casos cancelados ni deshabilitados. Las cuentas de avistamientos solo incluyen los visibles.").isVisible()) && (await pagina.getByText("Reporte generado en pantalla: no se almacena en el sistema.").isVisible()) && !textoPagina.includes("Datos ficticios") && (await boton(pagina, "Exportar a PDF").isEnabled()) && (await boton(pagina, "Exportar a Excel").isEnabled()), "ADM-02: notas (tasa, solo avistamientos visibles, no se almacena), sin «Datos ficticios» y exportaciones habilitadas", "ADM-02: faltan notas, queda «Datos ficticios» o las exportaciones no están habilitadas");
+
+  // Las exportaciones DESCARGAN de verdad lo mismo que dice la pantalla: PDF decodificado (todas las páginas) y Excel leído celda por celda.
+  const [dPdf] = await Promise.all([pagina.waitForEvent("download"), boton(pagina, "Exportar a PDF").click()]);
+  const bytesPdf = new Uint8Array(readFileSync((await dPdf.path())!));
+  const textoPdf = await textoDePdf(navegador, bytesPdf, true);
+  ver(dPdf.suggestedFilename() === "reporte-rupe-2026-10-01_2026-10-18.pdf" && Buffer.from(bytesPdf.subarray(0, 5)).toString() === "%PDF-" && /Reporte estadístico de casos/.test(textoPdf) && /Periodo\s+1 oct 2026 – 18 oct 2026/.test(textoPdf) && new RegExp(`Número de casos\\s+${rep.totalCasos}\\b`).test(textoPdf) && new RegExp(`Tasa de recuperación \\(%\\)\\s+${rep.tasaRecuperacion!.toFixed(1)} %`).test(textoPdf), `ADM-02: «Exportar a PDF» descarga «${dPdf.suggestedFilename()}» (${bytesPdf.length} bytes) y su texto decodificado trae el periodo, ${rep.totalCasos} casos y la tasa ${rep.tasaRecuperacion} % de la pantalla`, `ADM-02: PDF descargado ${dPdf.suggestedFilename()}: ${textoPdf.slice(0, 200)}`);
+  const [dXls] = await Promise.all([pagina.waitForEvent("download"), boton(pagina, "Exportar a Excel").click()]);
+  const hojas = leerXlsx(new Uint8Array(readFileSync((await dXls.path())!)));
+  const resumenXls = Object.fromEntries(filasDeHoja(hojas[0]).filter((f) => f.length >= 2 && typeof f[0] === "string").map((f) => [f[0] as string, f[1]]));
+  const tablaXls = (nombre: string) => filasDeHoja(hojas.find((h) => h.nombre === nombre)!).slice(1).map((f) => [f[0], f[1]]);
+  const nvO = (b: { nombre: string; valor: number }[]) => b.map((x) => [x.nombre, x.valor]);
+  ver(dXls.suggestedFilename() === "reporte-rupe-2026-10-01_2026-10-18.xlsx" && resumenXls["Número de casos"] === rep.totalCasos && resumenXls["Casos localizados"] === rep.casosLocalizados && resumenXls["Tasa de recuperación (%)"] === rep.tasaRecuperacion && resumenXls["Avistamientos ocultos (aparte)"] === rep.avistamientosOcultos && JSON.stringify(tablaXls("Casos por motivo")) === JSON.stringify(nvO(rep.porMotivo)) && JSON.stringify(tablaXls("Casos por estado")) === JSON.stringify(nvO(rep.porEstadoCaso)) && JSON.stringify(tablaXls("Cierres por tipo")) === JSON.stringify(nvO(rep.cierres)) && JSON.stringify(tablaXls("Alcaldía del avistamiento")) === JSON.stringify(nvO(rep.porAlcaldiaAvistamiento)), `ADM-02: «Exportar a Excel» descarga «${dXls.suggestedFilename()}»; leído celda por celda trae las mismas cifras de la pantalla (${rep.totalCasos} casos, ${rep.casosLocalizados} localizados, ${rep.tasaRecuperacion} %, desgloses de motivo, estado, cierres y alcaldía) como NÚMEROS`, `ADM-02: Excel descargado ${dXls.suggestedFilename()}: ${JSON.stringify(resumenXls)}`);
+  ver(descargas.length === 2 && (await pagina.getByRole("status").filter({ hasText: /Se descargó reporte-rupe-/ }).count()) >= 1, `ADM-02: las dos descargas anuncian «Se descargó …» (role="status"): ${descargas.join(", ")}`, `ADM-02: descargas ${descargas}`);
+
   // Un filtro de alcaldía cambia el reporte y la exportación conserva los filtros de la pantalla.
-  await form.getByLabel("Alcaldía · opcional").selectOption("Coyoacán");
+  await form.getByLabel("Alcaldía · opcional").selectOption({ label: "Coyoacán" });
   await form.getByLabel("Estado del caso · opcional").selectOption("Localizado");
   await boton(form, "Generar reporte").click();
-  const repF = generarReporte({ ...vacioF, alcaldia: "Coyoacán", estadoCaso: "Localizado" })!;
+  const repF = reporteOraculo({ ...vacioF, alcaldia: "Coyoacán", estadoCaso: "Localizado" })!;
+  await pagina.locator("section[aria-label='Resultados del reporte'] ul li", { hasText: "Alcaldía: Coyoacán" }).waitFor();
   ver((await valorDe(pagina, "Número de casos")) === String(repF.totalCasos) && repF.totalCasos < rep.totalCasos && (await pagina.locator("section[aria-label='Resultados del reporte'] ul li").allInnerTexts()).join("|").includes("Alcaldía: Coyoacán|Categoría: todas|Estado: Localizado"), `ADM-02: filtros opcionales (Coyoacán, Localizado) → ${repF.totalCasos} casos y «Filtros aplicados» al día`, "ADM-02: los filtros opcionales no se aplican");
+  const [dFiltrado] = await Promise.all([pagina.waitForEvent("download"), boton(pagina, "Exportar a Excel").click()]);
+  const resFiltrado = filasDeHoja(leerXlsx(new Uint8Array(readFileSync((await dFiltrado.path())!)))[0]);
+  ver(resFiltrado.some((f) => f[0] === "Alcaldía" && f[1] === "Coyoacán") && resFiltrado.some((f) => f[0] === "Estado del caso" && f[1] === "Localizado") && resFiltrado.some((f) => f[0] === "Número de casos" && f[1] === repF.totalCasos), `ADM-02: el Excel exportado conserva los filtros de la pantalla (Alcaldía Coyoacán, Estado Localizado, ${repF.totalCasos} casos)`, "ADM-02: el Excel exportado no conserva los filtros");
   await boton(form, "Limpiar filtros").click();
   ver((await desde.inputValue()) === "" && (await form.getByLabel("Alcaldía · opcional").inputValue()) === "" && (await pagina.getByText("Filtros aplicados", { exact: true }).count()) === 0, "ADM-02: «Limpiar filtros» vacía los campos y quita el resultado", "ADM-02: Limpiar filtros no limpió");
   await desde.fill("2026-10-01");
   await hasta.fill("2026-10-18");
   await boton(form, "Generar reporte").click();
+  await pagina.locator("section[aria-label='Resultados del reporte']").waitFor();
   await pagina.reload({ waitUntil: "load" });
   ver((await pagina.getByText("Filtros aplicados", { exact: true }).count()) === 0 && (await desde.inputValue()) === "", "ADM-02: el reporte no se almacena: al recargar desaparece", "ADM-02: el reporte persiste tras recargar");
-  await irA(pagina, "/admin/reportes?estado=vacio");
-  ver((await pagina.getByText("No hay datos en el periodo y filtros seleccionados; modifica los filtros e inténtalo de nuevo.").isVisible()) && (await boton(pagina, "Exportar a PDF").isDisabled()) && (await boton(pagina, "Exportar a Excel").isDisabled()) && (await pagina.locator("article").count()) === 0, "ADM-02 sin datos: mensaje y exportar a PDF y a Excel deshabilitados, sin indicadores", "ADM-02 sin datos: falta el mensaje o las exportaciones siguen activas");
+  // Sin datos REAL: un periodo posterior al 18 de octubre no tiene casos (sección con datos reiniciados).
+  await desde.fill("2026-10-19");
+  await hasta.fill("2026-10-31");
+  await boton(form, "Generar reporte").click();
+  await pagina.getByText("No hay datos en el periodo y filtros seleccionados; modifica los filtros e inténtalo de nuevo.").waitFor();
+  ver((await boton(pagina, "Exportar a PDF").isDisabled()) && (await boton(pagina, "Exportar a Excel").isDisabled()) && (await pagina.locator("article").count()) === 0, "ADM-02 sin datos (real: 19 al 31 de octubre): mensaje y exportar a PDF y a Excel deshabilitados, sin indicadores", "ADM-02 sin datos: falta el mensaje o las exportaciones siguen activas");
   await contexto.close();
   ({ contexto, pagina } = await nuevaPagina(navegador, 390));
-  await irA(pagina, "/admin/reportes?desde=2026-10-01&hasta=2026-10-18");
+  await irA(pagina, "/admin/reportes");
+  await pagina.locator("#reporte-desde").fill("2026-10-01");
+  await pagina.locator("#reporte-hasta").fill("2026-10-18");
+  await boton(pagina, "Generar reporte").click();
+  await pagina.locator("section[aria-label='Resultados del reporte']").waitFor();
   const col = await pagina.locator("figure").evaluateAll((fs) => new Set(fs.map((f) => Math.round(f.getBoundingClientRect().left))).size);
   const filas390 = await pagina.locator("article").evaluateAll((as) => new Set(as.map((a) => Math.round(a.getBoundingClientRect().top))).size);
   ver(col === 1 && filas390 === 2, "ADM-02 (390): los desgloses en una columna y los indicadores en 2 × 2", `ADM-02 (390): columnas ${col}, filas de indicadores ${filas390}`);
+  const htmlGenerado = await pagina.content();
   await contexto.close();
-  const html = await (await fetchComo(base, "admin", "/admin/reportes?desde=2026-10-01&hasta=2026-10-18")).text();
-  ver(SECRETOS_TUTOR_5C.every((v) => !html.includes(v)), "ADM-02: ningún dato de la persona tutora (nombre, correo, teléfono, token) en la página", "ADM-02: hay datos de la persona tutora");
+  const html = await (await fetchComo(base, "admin", "/admin/reportes")).text();
+  ver(SECRETOS_TUTOR_5C.every((v) => !html.includes(v) && !htmlGenerado.includes(v)), "ADM-02: ningún dato de la persona tutora (nombre, correo, teléfono, token) en la página ni en el resultado generado", "ADM-02: hay datos de la persona tutora");
 }
 
 async function estadosDelCaso(navegador: Browser) {
@@ -1649,24 +1765,48 @@ async function flujoReaceptacionYTamano(navegador: Browser) {
 
 /** Las cifras del tablero y de Reportes no se mueven por acciones de catálogo hechas con la interfaz y la API (huella del contenido). */
 async function cifrasTrasCatalogos(navegador: Browser) {
-  const leer = async (ruta: string) => {
+  // Las cifras se cuentan por IDENTIFICADOR: renombrar, desactivar o crear valores en los catálogos cambia los RÓTULOS (nombre vigente), nunca las cifras ni parte una fila en dos.
+  const HOY = hoyCDMX();
+  const leer = async (ruta: string, generar = false) => {
     const { contexto, pagina } = await nuevaPagina(navegador, 1280);
     await irA(pagina, ruta);
-    const t = await pagina.locator("main").innerText();
+    if (generar) {
+      await pagina.locator("#reporte-desde").fill("2026-06-01");
+      await pagina.locator("#reporte-hasta").fill(HOY);
+      await boton(pagina, "Generar reporte").click();
+      await pagina.locator("section[aria-label='Resultados del reporte']").waitFor();
+    }
+    const r = await pagina.evaluate(() => ({
+      kpis: [...document.querySelectorAll("main article p.text-cifra")].map((p) => p.textContent!.trim()),
+      filas: [...document.querySelectorAll("main figure div.sr-only table tbody tr")].map((tr) => [tr.querySelector("th")!.textContent!.trim(), tr.querySelector("td")!.textContent!.trim()]),
+      opciones: [...document.querySelectorAll("main select option")].map((o) => o.textContent!.trim()),
+    }));
     await contexto.close();
-    return t;
+    return r;
   };
-  const rutas = ["/admin", "/admin/reportes?desde=2026-06-01&hasta=2026-10-18"];
-  const antes = await Promise.all(rutas.map(leer));
-  ver(antes[0].includes("163") && antes[0].includes("141") && antes[0].includes("19") && antes[0].includes("199"), "el tablero muestra las cifras de siempre (163 casos, 141 activos, 19 localizados, 199 avistamientos)", "el tablero no muestra las cifras de siempre");
+  const numeros = (r: Awaited<ReturnType<typeof leer>>) => JSON.stringify({ kpis: r.kpis, valores: r.filas.map((f) => f[1]).filter((v) => v !== "0") }); // un valor NUEVO del catálogo añade su fila con 0: no es una cifra que cambie
+  const rutas: Array<[string, boolean]> = [["/admin", false], ["/admin/reportes", true]];
+  const antes = await Promise.all(rutas.map(([r, g]) => leer(r, g)));
+  const t0 = antes[0].kpis;
+  ver(t0.join() === ["141", "19", "199", "4.9 días", "6"].join() && antes[1].kpis[0] === "1204", "el tablero muestra las cifras de siempre (141 activos, 19 localizados, 199 avistamientos, 4.9 días, 6 ocultos) y el reporte de toda la base 1 jun → hoy (1204 casos)", `cifras de partida: tablero ${t0} · reporte ${antes[1].kpis}`);
   const nuevo = [{ t: "alcaldias", c: { nombre: "Alcaldía de cifras", clave: "09019" } }, { t: "razas", c: { nombre: "Raza de cifras" } }, { t: "motivos", c: { nombre: "Motivo de cifras", idCategoria: 1, descripcion: "d" } }, { t: "estados-animal", c: { nombre: "Estado de cifras", idCategoria: 1, descripcion: "d" } }];
   for (const n of nuevo) await api("POST", `/api/admin/catalogos/${n.t}`, n.c);
   await api("PUT", "/api/admin/catalogos/alcaldias/4", { nombre: "Coyoacán renombrada", clave: "09003" });
-  await api("PUT", "/api/admin/catalogos/motivos/1", { nombre: "Pánico renombrado", idCategoria: 1, descripcion: "d" });
+  await api("PUT", "/api/admin/catalogos/motivos/1", { nombre: "Pánico renombrada", idCategoria: 1, descripcion: "d" });
   await api("PUT", "/api/admin/catalogos/estados-animal/2", { nombre: "Herido renombrado", idCategoria: 1, descripcion: "d" });
   for (const [t, id] of [["alcaldias", 5], ["razas", 6], ["motivos", 2], ["estados-animal", 16]] as const) await api("POST", `/api/admin/catalogos/${t}/${id}/desactivar`);
-  const despues = await Promise.all(rutas.map(leer));
-  ver(huellaTexto(antes[0]) === huellaTexto(despues[0]) && huellaTexto(antes[1]) === huellaTexto(despues[1]), `tras crear, renombrar y desactivar en los 4 catálogos, el tablero (#${huellaTexto(antes[0])}) y Reportes (#${huellaTexto(antes[1])}) tienen la misma huella de contenido`, `las cifras cambiaron: tablero #${huellaTexto(antes[0])}→#${huellaTexto(despues[0])} · reportes #${huellaTexto(antes[1])}→#${huellaTexto(despues[1])}`);
+  const despues = await Promise.all(rutas.map(([r, g]) => leer(r, g)));
+  const hc = (x: string) => createHash("sha256").update(x).digest("hex").slice(0, 8);
+  ver(numeros(antes[0]) === numeros(despues[0]) && numeros(antes[1]) === numeros(despues[1]), `tras crear, renombrar y desactivar en los 4 catálogos, las CIFRAS del tablero (#${hc(numeros(antes[0]))}) y de Reportes (#${hc(numeros(antes[1]))}) son idénticas (los rótulos sí cambian)`, `las cifras cambiaron: tablero #${hc(numeros(antes[0]))}→#${hc(numeros(despues[0]))} · reportes #${hc(numeros(antes[1]))}→#${hc(numeros(despues[1]))}`);
+  const rotulos = (r: Awaited<ReturnType<typeof leer>>) => r.filas.map((f) => f[0]);
+  const antesRot = rotulos(antes[0]);
+  const despuesRot = rotulos(despues[0]);
+  const valorDeFila = (r: Awaited<ReturnType<typeof leer>>, nombre: string) => r.filas.find((f) => f[0] === nombre)?.[1];
+  const ANIMAL = "Integridad física y salud: ";
+  ver(antesRot.includes("Coyoacán") && !despuesRot.includes("Coyoacán") && valorDeFila(despues[0], "Coyoacán renombrada") === valorDeFila(antes[0], "Coyoacán") && despuesRot.filter((n) => n.startsWith("Coyoac")).length === 1 && !despuesRot.includes(`${ANIMAL}Herido / lesionado`) && despuesRot.includes(`${ANIMAL}Herido renombrado`) && valorDeFila(despues[0], `${ANIMAL}Herido renombrado`) === valorDeFila(antes[0], `${ANIMAL}Herido / lesionado`),
+    `los rótulos son el nombre VIGENTE: «Coyoacán» → «Coyoacán renombrada» (misma cifra ${valorDeFila(despues[0], "Coyoacán renombrada")}, una sola fila) y «Herido / lesionado» → «Herido renombrado» (misma cifra ${valorDeFila(despues[0], `${ANIMAL}Herido renombrado`)})`, `rótulos tras renombrar: ${despuesRot.filter((n) => /Coyoac|Herido/.test(n))}`);
+  const desactivada = valorDeFila(despues[0], "Cuajimalpa de Morelos");
+  ver(desactivada !== undefined && desactivada === valorDeFila(antes[0], "Cuajimalpa de Morelos") && despues[1].opciones.includes("Cuajimalpa de Morelos") && despues[1].opciones.includes("Alcaldía de cifras") && despues[1].opciones.includes("Coyoacán renombrada"), `una alcaldía DESACTIVADA sigue con su conteo en el tablero (Cuajimalpa de Morelos: ${desactivada}) y las alcaldías inactivas y nuevas se ofrecen en el filtro de Reportes`, "la alcaldía desactivada desapareció del tablero o de los filtros");
 }
 
 /** Las 5 reactivaciones de catálogo que el seed agrega a las 25 del mock (posteriores a las desactivaciones del mismo elemento). */
@@ -1909,10 +2049,136 @@ async function flujoCompleto(navegador: Browser) {
   await tutora.contexto.close();
 }
 
+// ---------- tablero y reportes con datos REALES, de punta a punta con la interfaz ----------
+type FotoTablero = { activos: number; localizados: number; avistamientos: number; promedio: string; ocultos: number; casos: number; estado: number[]; filas: string[][] };
+async function fotoTablero(navegador: Browser): Promise<FotoTablero> {
+  const { contexto, pagina } = await nuevaPagina(navegador, 1280);
+  await irA(pagina, "/admin");
+  const filas = (titulo: string) => filasDe(pagina, titulo);
+  const motivo = await filas("Casos por categoría de motivo");
+  const leyenda = await pagina.locator("figure", { has: pagina.getByRole("heading", { name: "Casos por estado del caso" }) }).locator("ul li").allTextContents();
+  const f = {
+    activos: Number(await valorDe(pagina, "Casos activos")), localizados: Number(await valorDe(pagina, "Casos localizados")), avistamientos: Number(await valorDe(pagina, "Total de avistamientos")),
+    promedio: await valorDe(pagina, "Promedio de tiempo de localización"), ocultos: Number(await valorDe(pagina, "Avistamientos ocultos")), casos: motivo.reduce((t, r) => t + Number(r[1]), 0),
+    estado: leyenda.map((t) => Number(t.replace(/\D+/g, ""))), filas: await filas("Avistamientos por alcaldía"),
+  };
+  await contexto.close();
+  return f;
+}
+const resumenFoto = (f: FotoTablero) => `${f.casos} casos · ${f.activos} activos · ${f.localizados} localizados · ${f.avistamientos} avist. · prom. ${f.promedio} · estado [${f.estado}]`;
+const cifrasFoto = (f: FotoTablero) => JSON.stringify({ ...f, filas: f.filas.map((r) => r[1]) });
+
+/** La persona tutora registra un caso por la interfaz → el tablero lo cuenta; lo localiza → se mueven las cifras; el Administrador genera el reporte, lo descarga (PDF y Excel) y comprueba la huella; renombrar una alcaldía solo cambia el rótulo. */
+async function flujoTableroYReportes(navegador: Browser) {
+  const HOY = hoyCDMX();
+  const inicial = await fotoTablero(navegador);
+  ver(inicial.casos === 163 && inicial.activos === 141 && inicial.localizados === 19 && inicial.avistamientos === 199 && inicial.ocultos === 6 && inicial.estado.join() === "20,58,32,31,16,6", `punto de partida (datos reiniciados): ${resumenFoto(inicial)}`, `punto de partida: ${resumenFoto(inicial)}`);
+
+  const tutora = await nuevaPagina(navegador, 390, "light", "tutor1");
+  await irA(tutora.pagina, "/tutor/registrar");
+  const folio = await registrarPorLaInterfaz(tutora.pagina);
+  const trasRegistro = await fotoTablero(navegador);
+  ver(trasRegistro.casos === 164 && trasRegistro.activos === 142 && trasRegistro.estado.join() === "20,59,32,31,16,6" && trasRegistro.localizados === 19 && trasRegistro.avistamientos === 199, `la tutora registra ${folio} por la interfaz → el tablero pasa de ${inicial.casos} a ${trasRegistro.casos} casos: ${resumenFoto(inicial)} → ${resumenFoto(trasRegistro)}`, `tras registrar el caso: ${resumenFoto(trasRegistro)}`);
+
+  await irA(tutora.pagina, `/tutor/casos/${folio}`);
+  await boton(tutora.pagina, "Marcar como localizado").click();
+  await boton(tutora.pagina.getByRole("dialog", { name: "¿Marcar el caso como localizado?" }), "Marcar como localizado").click();
+  await tutora.pagina.getByText("El caso quedó como Localizado").first().waitFor();
+  const trasLocalizar = await fotoTablero(navegador);
+  ver(trasLocalizar.casos === 164 && trasLocalizar.activos === 141 && trasLocalizar.localizados === 20 && trasLocalizar.estado.join() === "20,58,32,31,17,6" && trasLocalizar.promedio !== trasRegistro.promedio, `la tutora lo localiza → localizados 19 → ${trasLocalizar.localizados}, activos ${trasRegistro.activos} → ${trasLocalizar.activos}, promedio ${trasRegistro.promedio} → ${trasLocalizar.promedio}: ${resumenFoto(trasLocalizar)}`, `tras localizar: ${resumenFoto(trasLocalizar)}`);
+  await tutora.contexto.close();
+
+  // El Administrador genera el reporte y lo descarga: PDF decodificado y Excel leído celda por celda con las mismas cifras de la pantalla.
+  const admin = await nuevaPagina(navegador, 1280);
+  const pag = admin.pagina;
+  await irA(pag, "/admin/reportes");
+  const generar = async () => {
+    await pag.locator("#reporte-desde").fill("2026-10-01");
+    await pag.locator("#reporte-hasta").fill(HOY);
+    await boton(pag, "Generar reporte").click();
+    await pag.locator("section[aria-label='Resultados del reporte']").waitFor();
+  };
+  await generar();
+  const pantalla = { casos: await valorDe(pag, "Número de casos"), localizados: await valorDe(pag, "Casos localizados"), tasa: await valorDe(pag, "Tasa de recuperación"), ocultos: await valorDe(pag, "Avistamientos ocultos (aparte)") };
+  ver(pantalla.casos === "164" && pantalla.localizados === "20" && pantalla.tasa === `${(Math.round((20 / 161) * 1000) / 10).toFixed(1)} %`, `reporte 1 oct → hoy: ${pantalla.casos} casos · ${pantalla.localizados} localizados · tasa ${pantalla.tasa} (20/161: el caso nuevo cuenta en el denominador) · ${pantalla.ocultos} ocultos`, `reporte tras el flujo: ${JSON.stringify(pantalla)}`);
+  const nombre = (ext: string) => `reporte-rupe-2026-10-01_${HOY}.${ext}`;
+  const [dPdf] = await Promise.all([pag.waitForEvent("download"), boton(pag, "Exportar a PDF").click()]);
+  const textoPdf = await textoDePdf(navegador, new Uint8Array(readFileSync((await dPdf.path())!)), true);
+  ver(dPdf.suggestedFilename() === nombre("pdf") && new RegExp(`Número de casos\\s+${pantalla.casos}\\b`).test(textoPdf) && new RegExp(`Casos localizados\\s+${pantalla.localizados}\\b`).test(textoPdf) && textoPdf.includes(`Tasa de recuperación (%) ${pantalla.tasa}`), `descarga «${dPdf.suggestedFilename()}»: el PDF decodificado dice ${pantalla.casos} casos, ${pantalla.localizados} localizados y ${pantalla.tasa}, como la pantalla`, `PDF del flujo: ${dPdf.suggestedFilename()} · ${textoPdf.slice(0, 160)}`);
+  const [dXls] = await Promise.all([pag.waitForEvent("download"), boton(pag, "Exportar a Excel").click()]);
+  const hojas = leerXlsx(new Uint8Array(readFileSync((await dXls.path())!)));
+  const res = Object.fromEntries(filasDeHoja(hojas[0]).filter((f) => f.length >= 2 && typeof f[0] === "string").map((f) => [f[0] as string, f[1]]));
+  const filasPantalla = await filasDe(pag, "Casos por estado del caso");
+  const filasXls = filasDeHoja(hojas.find((h) => h.nombre === "Casos por estado")!).slice(1).map((f) => [String(f[0]), String(f[1])]);
+  ver(dXls.suggestedFilename() === nombre("xlsx") && res["Número de casos"] === 164 && res["Casos localizados"] === 20 && res["Tasa de recuperación (%)"] === Math.round((20 / 161) * 1000) / 10 && JSON.stringify(filasXls) === JSON.stringify(filasPantalla), `descarga «${dXls.suggestedFilename()}»: el Excel (celda por celda, números) dice 164 casos, 20 localizados, ${res["Tasa de recuperación (%)"]} % y la hoja «Casos por estado» es igual a la de la pantalla`, `Excel del flujo: ${JSON.stringify(res)}`);
+
+  // Huella (HU 057, regla 1): se genera, ocurre otro evento y se exporta → 409 con su mensaje; se regenera y se exporta.
+  const otro = await crearCasoPorApi();
+  const descargasAntes: string[] = [];
+  pag.on("download", (d) => descargasAntes.push(d.suggestedFilename()));
+  await boton(pag, "Exportar a PDF").click();
+  const alerta = pag.getByRole("alert").filter({ hasText: "Los datos cambiaron; genera el reporte de nuevo." });
+  await alerta.waitFor();
+  await pag.waitForTimeout(300);
+  ver((await alerta.isVisible()) && descargasAntes.length === 0 && (await boton(pag, "Exportar a PDF").isDisabled()) && (await boton(pag, "Exportar a Excel").isDisabled()) && (await valorDe(pag, "Número de casos")) === "164", `tras registrar ${otro} entre «Generar» y «Exportar»: aviso «Los datos cambiaron; genera el reporte de nuevo.» (role=alert), sin descarga y con las exportaciones deshabilitadas hasta regenerar`, `huella: alerta ${await alerta.count()}, descargas ${descargasAntes}`);
+  await generar();
+  const [dNuevo] = await Promise.all([pag.waitForEvent("download"), boton(pag, "Exportar a Excel").click()]);
+  const nuevoRes = Object.fromEntries(filasDeHoja(leerXlsx(new Uint8Array(readFileSync((await dNuevo.path())!)))[0]).filter((f) => f.length >= 2 && typeof f[0] === "string").map((f) => [f[0] as string, f[1]]));
+  ver((await valorDe(pag, "Número de casos")) === "165" && (await alerta.count()) === 0 && nuevoRes["Número de casos"] === 165, "al regenerar: 165 casos, el aviso desaparece y la exportación vuelve a funcionar (el Excel dice 165)", "al regenerar no se recuperó la exportación");
+  await admin.contexto.close();
+
+  // Renombrar una alcaldía cambia el rótulo en el tablero y en el reporte, no las cifras.
+  const antes = await fotoTablero(navegador);
+  const r = await api("PUT", "/api/admin/catalogos/alcaldias/4", { nombre: "Coyoacán renombrada", clave: "09003" });
+  const despues = await fotoTablero(navegador);
+  const { contexto: c2, pagina: p2 } = await nuevaPagina(navegador, 1280);
+  await irA(p2, "/admin/reportes");
+  const opciones = await p2.getByLabel("Alcaldía · opcional").locator("option").allInnerTexts();
+  await p2.getByLabel("Alcaldía · opcional").selectOption({ label: "Coyoacán renombrada" });
+  await p2.locator("#reporte-desde").fill("2026-10-01");
+  await p2.locator("#reporte-hasta").fill(HOY);
+  await boton(p2, "Generar reporte").click();
+  await p2.locator("section[aria-label='Resultados del reporte']").waitFor();
+  const chipAlcaldia = await p2.locator("section[aria-label='Resultados del reporte'] ul li").nth(1).innerText();
+  await c2.close();
+  ver(r.estado === 200 && cifrasFoto(antes) === cifrasFoto(despues) && antes.filas.some((f) => f[0] === "Coyoacán") && despues.filas.some((f) => f[0] === "Coyoacán renombrada") && !despues.filas.some((f) => f[0] === "Coyoacán") && opciones.includes("Coyoacán renombrada") && chipAlcaldia === "Alcaldía: Coyoacán renombrada", `renombrar la alcaldía 4: el tablero rotula «Coyoacán renombrada» con las MISMAS cifras (#${createHash("sha256").update(cifrasFoto(despues)).digest("hex").slice(0, 8)}), el filtro y los «Filtros aplicados» del reporte usan el nombre nuevo`, `renombrar: ${r.estado} ${chipAlcaldia}`);
+}
+
+/** Un avistamiento NUEVO sobre un caso SEMBRADO cuenta en las cifras de avistamientos del reporte cuando el periodo incluye otros casos; un periodo sin casos da «sin datos». */
+async function avistamientoSobreSembrado(navegador: Browser) {
+  const HOY = hoyCDMX();
+  const leerReporte = async (desde: string, hasta: string) => {
+    const { contexto, pagina } = await nuevaPagina(navegador, 1280);
+    await irA(pagina, "/admin/reportes");
+    await pagina.locator("#reporte-desde").fill(desde);
+    await pagina.locator("#reporte-hasta").fill(hasta);
+    await boton(pagina, "Generar reporte").click();
+    await pagina.locator("section[aria-label='Resultados del reporte'], [role=status]:has-text('Sin datos')").first().waitFor();
+    const sinDatos = (await pagina.getByText("No hay datos en el periodo y filtros seleccionados; modifica los filtros e inténtalo de nuevo.").count()) > 0;
+    const sumaAlcaldia = sinDatos ? 0 : (await filasDe(pagina, "Avistamientos por alcaldía del avistamiento")).reduce((t, f) => t + Number(f[1]), 0);
+    const casos = sinDatos ? "—" : await valorDe(pagina, "Número de casos");
+    await contexto.close();
+    return { sinDatos, sumaAlcaldia, casos };
+  };
+  const antes = await leerReporte("2026-10-01", HOY);
+  const antesTablero = await fotoTablero(navegador);
+  const f = new FormData();
+  f.set("datos", JSON.stringify({ acceso: { canal: "folio", folio: "RUPE-K7M4XQ9T" }, fecha: hoyCDMX(-1), hora: "10:00", direccion: "Calle Reservada de avistamiento 1", idAlcaldia: 6, estadosAnimal: [1, 7] }));
+  f.set("fotografia", new Blob([JPEG_REAL as BlobPart], { type: "image/jpeg" }), "fotografia.jpg");
+  const alta = await fetch(`${base}/api/avistamientos`, { method: "POST", headers: { Origin: new URL(base).origin }, body: f, redirect: "manual" });
+  const despues = await leerReporte("2026-10-01", HOY);
+  const despuesTablero = await fotoTablero(navegador);
+  ver(alta.status === 201 && despues.sumaAlcaldia === antes.sumaAlcaldia + 1 && despues.casos === antes.casos && despuesTablero.avistamientos === antesTablero.avistamientos + 1 && despuesTablero.casos === antesTablero.casos && despuesTablero.estado.join() === antesTablero.estado.join(), `avistamiento NUEVO sobre el caso sembrado Max (alta ${alta.status}): en el REPORTE de 1 oct → hoy los avistamientos por alcaldía pasan de ${antes.sumaAlcaldia} a ${despues.sumaAlcaldia} con los mismos ${despues.casos} casos, y en el tablero de ${antesTablero.avistamientos} a ${despuesTablero.avistamientos} sin mover los estados`, `avistamiento sobre sembrado: reporte ${JSON.stringify(antes)} → ${JSON.stringify(despues)} · tablero ${resumenFoto(antesTablero)} → ${resumenFoto(despuesTablero)}`);
+  const vacio = await leerReporte("2026-10-19", HOY);
+  ver(vacio.sinDatos, `un periodo SIN casos (19 oct → hoy) da «sin datos» aunque exista ese avistamiento nuevo (el reporte necesita casos que cuenten)`, "el periodo sin casos no dio «sin datos»");
+}
+
 /** Las exportaciones de «sin datos» están deshabilitadas de verdad (atributo, no clicables) y se ven distintas de las activas, en claro y en oscuro. */
 async function exportacionDeshabilitada(navegador: Browser) {
   for (const tema of ["light", "dark"] as const) {
     const { contexto, pagina } = await nuevaPagina(navegador, 1280, tema);
+    let descargas = 0;
+    pagina.on("download", () => descargas++);
     const nombreTema = tema === "light" ? "claro" : "oscuro";
     const leer = () =>
       pagina.evaluate(() => {
@@ -1932,7 +2198,14 @@ async function exportacionDeshabilitada(navegador: Browser) {
           botones: [...document.querySelectorAll("button")].filter((b) => /^Exportar a (PDF|Excel)$/.test(b.textContent?.trim() ?? "")).map((b) => ({ nombre: b.textContent!.trim(), disabled: b.disabled, ariaDisabled: b.getAttribute("aria-disabled"), color: getComputedStyle(b).color, borde: getComputedStyle(b).borderTopColor, cursor: getComputedStyle(b).cursor })),
         };
       });
-    await irA(pagina, "/admin/reportes?estado=vacio");
+    const generarEn = async (desde: string, hasta: string, esperar: string | Locator) => {
+      await irA(pagina, "/admin/reportes");
+      await pagina.locator("#reporte-desde").fill(desde);
+      await pagina.locator("#reporte-hasta").fill(hasta);
+      await boton(pagina, "Generar reporte").click();
+      await (typeof esperar === "string" ? pagina.getByText(esperar) : esperar).waitFor();
+    };
+    await generarEn("2026-10-19", "2026-10-31", "No hay datos en el periodo y filtros seleccionados; modifica los filtros e inténtalo de nuevo.");
     const d = await leer();
     ver(d.botones.length === 2 && d.botones.every((b) => b.disabled && b.color === d.deshabilitado && b.borde === d.bordeFuerte && b.cursor === "not-allowed"), `ADM-02 sin datos (${nombreTema}): «Exportar a PDF» y «Exportar a Excel» tienen el atributo disabled y usan el estilo de deshabilitado (texto --disabled-text, borde --border-strong, cursor no permitido)`, `ADM-02 sin datos (${nombreTema}): ${JSON.stringify(d.botones)}`);
     let clicables = 0;
@@ -1940,8 +2213,9 @@ async function exportacionDeshabilitada(navegador: Browser) {
       await boton(pagina, b).click({ timeout: 1000 }).then(() => clicables++, () => undefined);
       await pagina.keyboard.press("Tab");
     }
-    ver(clicables === 0 && (await pagina.getByRole("status").filter({ hasText: "Exportación simulada" }).count()) === 0, `ADM-02 sin datos (${nombreTema}): no se pueden pulsar (el clic no procede y no aparece ninguna exportación)`, `ADM-02 sin datos (${nombreTema}): ${clicables} botón(es) clicables`);
-    await irA(pagina, "/admin/reportes?desde=2026-10-01&hasta=2026-10-18");
+    await pagina.waitForTimeout(300);
+    ver(clicables === 0 && descargas === 0 && (await pagina.getByRole("status").filter({ hasText: /Se descargó/ }).count()) === 0, `ADM-02 sin datos (${nombreTema}): no se pueden pulsar (el clic no procede, no hay ninguna descarga ni aviso)`, `ADM-02 sin datos (${nombreTema}): ${clicables} botón(es) clicables, ${descargas} descarga(s)`);
+    await generarEn("2026-10-01", "2026-10-18", pagina.locator("section[aria-label='Resultados del reporte']"));
     const a = await leer();
     ver(a.botones.length === 2 && a.botones.every((b) => !b.disabled && b.color === a.primario && b.color !== a.deshabilitado && b.cursor !== "not-allowed"), `ADM-02 con datos (${nombreTema}): las exportaciones activas se ven distintas (texto en color primario, sin cursor de no permitido)`, `ADM-02 con datos (${nombreTema}): ${JSON.stringify(a.botones)}`);
     await contexto.close();
@@ -1950,14 +2224,27 @@ async function exportacionDeshabilitada(navegador: Browser) {
 
 /** Esqueletos de carga de pantallas sin fotografías: sin el recuadro de la foto. */
 async function esqueletosSinFoto(navegador: Browser) {
+  // El estado de carga es REAL (ya no hay ?estado=cargando): mientras el servidor calcula el reporte se ven los esqueletos, sin recuadro de fotografía. La respuesta se retrasa con una ruta de Playwright.
   const { contexto, pagina } = await nuevaPagina(navegador, 390);
-  for (const r of ["/admin/reportes?estado=cargando"]) {
-    await irA(pagina, r);
-    const n = await pagina.locator("[role=status][aria-busy=true]").count();
-    const fotos = await pagina.locator("[role=status][aria-busy=true] > span.size-20").count();
-    const conFoto = r.includes("usuarios");
-    ver(n > 0 && (conFoto ? true : fotos === 0), `${r}: ${n} esqueleto(s) de carga${conFoto ? " (ADM-03 conserva el suyo)" : " sin recuadro de fotografía"}`, `${r}: ${fotos} recuadro(s) de fotografía en el esqueleto`);
-  }
+  let liberar: () => void = () => undefined;
+  const retenida = new Promise<void>((r) => (liberar = r));
+  await pagina.route("**/api/admin/reportes?*", async (ruta) => {
+    await retenida;
+    await ruta.continue();
+  });
+  await irA(pagina, "/admin/reportes");
+  await pagina.locator("#reporte-desde").fill("2026-10-01");
+  await pagina.locator("#reporte-hasta").fill("2026-10-18");
+  await boton(pagina, "Generar reporte").click();
+  const esqueletos = pagina.locator("[role=status][aria-busy=true]");
+  await esqueletos.first().waitFor();
+  const n = await esqueletos.count();
+  const fotos = await pagina.locator("[role=status][aria-busy=true] > span.size-20").count();
+  const sinVacio = (await pagina.getByText("Genera un reporte").count()) === 0 && (await pagina.locator("section[aria-label='Resultados del reporte']").count()) === 0;
+  ver(n === 3 && fotos === 0 && sinVacio && (await boton(pagina, "Generar reporte").isDisabled()) && (await esqueletos.first().innerText()).includes("Generando el reporte…"), `/admin/reportes (generando): ${n} esqueletos de carga REALES sin recuadro de fotografía, anunciados como «Generando el reporte…», con «Generar reporte» deshabilitado y sin el estado vacío ni resultados a medias`, `/admin/reportes (generando): ${n} esqueleto(s), ${fotos} recuadro(s) de fotografía`);
+  liberar();
+  await pagina.locator("section[aria-label='Resultados del reporte']").waitFor();
+  ver((await esqueletos.count()) === 0 && (await boton(pagina, "Generar reporte").isEnabled()), "/admin/reportes: al llegar la respuesta desaparecen los esqueletos y «Generar reporte» vuelve a estar disponible", "/admin/reportes: los esqueletos no desaparecieron al llegar el reporte");
   await contexto.close();
 }
 
@@ -2124,7 +2411,7 @@ function autopruebaBitacora() {
 
 // ---------- enlaces y geometría ----------
 async function enlacesYGeometria(navegador: Browser) {
-  const rutas = ["/admin/usuarios", "/admin/usuarios?pagina=2", "/admin/usuarios?q=hector", "/admin/usuarios?estatus=inactivo", "/admin/usuarios?estatus=raro", "/admin/bitacora", "/admin/bitacora?pagina=2", "/admin/bitacora?tipo=cambiar%20rol", "/admin/bitacora?tipo=inventado&desde=2026-13-45", "/admin/registros", "/admin/registros?estado=Cerrado", "/admin/registros?alcaldia=999", `/admin/registros/${FOLIO_MODERACION_ACTIVO}`, `/admin/registros/${FOLIO_MODERACION_DESHABILITADO}`, `/admin/registros/${FOLIO_MODERACION_CANCELADO}`, "/admin/avistamientos", "/admin/avistamientos?pagina=2", "/admin/avistamientos?estatus=oculto", "/admin/avistamientos?desde=2026-10-10&hasta=2026-10-01", "/admin/avistamientos?detalle=101", "/admin/avistamientos?detalle=102", "/admin/avistamientos?detalle=102&foto=visible", "/admin/avistamientos?detalle=105", "/admin", `/admin?desde=2026-09-01&hasta=2026-09-30`, "/admin/reportes", "/admin/reportes?desde=2026-10-01&hasta=2026-10-18", "/admin/reportes?estado=vacio", "/admin/reportes?estado=cargando", "/admin/reportes?generar=1", "/admin/estados-caso", "/admin/parametros", ...["alcaldias", "razas", "motivos", "estados-animal"].flatMap((c) => [`/admin/${c}`, `/admin/${c}?pagina=2`, `/admin/${c}?pagina=999`, `/admin/${c}?q=a`, `/admin/${c}?q=zzzz`])];
+  const rutas = ["/admin/usuarios", "/admin/usuarios?pagina=2", "/admin/usuarios?q=hector", "/admin/usuarios?estatus=inactivo", "/admin/usuarios?estatus=raro", "/admin/bitacora", "/admin/bitacora?pagina=2", "/admin/bitacora?tipo=cambiar%20rol", "/admin/bitacora?tipo=inventado&desde=2026-13-45", "/admin/registros", "/admin/registros?estado=Cerrado", "/admin/registros?alcaldia=999", `/admin/registros/${FOLIO_MODERACION_ACTIVO}`, `/admin/registros/${FOLIO_MODERACION_DESHABILITADO}`, `/admin/registros/${FOLIO_MODERACION_CANCELADO}`, "/admin/avistamientos", "/admin/avistamientos?pagina=2", "/admin/avistamientos?estatus=oculto", "/admin/avistamientos?desde=2026-10-10&hasta=2026-10-01", "/admin/avistamientos?detalle=101", "/admin/avistamientos?detalle=102", "/admin/avistamientos?detalle=102&foto=visible", "/admin/avistamientos?detalle=105", "/admin", `/admin?desde=2026-09-01&hasta=2026-09-30`, "/admin?desde=2026-10-10&hasta=2026-10-01", "/admin?desde=2026-10-19&hasta=2026-10-19", "/admin/reportes", "/admin/estados-caso", "/admin/parametros", ...["alcaldias", "razas", "motivos", "estados-animal"].flatMap((c) => [`/admin/${c}`, `/admin/${c}?pagina=2`, `/admin/${c}?pagina=999`, `/admin/${c}?q=a`, `/admin/${c}?q=zzzz`])];
   const vistos = new Set<string>();
   const { contexto, pagina } = await nuevaPagina(navegador, 1280);
   for (const r of rutas) {
@@ -2165,6 +2452,25 @@ async function enlacesYGeometria(navegador: Browser) {
     ["/admin/estados-animal", (p) => boton(p, "Agregar estado"), "Agregar estado del animal"],
     ["/admin/parametros", (p) => boton(p, "Restablecer valores por defecto"), "Restablecer valores por defecto"],
   ];
+  // Reportes: los estados que antes eran variantes (?estado=, ?generar=1) se alcanzan ahora con acciones reales: resultados, periodo sin datos y error de rango.
+  const estadosDeReportes: Array<[string, string, string, (p: Page) => Promise<unknown>]> = [
+    ["con resultados", "2026-10-01", "2026-10-18", (p) => p.locator("section[aria-label='Resultados del reporte']").waitFor()],
+    ["sin datos", "2026-10-19", "2026-10-31", (p) => p.getByText("No hay datos en el periodo y filtros seleccionados; modifica los filtros e inténtalo de nuevo.").waitFor()],
+    ["con error de rango", "2026-10-18", "2026-10-01", (p) => p.getByText("«Hasta» no puede ser anterior a «Desde».").waitFor()],
+  ];
+  for (const [nombre, d, h, esperar] of estadosDeReportes) {
+    for (const ancho of ANCHOS) {
+      const p = await nuevaPagina(navegador, ancho);
+      await irA(p.pagina, "/admin/reportes");
+      await p.pagina.locator("#reporte-desde").fill(d);
+      await p.pagina.locator("#reporte-hasta").fill(h);
+      await boton(p.pagina, "Generar reporte").click();
+      await esperar(p.pagina);
+      await desborde(p.pagina, `/admin/reportes ${nombre} ${ancho}px`);
+      await areasTactiles(p.pagina, `/admin/reportes ${nombre} ${ancho}px`);
+      await p.contexto.close();
+    }
+  }
   for (const [r, abrir, nombre] of modales) {
     for (const ancho of ANCHOS) {
       const p = await nuevaPagina(navegador, ancho);
@@ -2206,7 +2512,8 @@ async function main() {
     };
     await corre("coloresFijos", () => coloresFijos());
     await corre("armazon", () => armazon(navegador!));
-    await corre("tablero", () => tablero(navegador!));
+    await corre("menuEncabezados", () => menuEncabezados(navegador!));
+    await corre("tablero", () => tablero(navegador!), { reiniciar: true });
     await corre("usuarios", () => usuarios(navegador!), { reiniciar: true });
     await corre("moderacionRegistros", () => moderacionRegistros(navegador!), { reiniciar: true });
     await corre("rotulosDelDetalle", () => rotulosDelDetalle(navegador!), { reiniciar: true });
@@ -2215,7 +2522,7 @@ async function main() {
     await corre("reglasDeCatalogos", () => reglasDeCatalogos(), { reiniciar: true });
     await corre("catalogos", () => catalogos(navegador!), { reiniciar: true });
     await corre("chipValorProtegido", () => chipValorProtegido(navegador!), { reiniciar: true });
-    await corre("reportes", () => reportes(navegador!));
+    await corre("reportes", () => reportes(navegador!), { reiniciar: true });
     await corre("estadosDelCaso", () => estadosDelCaso(navegador!), { reiniciar: true });
     await corre("parametros", () => parametros(navegador!), { reiniciar: true });
     await corre("flujoRazaDesactivada", () => flujoRazaDesactivada(navegador!), { reiniciar: true });
@@ -2225,10 +2532,12 @@ async function main() {
     await corre("bitacoraCoherente", () => bitacoraCoherente());
     await corre("autopruebaBitacora", () => autopruebaBitacora());
     await corre("autopruebaCeldas", () => autopruebaCeldas(navegador!));
-    await corre("exportacionDeshabilitada", () => exportacionDeshabilitada(navegador!));
-    await corre("esqueletosSinFoto", () => esqueletosSinFoto(navegador!));
+    await corre("exportacionDeshabilitada", () => exportacionDeshabilitada(navegador!), { reiniciar: true });
+    await corre("esqueletosSinFoto", () => esqueletosSinFoto(navegador!), { reiniciar: true });
     await corre("sinDatosDeUsuarios", () => sinDatosDeUsuarios());
     await corre("flujoCompleto", () => flujoCompleto(navegador!), { reiniciar: true });
+    await corre("flujoTableroYReportes", () => flujoTableroYReportes(navegador!), { reiniciar: true });
+    await corre("avistamientoSobreSembrado", () => avistamientoSobreSembrado(navegador!), { reiniciar: true });
     await corre("enlacesYGeometria", () => enlacesYGeometria(navegador!), { reiniciar: true });
   } finally {
     await navegador?.close();

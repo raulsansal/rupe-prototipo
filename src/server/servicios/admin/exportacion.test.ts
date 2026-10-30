@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { PDFDocument } from "pdf-lib";
-import { filasDeHoja, leerXlsx, type Celda } from "../../../../scripts/lib/leerXlsx";
+import { imagenesDePrimeraPagina } from "../../../../scripts/lib/imagenesPdf";
+import { entradasDeZip, filasDeHoja, leerXlsx, type Celda } from "../../../../scripts/lib/leerXlsx";
+const leerXlsxEntradas = (b: Uint8Array) => [...entradasDeZip(b).keys()];
 import { ErrorApp } from "../../errores";
 import { AHORA, nuevoContexto } from "../../pruebas/auxiliares";
 import { jpeg } from "../../pruebas/imagenes";
@@ -63,6 +65,21 @@ test("exportar · PDF: un PDF válido con el nombre pedido; el servidor lo gener
   assert.ok(doc.getPageCount() >= 1);
   assert.deepEqual([doc.getAuthor(), doc.getTitle()], ["RUPE", "Reporte estadístico de casos"]);
   assert.deepEqual([almacen.bitacora.length, JSON.stringify(almacen.ids)], antes);
+});
+
+test("exportar · PDF: el encabezado lleva el perrito oficial (public/brand/perro_cuad_primario.png, 591 × 532) incrustado en la primera página, sin deformar y a la izquierda del texto; el Excel no lleva imágenes", async () => {
+  const { ctx } = nuevoContexto();
+  const r = await reporte(ctx);
+  const { bytes } = await exportarReporte(ADMIN, cuerpo(r, { formato: "pdf" }), ctx);
+  const imagenes = await imagenesDePrimeraPagina(bytes);
+  assert.equal(imagenes.length, 1, "falta el logotipo en la primera página");
+  const [i] = imagenes;
+  assert.deepEqual([i.ancho, i.alto], [591, 532]); // es el archivo oficial, no un redibujo
+  assert.ok(Math.abs(i.dibujadaAncho / i.dibujadaAlto - 591 / 532) < 0.01, `proporción deformada ${i.dibujadaAncho}×${i.dibujadaAlto}`);
+  assert.ok(i.dibujadaAlto >= 20 && i.dibujadaAlto <= 40, `tamaño ${i.dibujadaAlto} pt fuera de lo legible`);
+  assert.ok(i.x <= 60 && i.y > 700, `posición ${i.x},${i.y}: debe ir arriba a la izquierda`);
+  const { bytes: xlsx } = await exportarReporte(ADMIN, cuerpo(r), ctx);
+  assert.ok(!leerXlsxEntradas(xlsx).some((n) => /media|drawing/.test(n)), "el Excel no debe llevar imágenes");
 });
 
 test("exportar · el servidor recalcula e IGNORA cualquier cifra del cliente (cifras falsas en el cuerpo y dentro de los filtros)", async () => {

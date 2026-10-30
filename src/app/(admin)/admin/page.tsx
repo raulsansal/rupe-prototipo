@@ -3,8 +3,12 @@ import { BotonActualizarTablero, FiltroPeriodo } from "@/components/features/tab
 import { BarraApilada } from "@/components/ui/BarraApilada";
 import { GraficaBarras } from "@/components/ui/GraficaBarras";
 import { TarjetaIndicador } from "@/components/ui/TarjetaIndicador";
-import { calcularTablero, errorDePeriodo, PERIODO_PREDETERMINADO } from "@/mocks/tablero";
 import type { EstadoCaso } from "@/mocks/tipos";
+import { ErrorApp } from "@/server/errores";
+import { hoyCDMX } from "@/server/dominio/fechas";
+import { INICIO_DE_DATOS } from "@/server/dominio/estadisticas";
+import { consultarTablero } from "@/server/servicios/admin/tableroAdmin";
+import { exigirSesionDePagina } from "@/server/sesion/pagina";
 
 export const metadata: Metadata = { title: "Tablero · RUPE" };
 
@@ -20,20 +24,37 @@ const COLOR_ESTADO: Record<EstadoCaso, string> = {
 
 const texto = (p: string | string[] | undefined) => (typeof p === "string" ? p : "");
 
-/** ADM-01 (HU 055). ?desde=AAAA-MM-DD&hasta=AAAA-MM-DD fija el periodo; si falta o no es válido, se usa el del 1 al 18 de octubre de 2026. */
+/**
+ * ADM-01 (HU 055). Sale del almacén por el servicio de Administrador (base histórica + lo creado después de la siembra) y se calcula en cada carga, así que «Actualizar tablero» recalcula de verdad.
+ * ?desde=AAAA-MM-DD&hasta=AAAA-MM-DD fija el periodo (sin ellos: del 1 de octubre de 2026 o de hoy, el menor, a hoy). Si el periodo no es válido se muestra el error del servicio, sin cambiar de periodo en silencio.
+ */
 export default async function Tablero({ searchParams }: PageProps<"/admin">) {
   const q = await searchParams;
+  const sesion = await exigirSesionDePagina("Administrador");
   const pedido = { desde: texto(q.desde), hasta: texto(q.hasta) };
-  const periodo = pedido.desde && pedido.hasta && !errorDePeriodo(pedido) ? pedido : { ...PERIODO_PREDETERMINADO };
-  const t = calcularTablero(periodo);
-
+  let t: Awaited<ReturnType<typeof consultarTablero>> | undefined;
+  let errores: { desde?: string; hasta?: string } = {};
+  try {
+    t = await consultarTablero(sesion, pedido);
+  } catch (e) {
+    if (!(e instanceof ErrorApp) || e.estado !== 422) throw e;
+    errores = e.campos ?? {};
+  }
+  if (!t) {
+    return (
+      <div className="flex flex-col gap-4">
+        <h1 className="text-h1">Tablero</h1>
+        <FiltroPeriodo key={`${pedido.desde}-${pedido.hasta}-error`} periodo={pedido} limites={{ desde: INICIO_DE_DATOS, hasta: hoyCDMX() }} errores={errores} />
+      </div>
+    );
+  }
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-h1">Tablero</h1>
         <BotonActualizarTablero />
       </div>
-      <FiltroPeriodo key={`${periodo.desde}-${periodo.hasta}`} periodo={periodo} />
+      <FiltroPeriodo key={`${t.periodo.desde}-${t.periodo.hasta}-${t.generadoEn}`} periodo={t.periodo} limites={t.limites} generadoEn={t.generadoEn} />
       <section aria-label="Indicadores" className="grid grid-cols-2 gap-3 lg:grid-cols-3">
         <TarjetaIndicador icono="pets" titulo="Casos activos" valor={String(t.casosActivos)} descripcion="Casos registrados en el periodo en Extraviado, En búsqueda, Avistamiento reportado o En seguimiento" />
         <TarjetaIndicador icono="check_circle" titulo="Casos localizados" valor={String(t.casosLocalizados)} descripcion="Casos registrados en el periodo en «Localizado» o con cierre confirmado" />
@@ -54,7 +75,7 @@ export default async function Tablero({ searchParams }: PageProps<"/admin">) {
           <GraficaBarras className="order-4" titulo="Avistamientos por estado del animal" subtitulo="Agrupados por categoría · un avistamiento cuenta en cada estado elegido" grupos={t.porEstadoAnimal.map((g) => ({ titulo: g.categoria, barras: g.barras }))} />
         </div>
       </section>
-      <p className="text-caption text-text-muted">Datos ficticios. Cada gráfica tiene una tabla de datos alternativa para lectores de pantalla.</p>
+      <p className="text-caption text-text-muted">Cada gráfica tiene una tabla de datos alternativa para lectores de pantalla.</p>
     </div>
   );
 }

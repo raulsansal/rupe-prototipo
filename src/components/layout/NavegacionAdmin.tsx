@@ -4,13 +4,13 @@ import type { GrupoNavegacion } from "./navegacion";
 
 type Props = { grupos: GrupoNavegacion[]; activo: string; onNavegar?: () => void; etiqueta?: string };
 
-/** Grupos de opciones del administrador (cajón en móvil, barra lateral en escritorio). */
+/** Grupos de opciones del administrador (cajón en móvil, barra lateral en escritorio). El encabezado de cada grupo es un título (gris tenue, `--menu-encabezado`), no un botón: sin hover, sin foco. */
 export function NavegacionAdmin({ grupos, activo, onNavegar, etiqueta = "Administración" }: Props) {
   return (
     <nav aria-label={etiqueta}>
       {grupos.map((g) => (
         <section key={g.titulo} aria-labelledby={`adm-${g.titulo}`}>
-          <h2 id={`adm-${g.titulo}`} className="bg-surface-raised px-4 py-2 text-caption font-bold uppercase tracking-wide text-text-muted">
+          <h2 id={`adm-${g.titulo}`} className="bg-menu-encabezado px-4 py-2 text-caption font-bold uppercase tracking-wide text-text-muted">
             {g.titulo}
           </h2>
           <ul>

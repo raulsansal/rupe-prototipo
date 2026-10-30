@@ -1,6 +1,8 @@
 import "server-only";
 // PDF de la exportación (HU 057) con pdf-lib y Montserrat, igual que la ficha: JavaScript puro, corre con `next start`. Varias páginas, solo agregados (nunca datos de personas) y en niveles de gris
 // (la hoja es negro sobre blanco). Lo que la fuente no dibuja (emoji, escrituras no latinas) sale como «?»: el PDF nunca falla por el texto de un catálogo.
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import fontkit from "@pdf-lib/fontkit";
 import { grayscale, PDFDocument, type PDFFont, type PDFPage } from "pdf-lib";
 import { limpiarTextoParaHoja } from "../../lib/ficha/composicion";
@@ -12,6 +14,9 @@ const ALTO = 792;
 const MARGEN = 48;
 const ANCHO_UTIL = ANCHO - 2 * MARGEN;
 const PIE = 40;
+/** El perrito oficial (variante «símbolo» del logotipo, sin texto): el mismo archivo de public/brand que usa la identidad del sitio. Se incrusta tal cual, sin redibujar ni deformar. */
+const RUTA_PERRITO = join(process.cwd(), "public", "brand", "perro_cuad_primario.png");
+const ALTO_PERRITO = 26;
 const NEGRO = grayscale(0);
 const GRIS = grayscale(0.37);
 const LINEA = grayscale(0.83);
@@ -30,6 +35,7 @@ export async function generarPdf(c: ContenidoDeReporte, ahora: Date): Promise<Ui
   const soportados = new Set(normal.getCharacterSet());
   const limpio = (t: string) => limpiarTextoParaHoja(t, (cp) => soportados.has(cp));
 
+  const perrito = await doc.embedPng(Uint8Array.from(readFileSync(RUTA_PERRITO)));
   let pagina: PDFPage = doc.addPage([ANCHO, ALTO]);
   let y = ALTO - MARGEN;
   const asegurar = (alto: number) => {
@@ -90,7 +96,11 @@ export async function generarPdf(c: ContenidoDeReporte, ahora: Date): Promise<Ui
   };
   const numero = (v: number | null, tipo: "entero" | "porcentaje") => (v === null ? "—" : tipo === "porcentaje" ? `${v.toFixed(1)} %` : String(v));
 
-  texto("RUPE · Registro Único de Perros Extraviados", { f: negrita, tam: 9, color: GRIS });
+  // Encabezado: [perrito] RUPE · Registro Único de Perros Extraviados (el perrito conserva la proporción 591 × 532 y el texto se centra a su altura).
+  const anchoPerrito = (ALTO_PERRITO * perrito.width) / perrito.height;
+  pagina.drawImage(perrito, { x: MARGEN, y: y - ALTO_PERRITO, width: anchoPerrito, height: ALTO_PERRITO });
+  pagina.drawText(limpio("RUPE · Registro Único de Perros Extraviados"), { x: MARGEN + anchoPerrito + 8, y: y - ALTO_PERRITO / 2 - 3.5, size: 10, font: negrita, color: GRIS });
+  y -= ALTO_PERRITO + 4;
   texto(c.titulo, { f: negrita, tam: 20, interlineado: 1.5 });
   texto(`Generado el ${c.generado}`, { tam: 9, color: GRIS });
   seccion("Filtros aplicados");

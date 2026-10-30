@@ -16,6 +16,7 @@ import { CASOS_ORIGEN } from "../src/mocks/casos";
 import { USUARIOS_INICIALES } from "../src/mocks/usuarios";
 import { JPEG_REAL } from "../src/server/pruebas/imagenes";
 import { CAMPOS_BARRA, CAMPOS_FILTROS_REPORTE, CAMPOS_GRUPO_ESTADO_ANIMAL, CAMPOS_PERIODO, CAMPOS_REPORTE, CAMPOS_TABLERO } from "../src/server/serializadores/admin";
+import { imagenesDePrimeraPagina } from "./lib/imagenesPdf";
 import { leerXlsx, filasDeHoja, type Celda } from "./lib/leerXlsx";
 import { textoDePdf } from "./lib/textoPdf";
 import { reporteOraculo, tableroOraculo } from "./mocks-de-prueba";
@@ -282,7 +283,9 @@ async function pruebas(navegador: Browser) {
     `PDF: 200 · ${pdf.tipo} · attachment «${nombrePdf}» · no-store · nosniff · ${pdf.bytes.length} bytes`, `PDF: ${pdf.estado} ${pdf.tipo} ${pdf.cabeceras.get("content-disposition")} ${pdf.cabeceras.get("cache-control")} ${pdf.cabeceras.get("x-content-type-options")}`);
   const texto = await textoDePdf(navegador, pdf.bytes, true);
   const hay = (re: RegExp) => re.test(texto);
-  ver(hay(/Reporte estadístico de casos/) && hay(/Filtros aplicados/) && hay(new RegExp(`Periodo\\s+1 oct 2026 – ${formatearFechaCorta(HOY)}`)) && hay(/Alcaldía\s+todas/) && hay(/Categoría de motivo\s+todas/) && hay(/Estado del caso\s+todos/), "PDF decodificado: título, «Filtros aplicados» con periodo, alcaldía, categoría y estado", `PDF sin encabezado o filtros: ${texto.slice(0, 300)}`);
+  const logos = await imagenesDePrimeraPagina(pdf.bytes);
+  const logoOk = logos.length === 1 && logos[0].ancho === 591 && logos[0].alto === 532 && Math.abs(logos[0].dibujadaAncho / logos[0].dibujadaAlto - 591 / 532) < 0.01;
+  ver(logoOk && hay(/RUPE · Registro Único de Perros Extraviados/) && hay(/Reporte estadístico de casos/) && hay(/Filtros aplicados/) && hay(new RegExp(`Periodo\\s+1 oct 2026 – ${formatearFechaCorta(HOY)}`)) && hay(/Alcaldía\s+todas/) && hay(/Categoría de motivo\s+todas/) && hay(/Estado del caso\s+todos/), "PDF decodificado: perrito oficial incrustado (591×532, sin deformar) junto al texto «RUPE · Registro Único de Perros Extraviados», título y «Filtros aplicados» con periodo, alcaldía, categoría y estado", `PDF sin encabezado o filtros: ${texto.slice(0, 300)}`);
   ver(hay(new RegExp(`Número de casos\\s+${repX.totalCasos}\\b`)) && hay(new RegExp(`Casos localizados\\s+${repX.casosLocalizados}\\b`)) && hay(new RegExp(`Tasa de recuperación \\(%\\)\\s+${repX.tasaRecuperacion.toFixed(1)} %`)) && hay(new RegExp(`Avistamientos ocultos \\(aparte\\)\\s+${repX.avistamientosOcultos}\\b`)), `PDF decodificado: indicadores = pantalla (${repX.totalCasos} casos · ${repX.casosLocalizados} localizados · ${repX.tasaRecuperacion.toFixed(1)} % · ${repX.avistamientosOcultos} ocultos)`, "los indicadores del PDF no coinciden con el reporte");
   const nombres = [...repX.porMotivo, ...repX.porEstadoCaso, ...repX.cierres, ...repX.porAlcaldiaAvistamiento].map((b: Datos) => b.nombre as string);
   ver(nombres.every((n) => texto.includes(n)) && /Página 1 de \d+/.test(texto) && /Avistamientos por alcaldía del avistamiento/.test(texto), `PDF decodificado: los ${nombres.length} rótulos de los desgloses y el pie «Página 1 de N» (varias páginas)`, "faltan rótulos de los desgloses en el PDF");

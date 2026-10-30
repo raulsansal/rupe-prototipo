@@ -77,6 +77,7 @@ const pares: Par[] = [
   texto("texto / superficie elevada", "text", "surface-raised"),
   texto("texto secundario / superficie", "text-muted", "surface"),
   texto("texto secundario / fondo", "text-muted", "background"),
+  texto("encabezado de grupo del menú del Administrador (texto secundario / fondo del encabezado)", "text-muted", "menu-encabezado"),
   texto("texto del botón primario", "on-primary", "primary"),
   texto("texto del botón destructivo", "on-primary", "danger"),
   texto("hover del destructivo (texto)", "on-primary", "estado-extraviado-fg"),
