@@ -4,6 +4,8 @@ import "server-only";
 // tiene su propia copia. Se sustituirá por MySQL detrás de las mismas interfaces de repos/.
 import type * as T from "../tipos";
 import { CARPETA_FOTOS_SEMBRADAS } from "../seed/fotosSembradas";
+import type { Hechos } from "../dominio/estadisticas";
+import type { MarcaDeSiembra } from "../dominio/capaReal";
 import { sembrar } from "../seed/seed";
 
 export type Almacen = {
@@ -16,11 +18,16 @@ export type Almacen = {
   contenidosFoto: Record<number, { tipo: string; bytes: Uint8Array }>;
   /** Último id entregado por tabla (equivale al AUTO_INCREMENT). */
   ids: Record<string, number>;
+  /** P6c: base histórica del tablero y de Reportes (hechos con ids, congelada). Inmutable y FUERA de la transacción: ninguna acción la toca. */
+  baseHistorica: Hechos;
+  /** P6c: ids máximos de caso y de avistamiento al terminar de sembrar. Lo que tenga un id mayor es «nuevo» y se suma a la base. `reiniciarAlmacen` la recalcula al sembrar de nuevo. */
+  marcaDeSiembra: MarcaDeSiembra;
 };
 
 export const almacenVacio = (): Almacen => ({
   usuarios: [], aceptaciones: [], intentosAnonimos: {}, sesiones: [], fotografias: [], perros: [], casos: [], historial: [], qr: [], avistamientos: [], avistamientoEstados: [], notificaciones: [], bitacora: [],
   alcaldias: [], razas: [], categoriasMotivo: [], motivos: [], categoriasEstadoAnimal: [], estadosAnimal: [], estadosCaso: [], parametros: [], contenidosFoto: {}, ids: {},
+  baseHistorica: { casos: [], avistamientos: [] }, marcaDeSiembra: { idCasoMax: 0, idAvistamientoMax: 0 },
 });
 
 /** Siguiente id de una tabla. */

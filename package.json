@@ -21,6 +21,7 @@
     "verificar-estados": "tsx scripts/verificar-estados.ts",
     "verificar-admin-moderacion": "tsx scripts/verificar-admin-moderacion.ts",
     "verificar-admin-catalogos": "tsx scripts/verificar-admin-catalogos.ts",
+    "verificar-admin-reportes": "tsx scripts/verificar-admin-reportes.ts",
     "verificar-pdf": "tsx --require ./scripts/server-only-vacio.cjs scripts/verificar-pdf.ts",
     "preparar-fotos": "tsx scripts/preparar-fotos.ts",
     "verificar-tutor": "tsx scripts/verificar-tutor.ts",
@@ -39,7 +40,8 @@
     "pdf-lib": "^1.17.1",
     "qrcode": "^1.5.4",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "write-excel-file": "4.1.1"
   },
   "devDependencies": {
     "@fontsource/montserrat": "^5.3.0",

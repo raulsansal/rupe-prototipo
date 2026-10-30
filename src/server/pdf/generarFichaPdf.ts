@@ -27,9 +27,9 @@ export type EntradaPdf = {
 };
 
 const CARPETA_FUENTES = join(process.cwd(), "src", "server", "pdf", "fuentes");
-const PESOS = { r: 400, m: 500, b: 700, x: 800 } as const;
+export const PESOS = { r: 400, m: 500, b: 700, x: 800 } as const;
 const cacheFuentes = new Map<number, Uint8Array>();
-const bytesDeFuente = (peso: number) => cacheFuentes.get(peso) ?? (cacheFuentes.set(peso, Uint8Array.from(readFileSync(join(CARPETA_FUENTES, `montserrat-${peso}.woff`)))), cacheFuentes.get(peso)!);
+export const bytesDeFuente = (peso: number) => cacheFuentes.get(peso) ?? (cacheFuentes.set(peso, Uint8Array.from(readFileSync(join(CARPETA_FUENTES, `montserrat-${peso}.woff`)))), cacheFuentes.get(peso)!);
 const RUTA_LOGO = join(process.cwd(), "public", "brand", "logo_hor_primario.png");
 const LOGO_PROPORCION = 1772 / 709;
 // Colores del papel (la hoja es siempre negro sobre blanco): solo niveles de gris de pdf-lib, sin valores de color fuera de globals.css.

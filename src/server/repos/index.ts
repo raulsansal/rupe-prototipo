@@ -6,6 +6,7 @@ import type { Actor } from "../dominio/transiciones";
 import type { TipoCatalogo } from "../../config/catalogos";
 import type { FilaCatalogo } from "../dominio/catalogos";
 import type { CambioDeParametro } from "../dominio/parametros";
+import type { DatosEstadisticos } from "../dominio/capaReal";
 
 export interface RepoUsuarios {
   porId(id: number): Promise<T.Usuario | undefined>;
@@ -166,7 +167,15 @@ export interface RepoAdministracion {
   restablecerParametros(e: Ejecucion): Promise<{ parametros: T.ParametroSistema[]; cambios: CambioDeParametro[]; entradas: T.AccionBitacoraReg[] }>;
 }
 
+/**
+ * P6c: lectura para el tablero (HU 055) y los reportes (HU 056). UN solo método y UNA pasada síncrona: base histórica, casos y avistamientos nuevos con su historial, y catálogos vigentes son de un mismo instante
+ * (con MySQL será un procedimiento almacenado de solo lectura). La proyección NO incluye datos de la persona tutora, folios, direcciones ni referencias. `base` se entrega sin copiar porque está congelada.
+ */
+export interface RepoEstadisticas {
+  leer(): Promise<DatosEstadisticos>;
+}
+
 export type Repositorios = {
   usuarios: RepoUsuarios; aceptaciones: RepoAceptaciones; intentos: RepoIntentos; sesiones: RepoSesiones; casos: RepoCasos; historial: RepoHistorial; qr: RepoQr;
-  avistamientos: RepoAvistamientos; notificaciones: RepoNotificaciones; bitacora: RepoBitacora; catalogos: RepoCatalogos; parametros: RepoParametros; administracion: RepoAdministracion;
+  avistamientos: RepoAvistamientos; notificaciones: RepoNotificaciones; bitacora: RepoBitacora; catalogos: RepoCatalogos; parametros: RepoParametros; administracion: RepoAdministracion; estadisticas: RepoEstadisticas;
 };

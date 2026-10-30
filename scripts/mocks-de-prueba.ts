@@ -11,3 +11,8 @@ export const avistamientosDelCaso = (folio: string): AvistamientoRecibido[] => A
 
 /** Orden cronológico (más antiguo primero): numera los marcadores del mapa (HU 047 y 048). */
 export const avistamientosCronologicos = (folio: string): AvistamientoRecibido[] => [...avistamientosDelCaso(folio)].reverse();
+
+// P6c: oráculo CONGELADO de las cifras del tablero y de Reportes (base sintética con PRNG semilla 20261018, todo por NOMBRE). Nada de `src/` lo importa. En la Etapa 2, cuando las pantallas dejen de importar
+// estos módulos, el código de cálculo se mueve aquí sin cambiar una línea.
+export { calcularTablero as tableroOraculo, CASOS_TABLERO, AVISTAMIENTOS_TABLERO, MOVIMIENTOS_CIERRE } from "../src/mocks/tablero";
+export { generarReporte as reporteOraculo } from "../src/lib/reportes";

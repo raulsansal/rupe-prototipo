@@ -7,8 +7,8 @@ import type { Browser } from "playwright";
 const RAIZ = join(process.cwd(), "node_modules", "pdfjs-dist", "build");
 const ORIGEN = "https://pdf.prueba";
 
-/** Todo el texto de la página 1, con los fragmentos unidos por un espacio. */
-export async function textoDePdf(navegador: Browser, pdf: Uint8Array): Promise<string> {
+/** Todo el texto de la página 1 (o de TODAS las páginas con `todas`), con los fragmentos unidos por un espacio. */
+export async function textoDePdf(navegador: Browser, pdf: Uint8Array, todas = false): Promise<string> {
   const contexto = await navegador.newContext({ viewport: { width: 400, height: 400 } });
   try {
     const pagina = await contexto.newPage();
@@ -20,7 +20,7 @@ export async function textoDePdf(navegador: Browser, pdf: Uint8Array): Promise<s
     });
     await pagina.goto(`${ORIGEN}/`);
     const r = await pagina.evaluate(
-      `(async function(){var lib=await import("${ORIGEN}/pdf.mjs");lib.GlobalWorkerOptions.workerSrc="${ORIGEN}/pdf.worker.mjs";var datos=Uint8Array.from(atob(${JSON.stringify(Buffer.from(pdf).toString("base64"))}),function(c){return c.charCodeAt(0)});var doc=await lib.getDocument({data:datos}).promise;var p=await doc.getPage(1);var t=await p.getTextContent();return t.items.map(function(i){return i.str}).join(" ")})()`,
+      `(async function(){var lib=await import("${ORIGEN}/pdf.mjs");lib.GlobalWorkerOptions.workerSrc="${ORIGEN}/pdf.worker.mjs";var datos=Uint8Array.from(atob(${JSON.stringify(Buffer.from(pdf).toString("base64"))}),function(c){return c.charCodeAt(0)});var doc=await lib.getDocument({data:datos}).promise;var salida=[];var n=${todas ? "doc.numPages" : "1"};for(var k=1;k<=n;k++){var p=await doc.getPage(k);var t=await p.getTextContent();salida.push(t.items.map(function(i){return i.str}).join(" "))}return salida.join(" ")})()`,
     );
     return String(r).replace(/\s+/g, " ").trim();
   } finally {

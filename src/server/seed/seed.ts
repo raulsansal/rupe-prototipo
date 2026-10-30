@@ -2,9 +2,8 @@ import "server-only";
 // Datos ficticios iniciales del Prototipo, derivados de src/mocks/ (mismos folios, usuarios, catálogos, avistamientos y bitácora que el maquetado).
 // Todo es ficticio. Las contraseñas de las 3 cuentas salen SOLO de variables de entorno (ver .env.example); sin ellas la cuenta existe sin credencial.
 //
-// PENDIENTE (P6): hoy el tablero (ADM-01) y Reportes (ADM-02) se calculan solo con los casos y avistamientos SINTÉTICOS de src/mocks/tablero.ts, y
-// sus cifras no deben cambiar. En P6 deberán SUMAR a ellos los casos y avistamientos reales de este almacén (los sembrados aquí ya están en el
-// maquetado de moderación pero no en esas cifras), sin cambiar hoy ninguna cifra.
+// P6c: el tablero y Reportes suman a la base histórica (src/mocks/tablero.ts, asociada a ids en `baseHistorica`) SOLO lo creado después de la siembra: al terminar `sembrar` se toma la marca
+// (`marcaDeSiembra`), así que los casos y avistamientos sembrados aquí no entran en esas cifras.
 import { join } from "node:path";
 import { hashSync } from "bcryptjs";
 import { COSTO_BCRYPT } from "../sesion/contrasenas";
@@ -16,6 +15,7 @@ import { BITACORA } from "../../mocks/bitacora";
 import { AVISTAMIENTOS_OCULTOS_ORIGEN, CASOS_MODERACION } from "../../mocks/moderacion";
 import { ALCALDIAS, ESTADOS_CASO, FUERA_DE_LA_CIUDAD } from "../../mocks/tipos";
 import { USUARIOS_INICIALES } from "../../mocks/usuarios";
+import { construirBaseHistorica } from "./baseHistorica";
 import type { Almacen } from "../memoria/almacen";
 import { siguienteId } from "../memoria/almacen";
 import type * as T from "../tipos";
@@ -188,6 +188,10 @@ export function sembrar(a: Almacen, entorno: Entorno = process.env, { carpetaFot
   for (const r of REACTIVACIONES) {
     a.bitacora.push({ idBitacoraAdmin: siguienteId(a, "bitacora"), tipoAccion: "edición de catálogo", idAfectada: r.id, detalle: r.detalle, fechaHora: r.fechaHora, idUsuario: usuarioPorNombre("Ricardo Vega Ficticio") });
   }
+
+  // ---- P6c: base histórica con ids y marca de siembra (se toma AL FINAL: lo creado después, con id mayor, es la capa real) ----
+  a.baseHistorica = construirBaseHistorica(a);
+  a.marcaDeSiembra = { idCasoMax: a.ids.caso ?? 0, idAvistamientoMax: a.ids.avistamiento ?? 0 };
 
   return a;
 }

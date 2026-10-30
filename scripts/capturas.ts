@@ -5,6 +5,7 @@
 //           --autoprueba  demuestra que la verificación de solapes falla con la captura defectuosa de TUT-05 «cerrado» y pasa con la corregida
 //           --secciones=a,b  solo captura esas secciones (data-seccion) y omite las rutas completas
 //           --rutas=/dev/plantillas  solo captura las entradas cuya ruta empiece con ese prefijo
+//           --rutas-exactas=/admin,/x?a=1  solo captura las entradas cuya ruta completa (con su consulta) sea una de esas; combinable con --rutas
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -12,9 +13,10 @@ import { chromium, type Browser, type Page } from "playwright";
 import { ALTO_TELEFONO, ALTO_VENTANA, ANCHOS, PUERTO, RUTAS, TEMAS, type Captura } from "../capturas.config";
 import { CLAVE_TEMA } from "../src/lib/tema";
 import { agregarSesion, reiniciarDatos, rolDeRuta } from "./sesion-pruebas";
+import { filtroDeArgumentos, hayFiltroDeRutas, seleccionaRuta } from "./lib/seleccionRutas";
 
 const raiz = process.cwd();
-const soloRutas = process.argv.find((a) => a.startsWith("--rutas="))?.split("=")[1];
+const filtroRutas = filtroDeArgumentos(process.argv);
 const soloSecciones = process.argv.find((a) => a.startsWith("--secciones="))?.split("=")[1]?.split(",");
 const salida = join(raiz, "capturas");
 const base = `http://localhost:${PUERTO}`;
@@ -188,7 +190,7 @@ async function main() {
     }
     for (const entrada of RUTAS) {
       const { ruta } = entrada;
-      if (soloRutas && !ruta.startsWith(soloRutas)) continue;
+      if (!seleccionaRuta(ruta, filtroRutas)) continue;
       const secciones = soloSecciones ? entrada.secciones?.filter((x) => soloSecciones.includes(x)) : entrada.secciones;
       if (soloSecciones && !secciones?.length) continue;
       for (const ancho of entrada.anchos ?? ANCHOS) {
@@ -235,7 +237,7 @@ async function main() {
       }
     }
     // Corrida completa (sin filtros): se borran los PNG de capturas que ya no existen en la configuración, para que no se acumulen.
-    if (!soloRutas && !soloSecciones && generadas.size > 0) {
+    if (!hayFiltroDeRutas(filtroRutas) && !soloSecciones && generadas.size > 0) {
       for (const f of readdirSync(salida)) {
         if (f.endsWith(".png") && !generadas.has(f)) {
           rmSync(join(salida, f));

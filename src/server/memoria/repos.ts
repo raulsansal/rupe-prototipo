@@ -455,5 +455,37 @@ export function crearRepositorios(almacen: () => Almacen = obtenerAlmacen): Repo
       async todos() { return copia(a().parametros); },
       async valor(clave) { return a().parametros.find((p) => p.clave === clave)!.valor; },
     },
+    estadisticas: {
+      // SIN await dentro: todo se lee de una vez, así que casos, historial, avistamientos y catálogos son de un mismo instante.
+      async leer() {
+        const al = a();
+        const { idCasoMax, idAvistamientoMax } = al.marcaDeSiembra;
+        const nuevos = al.avistamientos.filter((v) => v.idAvistamiento > idAvistamientoMax);
+        const conAvistamientoNuevo = new Set(nuevos.map((v) => v.idCasoExtravio));
+        const deInteres = al.casos.filter((c) => c.idCasoExtravio > idCasoMax || conAvistamientoNuevo.has(c.idCasoExtravio));
+        const ids = new Set(deInteres.map((c) => c.idCasoExtravio));
+        const movimientos = new Map<number, { consecutivo: number; tipoMovimiento: T.TipoMovimiento; fechaHora: string }[]>();
+        for (const m of al.historial) if (ids.has(m.idCasoExtravio)) (movimientos.get(m.idCasoExtravio) ?? movimientos.set(m.idCasoExtravio, []).get(m.idCasoExtravio)!).push({ consecutivo: m.consecutivo, tipoMovimiento: m.tipoMovimiento, fechaHora: m.fechaHora });
+        const categoriaDeMotivo = new Map(al.motivos.map((m) => [m.idMotivo, m.idCategoriaMotivo]));
+        const estadosDe = new Map<number, number[]>();
+        for (const e of al.avistamientoEstados) (estadosDe.get(e.idAvistamiento) ?? estadosDe.set(e.idAvistamiento, []).get(e.idAvistamiento)!).push(e.idEstadoAnimal);
+        return {
+          base: al.baseHistorica,
+          marca: { ...al.marcaDeSiembra },
+          casos: deInteres.map((c) => ({
+            idCasoExtravio: c.idCasoExtravio, esNuevo: c.idCasoExtravio > idCasoMax, fechaRegistro: c.fechaRegistro, idAlcaldia: c.idAlcaldia, idCategoriaMotivo: categoriaDeMotivo.get(c.idMotivo)!, idEstadoCaso: c.idEstadoCaso,
+            movimientos: (movimientos.get(c.idCasoExtravio) ?? []).sort((x, y) => x.consecutivo - y.consecutivo).map(({ tipoMovimiento, fechaHora }) => ({ tipoMovimiento, fechaHora })),
+          })),
+          avistamientos: nuevos.map((v) => ({ fechaHoraAvistamiento: v.fechaHoraAvistamiento, idAlcaldia: v.idAlcaldia, idsEstadoAnimal: [...(estadosDe.get(v.idAvistamiento) ?? [])], visible: v.visible, idCasoExtravio: v.idCasoExtravio })),
+          catalogos: {
+            alcaldias: al.alcaldias.map((x) => ({ id: x.idAlcaldia, nombre: x.nombre, activo: x.estatus === 1 })),
+            categoriasMotivo: al.categoriasMotivo.map((x) => ({ id: x.idCategoriaMotivo, nombre: x.nombre })),
+            categoriasEstadoAnimal: al.categoriasEstadoAnimal.map((x) => ({ id: x.idCategoriaEstadoAnimal, nombre: x.nombre })),
+            estadosAnimal: al.estadosAnimal.map((x) => ({ id: x.idEstadoAnimal, idCategoria: x.idCategoriaEstadoAnimal, nombre: x.nombre, activo: x.estatus === 1 })),
+            estadosCaso: al.estadosCaso.map((x) => ({ id: x.idEstadoCaso, nombre: x.nombre as EstadoCaso })),
+          },
+        };
+      },
+    },
   };
 }
