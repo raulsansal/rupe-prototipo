@@ -10,12 +10,11 @@ import { hashSync } from "bcryptjs";
 import { COSTO_BCRYPT } from "../sesion/contrasenas";
 import { leerFotoSembrada } from "./fotosSembradas";
 import { CASOS_ORIGEN } from "../../mocks/casos";
-import { CATEGORIAS_ESTADO_ANIMAL, CATEGORIAS_MOTIVO } from "../../mocks/catalogos";
-import { CATALOGOS } from "../../mocks/catalogosAdmin";
+import { CATEGORIAS_ESTADO_ANIMAL, CATEGORIAS_MOTIVO, CLAVES_GEOESTADISTICAS, ESTADOS_ANIMAL, MOTIVOS, RAZAS } from "../../mocks/catalogos";
 import { AVISTAMIENTOS } from "../../mocks/avistamientos";
 import { BITACORA } from "../../mocks/bitacora";
 import { AVISTAMIENTOS_OCULTOS_ORIGEN, CASOS_MODERACION } from "../../mocks/moderacion";
-import { ESTADOS_CASO } from "../../mocks/tipos";
+import { ALCALDIAS, ESTADOS_CASO, FUERA_DE_LA_CIUDAD } from "../../mocks/tipos";
 import { USUARIOS_INICIALES } from "../../mocks/usuarios";
 import type { Almacen } from "../memoria/almacen";
 import { siguienteId } from "../memoria/almacen";
@@ -57,15 +56,15 @@ export type OpcionesSiembra = { carpetaFotos?: string };
 
 export function sembrar(a: Almacen, entorno: Entorno = process.env, { carpetaFotos }: OpcionesSiembra = {}): Almacen {
   // ---- Catálogos ----
-  // PROTOTIPO: todos los valores sembrados quedan ACTIVOS (aunque las pantallas del Administrador, que hasta la Etapa 2 de P6b leen `mocks/catalogosAdmin.ts`, conserven los suyos como inactivos) para que
+  // PROTOTIPO: todos los valores sembrados quedan ACTIVOS para que
   // los flujos de prueba no fallen con alcaldía Milpa Alta, raza Pug, motivo «Estrés…» ni los estados del animal 16 y 17. Lo desactivado se prueba con acciones reales del Administrador (P6b).
   // El seed resuelve alcaldía, raza y motivo de los casos POR EL NOMBRE de los mocks (nunca por los del almacén ya editado: se siembra siempre desde cero).
-  CATALOGOS.alcaldias.elementos.forEach((e) => a.alcaldias.push({ idAlcaldia: e.id, nombre: e.nombre, claveGeoestadistica: e.clave ?? null, estatus: 1 }));
-  CATALOGOS.razas.elementos.forEach((e) => a.razas.push({ idRaza: e.id, nombre: e.nombre, estatus: 1 }));
+  [...ALCALDIAS, FUERA_DE_LA_CIUDAD].forEach((nombre, i) => a.alcaldias.push({ idAlcaldia: nombre === FUERA_DE_LA_CIUDAD ? 17 : i + 1, nombre, claveGeoestadistica: CLAVES_GEOESTADISTICAS[nombre] ?? null, estatus: 1 }));
+  RAZAS.forEach((e) => a.razas.push({ idRaza: e.id, nombre: e.nombre, estatus: 1 }));
   CATEGORIAS_MOTIVO.forEach((c) => a.categoriasMotivo.push({ idCategoriaMotivo: c.id, nombre: c.nombre }));
-  CATALOGOS.motivos.elementos.forEach((e) => a.motivos.push({ idMotivo: e.id, idCategoriaMotivo: e.idCategoria!, nombre: e.nombre, descripcion: e.descripcion ?? "", estatus: 1 }));
+  MOTIVOS.forEach((e) => a.motivos.push({ idMotivo: e.id, idCategoriaMotivo: e.idCategoria, nombre: e.nombre, descripcion: e.descripcion, estatus: 1 }));
   CATEGORIAS_ESTADO_ANIMAL.forEach((c) => a.categoriasEstadoAnimal.push({ idCategoriaEstadoAnimal: c.id, nombre: c.nombre }));
-  CATALOGOS["estados-animal"].elementos.forEach((e) => a.estadosAnimal.push({ idEstadoAnimal: e.id, idCategoriaEstadoAnimal: e.idCategoria!, nombre: e.nombre, descripcion: e.descripcion ?? "", estatus: 1 }));
+  ESTADOS_ANIMAL.forEach((e) => a.estadosAnimal.push({ idEstadoAnimal: e.id, idCategoriaEstadoAnimal: e.idCategoria, nombre: e.nombre, descripcion: e.descripcion, estatus: 1 }));
   // P6b: las altas del Administrador toman el siguiente id (AUTO_INCREMENT): el contador de cada catálogo parte del máximo sembrado.
   a.ids.alcaldia = Math.max(0, ...a.alcaldias.map((x) => x.idAlcaldia));
   a.ids.raza = Math.max(0, ...a.razas.map((x) => x.idRaza));

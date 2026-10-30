@@ -101,6 +101,13 @@ export const MOTIVOS: readonly Motivo[] = [
   { id: 15, idCategoria: 5, nombre: "Otro motivo", descripcion: "Circunstancia que no corresponde a las opciones anteriores, que puede detallarse en la descripción de las circunstancias." },
 ];
 
+/** Clave geoestadística de cada alcaldía oficial (diccionario: tbl_alcaldia; «Fuera de la Ciudad de México» no lleva). Solo la usa el seed. */
+export const CLAVES_GEOESTADISTICAS: Readonly<Record<string, string>> = {
+  "Álvaro Obregón": "09010", Azcapotzalco: "09002", "Benito Juárez": "09014", Coyoacán: "09003", "Cuajimalpa de Morelos": "09004", Cuauhtémoc: "09015",
+  "Gustavo A. Madero": "09005", Iztacalco: "09006", Iztapalapa: "09007", "La Magdalena Contreras": "09008", "Miguel Hidalgo": "09016", "Milpa Alta": "09009",
+  Tláhuac: "09011", Tlalpan: "09012", "Venustiano Carranza": "09017", Xochimilco: "09013",
+};
+
 /** Momento del día (CHECK del diccionario) con los rangos de horas que define. */
 export const MOMENTOS_DEL_DIA = [
   { valor: "madrugada", etiqueta: "Madrugada", rango: "0:00 a 5:59" },

@@ -1,55 +1,51 @@
 "use client";
 
-import { useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useRef, useState } from "react";
+import { REGLAS_CATALOGO } from "@/config/catalogos";
 import { Boton } from "@/components/ui/Boton";
 import { CampoTexto } from "@/components/ui/CampoTexto";
 import { ChipEstatus } from "@/components/ui/ChipEstatus";
+import { clasesBoton } from "@/components/ui/clasesBoton";
 import { EstadoVacio } from "@/components/ui/EstadoVacio";
 import { Paginacion } from "@/components/ui/Paginacion";
 import { Toast } from "@/components/ui/Toast";
 import { cx } from "@/lib/clases";
-import { desactivarElemento, esProtegido, guardarElemento, motivoNoDesactivable, normalizar, type DatosCatalogo } from "@/lib/catalogos";
-import { CATALOGOS, type AperturaCatalogo, type ElementoCatalogo, type TipoCatalogo } from "@/mocks/catalogosAdmin";
+import { enviarAdmin, MENSAJE_YA_CAMBIO, urlConPagina } from "@/lib/clienteAdmin";
+import type { CatalogoAdmin } from "@/server/serializadores/admin";
+import type { ListadoDeCatalogo } from "@/server/servicios/admin/catalogosAdmin";
 import { ModalMotivo } from "../moderacion/ModalMotivo";
-import { ModalCatalogo } from "./ModalCatalogo";
+import { ModalCatalogo, type DatosFormulario, type ResultadoGuardado } from "./ModalCatalogo";
 
-const POR_PAGINA = 6;
-
-type Apertura = AperturaCatalogo;
+type Apertura = { accion: "nuevo" } | { accion: "editar" | "desactivar"; id: number };
 type Props = {
-  tipo: TipoCatalogo;
-  /** Capturas y pruebas: abre ese modal al cargar. */
-  modalInicial?: Apertura;
-  /** Capturas y pruebas: página con la que abre la lista. */
-  paginaInicial?: number;
+  listado: ListadoDeCatalogo;
+  /** Lo que llegó en la URL (texto tal cual) para repetirlo en el formulario. */
+  valores: { q: string };
 };
 
 /**
- * Plantilla única de catálogo (ADM-06 a ADM-09, HU 049 a 052): tarjetas en móvil y tabla compacta cuando el contenedor mide 48 rem o más.
- * Los elementos nunca se eliminan: solo se desactivan, y reactivar se hace con «Editar» (R9). Un valor protegido y la última opción activa
- * de una categoría muestran «Desactivar» deshabilitado con su motivo. Los cambios solo viven en esta pantalla.
+ * Plantilla única de catálogo (ADM-06 a ADM-09, HU 049 a 052): tarjetas en móvil y tabla compacta cuando el contenedor mide 48 rem o más. La lista, la búsqueda y las páginas de 6 vienen del
+ * servidor por la URL. Los elementos nunca se eliminan: solo se desactivan, y reactivar se hace con «Editar» (R9). Un valor protegido y la última opción activa muestran «Desactivar»
+ * deshabilitado con el motivo que entrega el servidor. Cada acción llama a /api/admin/catalogos y refresca con el estado real.
  */
-export function GestionCatalogo({ tipo, modalInicial, paginaInicial = 1 }: Props) {
-  const cfg = CATALOGOS[tipo];
-  const [items, setItems] = useState<ElementoCatalogo[]>([...cfg.elementos]);
-  const [consulta, setConsulta] = useState("");
-  const [buscado, setBuscado] = useState("");
-  const [pagina, setPagina] = useState(paginaInicial);
+export function GestionCatalogo({ listado, valores }: Props) {
+  const router = useRouter();
+  const enviando = useRef(false);
+  const { tipo, items, categorias, pagina, totalPaginas, total, porPagina, filtros } = listado;
+  const cfg = REGLAS_CATALOGO[tipo];
   // Los modales quedan montados (cerrados) con el último elemento: así el foco regresa al botón que los abrió.
-  const [apertura, setApertura] = useState<Apertura | null>(modalInicial ?? null);
-  const [ultima, setUltima] = useState<Apertura>(modalInicial ?? { accion: "nuevo" });
+  const [apertura, setApertura] = useState<Apertura | null>(null);
+  const [ultima, setUltima] = useState<Apertura>({ accion: "nuevo" });
   const [version, setVersion] = useState(0); // el formulario de MOD-11 se monta de nuevo en cada apertura
   const [aviso, setAviso] = useState<string>();
 
-  const nombreCategoria = (id?: number) => cfg.categorias.find((c) => c.id === id)?.nombre;
-  const filtrados = items.filter((e) => !buscado || normalizar(e.nombre).includes(normalizar(buscado)));
-  const total = Math.max(1, Math.ceil(filtrados.length / POR_PAGINA));
-  const paginaActual = Math.min(pagina, total);
-  const visibles = filtrados.slice((paginaActual - 1) * POR_PAGINA, paginaActual * POR_PAGINA);
-  const elementoUltima = "id" in ultima ? items.find((e) => e.id === ultima.id) : undefined;
-  const estatusTxt = (e: ElementoCatalogo) => (cfg.femenino ? (e.activo ? "Activa" : "Inactiva") : e.activo ? "Activo" : "Inactivo");
+  const estatusTxt = (e: CatalogoAdmin) => (cfg.femenino ? (e.activo ? "Activa" : "Inactiva") : e.activo ? "Activo" : "Inactivo");
   const reactivado = cfg.femenino ? "reactivada" : "reactivado";
   const desactivado = cfg.femenino ? "desactivada" : "desactivado";
+  const elementoUltima = "id" in ultima ? items.find((e) => e.id === ultima.id) : undefined;
+  const hayBusqueda = Boolean(valores.q || filtros.texto);
 
   const abrir = (a: Apertura) => {
     if (a.accion !== "desactivar") setVersion((v) => v + 1);
@@ -57,22 +53,47 @@ export function GestionCatalogo({ tipo, modalInicial, paginaInicial = 1 }: Props
     setApertura(a);
   };
 
-  function guardar(datos: DatosCatalogo) {
-    const editando = "id" in ultima && ultima.accion === "editar" ? items.find((e) => e.id === ultima.id) : undefined;
-    setItems((l) => guardarElemento(cfg, l, datos, editando));
-    setAviso(!editando ? `Se agregó «${datos.nombre.trim()}»` : !editando.activo && datos.activo ? `«${datos.nombre.trim()}» quedó ${reactivado}` : `Se guardaron los cambios de «${datos.nombre.trim()}»`);
-    setApertura(null);
+  async function guardar(datos: DatosFormulario): Promise<ResultadoGuardado> {
+    if (enviando.current) return { ok: false }; // doble clic o Enter repetido: una sola petición
+    enviando.current = true;
+    try {
+      const editando = ultima.accion === "editar" && "id" in ultima ? ultima.id : undefined;
+      const r = editando === undefined ? await enviarAdmin(`/api/admin/catalogos/${tipo}`, "POST", datos) : await enviarAdmin(`/api/admin/catalogos/${tipo}/${editando}`, "PUT", datos);
+      if (r.ok) {
+        const nombre = String((r.datos?.item as { nombre?: string } | undefined)?.nombre ?? datos.nombre);
+        setAviso(editando === undefined ? `Se agregó «${nombre}»` : r.datos?.sinCambios ? "No hay cambios por guardar: no se guardó nada" : r.datos?.reactivado ? `«${nombre}» quedó ${reactivado}` : `Se guardaron los cambios de «${nombre}»`);
+        setApertura(null);
+        router.refresh();
+        return { ok: true };
+      }
+      if (r.estado === 401 || r.estado === 403 || r.estado === 404) {
+        setApertura(null);
+        router.refresh();
+        return { ok: true };
+      }
+      return { ok: false, campos: r.campos, codigo: r.codigo, mensaje: r.mensaje ?? "No se pudo guardar. Inténtalo de nuevo." };
+    } finally {
+      enviando.current = false;
+    }
   }
 
-  function desactivar() {
-    if (!("id" in ultima)) return;
-    setItems((l) => desactivarElemento(cfg, l, ultima.id));
-    setAviso(`«${elementoUltima?.nombre}» quedó ${desactivado}; los registros existentes se conservan`);
-    setApertura(null);
+  async function desactivar() {
+    if (!("id" in ultima) || enviando.current) return;
+    enviando.current = true;
+    try {
+      const r = await enviarAdmin(`/api/admin/catalogos/${tipo}/${ultima.id}/desactivar`, "POST", undefined);
+      if (r.ok) setAviso(`«${elementoUltima?.nombre}» quedó ${desactivado}; los registros existentes se conservan`);
+      else if (r.codigo === "YA_DESACTIVADO") setAviso(`«${elementoUltima?.nombre}» ${MENSAJE_YA_CAMBIO.charAt(0).toLowerCase()}${MENSAJE_YA_CAMBIO.slice(1)}`);
+      else setAviso(r.estado === 409 ? (r.mensaje ?? MENSAJE_YA_CAMBIO) : (r.mensaje ?? "No se pudo desactivar. Inténtalo de nuevo."));
+      setApertura(null);
+      router.refresh();
+    } finally {
+      enviando.current = false;
+    }
   }
 
-  function acciones(e: ElementoCatalogo, compacto: boolean) {
-    const bloqueo = e.activo ? motivoNoDesactivable(cfg, items, e) : undefined;
+  function acciones(e: CatalogoAdmin, compacto: boolean) {
+    const bloqueo = e.activo ? e.motivoNoDesactivable : undefined;
     const tamano = compacto ? "compacto" : "estandar";
     const idMotivo = `motivo-${cfg.tipo}-${e.id}${compacto ? "-t" : ""}`;
     return (
@@ -102,70 +123,54 @@ export function GestionCatalogo({ tipo, modalInicial, paginaInicial = 1 }: Props
           {cfg.agregar}
         </Boton>
       </div>
-      <form
-        role="search"
-        aria-label={`Buscar en ${cfg.titulo.toLowerCase()}`}
-        onSubmit={(ev) => {
-          ev.preventDefault();
-          setBuscado(consulta.trim());
-          setPagina(1);
-        }}
-        className="flex items-end gap-2"
-      >
-        <CampoTexto className="min-w-0 flex-1" etiqueta="Buscar" type="search" name="q" placeholder="nombre" autoComplete="off" value={consulta} onChange={(ev) => setConsulta(ev.target.value)} />
+      <form key={valores.q} method="get" action={cfg.ruta} role="search" aria-label={`Buscar en ${cfg.titulo.toLowerCase()}`} className="flex items-end gap-2">
+        <CampoTexto className="min-w-0 flex-1" etiqueta="Buscar" type="search" name="q" placeholder="nombre" autoComplete="off" defaultValue={valores.q} />
         <Boton type="submit" variante="secundario">
           Buscar
         </Boton>
       </form>
 
-      {filtrados.length === 0 ? (
+      {total === 0 ? (
         <EstadoVacio
           icono="pets"
-          titulo="Ningún elemento coincide"
-          descripcion="Prueba con otro nombre."
+          titulo={hayBusqueda ? "Ningún elemento coincide" : "Aún no hay elementos"}
+          descripcion={hayBusqueda ? "Prueba con otro nombre." : `Agrega ${cfg.femenino ? "la primera" : "el primero"} con «${cfg.agregar}».`}
           accion={
-            <Boton
-              variante="secundario"
-              onClick={() => {
-                setConsulta("");
-                setBuscado("");
-              }}
-            >
-              Limpiar búsqueda
-            </Boton>
+            hayBusqueda ? (
+              <Link href={cfg.ruta} className={clasesBoton({ variante: "secundario" })}>
+                Limpiar búsqueda
+              </Link>
+            ) : undefined
           }
         />
       ) : (
         <div className="@container flex flex-col gap-4">
           {/* Tarjetas (móvil) */}
           <ul className="flex flex-col gap-3 @3xl:hidden">
-            {visibles.map((e) => {
-              const bloqueo = e.activo ? motivoNoDesactivable(cfg, items, e) : undefined;
-              return (
-                <li key={e.id} data-elemento={e.id} className={cx("flex flex-col gap-3 rounded-tarjeta bg-surface p-4", e.activo ? "border border-border" : "border-2 border-dashed border-border-strong")}>
-                  <div className="flex flex-col gap-1">
-                    <h2 className="break-words text-h3 font-semibold">{e.nombre}</h2>
-                    {esProtegido(cfg, e) && (
-                      <div>
-                        <ChipEstatus estatus="Valor protegido" />
-                      </div>
-                    )}
-                    {cfg.conClave && <p className="text-small text-text-muted">{e.clave ? `Clave geoestadística: ${e.clave}` : "Clave geoestadística: sin clave"}</p>}
-                    {cfg.conCategoria && <p className="text-small text-text-muted">Categoría: {nombreCategoria(e.idCategoria)}</p>}
-                    {cfg.conDescripcion && <p className="break-words text-small">{e.descripcion}</p>}
-                  </div>
-                  <div>
-                    <ChipEstatus estatus={estatusTxt(e) as "Activa" | "Inactiva" | "Activo" | "Inactivo"} />
-                  </div>
-                  {bloqueo && (
-                    <p id={`motivo-${cfg.tipo}-${e.id}`} className="rounded-campo border-2 border-dashed border-border-strong bg-surface-raised p-3 text-small">
-                      {bloqueo}
-                    </p>
+            {items.map((e) => (
+              <li key={e.id} data-elemento={e.id} className={cx("flex flex-col gap-3 rounded-tarjeta bg-surface p-4", e.activo ? "border border-border" : "border-2 border-dashed border-border-strong")}>
+                <div className="flex flex-col gap-1">
+                  <h2 className="break-words text-h3 font-semibold">{e.nombre}</h2>
+                  {e.protegido && (
+                    <div>
+                      <ChipEstatus estatus="Valor protegido" />
+                    </div>
                   )}
-                  <div className={cx("grid gap-3", e.activo ? "grid-cols-2" : "grid-cols-1")}>{acciones(e, false)}</div>
-                </li>
-              );
-            })}
+                  {cfg.conClave && <p className="text-small text-text-muted">{e.clave ? `Clave geoestadística: ${e.clave}` : "Clave geoestadística: sin clave"}</p>}
+                  {cfg.conCategoria && <p className="text-small text-text-muted">Categoría: {e.categoria}</p>}
+                  {cfg.conDescripcion && <p className="break-words text-small">{e.descripcion}</p>}
+                </div>
+                <div>
+                  <ChipEstatus estatus={estatusTxt(e) as "Activa" | "Inactiva" | "Activo" | "Inactivo"} />
+                </div>
+                {e.activo && e.motivoNoDesactivable && (
+                  <p id={`motivo-${cfg.tipo}-${e.id}`} className="rounded-campo border-2 border-dashed border-border-strong bg-surface-raised p-3 text-small">
+                    {e.motivoNoDesactivable}
+                  </p>
+                )}
+                <div className={cx("grid gap-3", e.activo ? "grid-cols-2" : "grid-cols-1")}>{acciones(e, false)}</div>
+              </li>
+            ))}
           </ul>
           {/* Tabla compacta (escritorio) */}
           <div className="@max-3xl:hidden rounded-tarjeta border border-border bg-surface">
@@ -182,14 +187,14 @@ export function GestionCatalogo({ tipo, modalInicial, paginaInicial = 1 }: Props
                 </tr>
               </thead>
               <tbody>
-                {visibles.map((e) => (
+                {items.map((e) => (
                   <tr key={e.id} data-elemento={e.id} className="border-b border-border align-top last:border-b-0">
                     <td className="px-3 py-2">
                       <p className="break-words font-bold">{e.nombre}</p>
-                      {esProtegido(cfg, e) && <ChipEstatus estatus="Valor protegido" className="mt-1" />}
+                      {e.protegido && <ChipEstatus estatus="Valor protegido" className="mt-1" />}
                     </td>
                     {cfg.conClave && <td className="px-3 py-2 tabular-nums">{e.clave ?? "—"}</td>}
-                    {cfg.conCategoria && <td className="px-3 py-2">{nombreCategoria(e.idCategoria)}</td>}
+                    {cfg.conCategoria && <td className="px-3 py-2">{e.categoria}</td>}
                     {cfg.conDescripcion && <td className="max-w-72 px-3 py-2">{e.descripcion}</td>}
                     <td className="px-3 py-2">
                       <ChipEstatus estatus={estatusTxt(e) as "Activa" | "Inactiva" | "Activo" | "Inactivo"} />
@@ -204,9 +209,9 @@ export function GestionCatalogo({ tipo, modalInicial, paginaInicial = 1 }: Props
           </div>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p aria-live="polite" className="text-small text-text-muted">
-              {(paginaActual - 1) * POR_PAGINA + 1}–{(paginaActual - 1) * POR_PAGINA + visibles.length} de {filtrados.length} elementos
+              {(pagina - 1) * porPagina + 1}–{(pagina - 1) * porPagina + items.length} de {total} elementos
             </p>
-            <Paginacion paginaActual={paginaActual} totalPaginas={total} onCambiarPagina={setPagina} />
+            <Paginacion paginaActual={pagina} totalPaginas={totalPaginas} onCambiarPagina={(n) => router.push(urlConPagina(cfg.ruta, { q: filtros.texto }, n))} />
           </div>
         </div>
       )}
@@ -214,7 +219,7 @@ export function GestionCatalogo({ tipo, modalInicial, paginaInicial = 1 }: Props
       <ModalCatalogo
         key={version}
         cfg={cfg}
-        items={items}
+        categorias={categorias}
         elemento={ultima.accion === "editar" ? (elementoUltima ?? null) : null}
         abierto={apertura !== null && apertura.accion !== "desactivar"}
         onCerrar={() => setApertura(null)}
@@ -225,7 +230,7 @@ export function GestionCatalogo({ tipo, modalInicial, paginaInicial = 1 }: Props
         onCerrar={() => setApertura(null)}
         titulo={`Desactivar ${cfg.singular}`}
         resumen={<p className="break-words text-h3 font-bold">{elementoUltima?.nombre}</p>}
-        advertencia="Dejará de ofrecerse en los formularios; los registros existentes se conservan."
+        advertencia="Dejará de ofrecerse en los formularios nuevos; los registros existentes se conservan."
         onConfirmar={desactivar}
       />
       {aviso && <Toast mensaje={aviso} onCerrar={() => setAviso(undefined)} />}

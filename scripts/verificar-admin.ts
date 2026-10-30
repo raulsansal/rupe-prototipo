@@ -14,18 +14,17 @@ import { CASOS_ORIGEN } from "../src/mocks/casos";
 import { calcularTablero, CASOS_TABLERO, MOVIMIENTOS_CIERRE, PERIODO_PREDETERMINADO, type ResumenTablero } from "../src/mocks/tablero";
 import { USUARIOS_INICIALES } from "../src/mocks/usuarios";
 import { CASOS_MODERACION, AVISTAMIENTOS_MODERACION, FOLIO_MODERACION_ACTIVO, FOLIO_MODERACION_CANCELADO, FOLIO_MODERACION_DESHABILITADO, ID_AVISTAMIENTO_FALLECIDO, ID_AVISTAMIENTO_VISIBLE } from "../src/mocks/moderacion";
-import { CATALOGOS, TIPOS_CATALOGO } from "../src/mocks/catalogosAdmin";
-import { CATEGORIAS_MOTIVO } from "../src/mocks/catalogos";
+import { CATEGORIAS_MOTIVO, ESTADOS_ANIMAL, MOTIVOS, RAZAS } from "../src/mocks/catalogos";
 import { AVISTAMIENTOS } from "../src/mocks/avistamientos";
-import { desactivarElemento, esUltimaActivaDeCategoria, guardarElemento, motivoNoDesactivable, validarCatalogo } from "../src/lib/catalogos";
 import { CLAVE_TEMA } from "../src/lib/tema";
+import { JPEG_REAL } from "../src/server/pruebas/imagenes";
+import { elegirImagenGenerada } from "./imagenes-pruebas";
+import { textoDePdf } from "./lib/textoPdf";
 import { agregarSesion, credencial, fetchComo, NOMBRE_COOKIE, olvidarSesiones, reiniciarDatos, rolDeRuta, valorDeSesion, type RolPrueba } from "./sesion-pruebas";
 import { BITACORA, ENTIDAD_DE_TIPO, TIPOS_ACCION } from "../src/mocks/bitacora";
 import { generarReporte } from "../src/lib/reportes";
 import { esDeshabilitado } from "../src/lib/moderacion";
-import { VALORES_POR_DEFECTO } from "../src/lib/parametros";
-import { ESTADOS_CASO_CATALOGO } from "../src/mocks/estadosCaso";
-import { ESTADOS_CASO, FUERA_DE_LA_CIUDAD } from "../src/mocks/tipos";
+import { ALCALDIAS, ESTADOS_CASO, FUERA_DE_LA_CIUDAD } from "../src/mocks/tipos";
 import { fechaLocalISO, formatearFechaHora } from "../src/lib/formato";
 
 const PUERTO = 3108;
@@ -964,134 +963,162 @@ async function chipValorProtegido(navegador: Browser) {
 }
 
 // ---------- catálogos (ADM-06 a ADM-09 y MOD-11) ----------
-/** Reglas del diccionario (R9) sobre los datos y las funciones, sin navegador: los mocks no deben volver a desalinearse. */
-function reglasDeCatalogos() {
-  const malos: string[] = [];
-  for (const tipo of TIPOS_CATALOGO) {
-    const c = CATALOGOS[tipo];
-    // Cada valor protegido existe, está activo y no puede desactivarse; el resto sí (salvo la última opción activa de su categoría).
-    for (const e of c.elementos) {
-      const motivo = motivoNoDesactivable(c, c.elementos, e);
-      const protegido = c.protegidos.includes(e.id);
-      if (protegido && (!e.activo || !motivo || !/Valor protegido/.test(motivo))) malos.push(`${tipo}:${e.id} protegido sin bloqueo`);
-      if (!protegido && e.activo && motivo && !esUltimaActivaDeCategoria(c, c.elementos, e)) malos.push(`${tipo}:${e.id} bloqueado sin razón`);
-      if (!e.activo && motivo) malos.push(`${tipo}:${e.id} inactivo con bloqueo`);
-    }
-    if (c.conservaUnaActivaPorCategoria) for (const cat of c.categorias) if (!c.elementos.some((e) => e.idCategoria === cat.id && e.activo)) malos.push(`${tipo}: categoría ${cat.id} sin opciones activas`);
-  }
-  ver(malos.length === 0, "mocks de catálogos: los valores protegidos (alcaldía 17; razas 1 y 14; motivos 14 y 15; estados 1, 5 y 6) existen, están activos y no se desactivan; ninguna categoría de estados queda sin opción activa", `mocks de catálogos: ${malos.join(" | ")}`);
-  // Última opción activa de una categoría (R9): se simula desactivar una a una las opciones de «Contención y ubicación».
-  const ea = CATALOGOS["estados-animal"];
-  let lista = [...ea.elementos];
-  const seguidas: string[] = [];
-  for (const id of [7, 8, 9]) {
-    const bloqueo = motivoNoDesactivable(ea, lista, lista.find((e) => e.id === id)!);
-    seguidas.push(bloqueo ? "bloqueada" : "libre");
-    if (!bloqueo) lista = desactivarElemento(ea, lista, id);
-  }
-  const ultima = motivoNoDesactivable(ea, lista, lista.find((e) => e.id === 10)!);
-  let lanzo = false;
+/** Llamada REAL a la API del Administrador (misma sesión y Origin que el navegador). */
+async function api(metodo: string, ruta: string, cuerpo?: unknown, rol: RolPrueba | null = "admin") {
+  const r = await fetchComo(base, rol, ruta, { method: metodo, redirect: "manual", headers: { "Content-Type": "application/json", Origin: new URL(base).origin }, body: cuerpo === undefined ? undefined : JSON.stringify(cuerpo) });
+  const texto = await r.text();
+  let json: Record<string, any> | undefined; // eslint-disable-line @typescript-eslint/no-explicit-any
   try {
-    desactivarElemento(ea, lista, 10);
+    json = JSON.parse(texto);
   } catch {
-    lanzo = true;
+    json = undefined;
   }
-  const reactivada = guardarElemento(ea, lista, { nombre: "Libre en vía pública (suelto o en movimiento)", clave: "", idCategoria: "2", descripcion: "Texto.", activo: true }, lista.find((e) => e.id === 7)!);
-  ver(seguidas.join() === "libre,libre,libre" && /Última opción activa de «Contención y ubicación»/.test(ultima ?? "") && lanzo && motivoNoDesactivable(ea, reactivada, reactivada.find((e) => e.id === 10)!) === undefined, "R9: tras desactivar 3 de las 4 opciones de «Contención y ubicación», la última queda bloqueada («Última opción activa…», y desactivarla lanza error); reactivar otra con «Editar» la libera", `R9: ${seguidas} · ${ultima}`);
-  // Alta y edición: nombre único, clave de 5 caracteres (09 + 3 dígitos) única, «Fuera de la Ciudad de México» sin clave, reactivar con Editar.
-  const al = CATALOGOS.alcaldias;
-  const base = { nombre: "Nueva alcaldía", clave: "09018", idCategoria: "", descripcion: "", activo: true };
-  const errores = [
-    validarCatalogo(al, al.elementos, { ...base, nombre: "" }).nombre,
-    validarCatalogo(al, al.elementos, { ...base, nombre: "  coyoacan " }).nombre,
-    validarCatalogo(al, al.elementos, { ...base, clave: "" }).clave,
-    validarCatalogo(al, al.elementos, { ...base, clave: "9018" }).clave,
-    validarCatalogo(al, al.elementos, { ...base, clave: "10018" }).clave,
-    validarCatalogo(al, al.elementos, { ...base, clave: "09003" }).clave,
-  ];
-  const fuera = al.elementos.find((e) => e.id === 17)!;
-  const inactiva = al.elementos.find((e) => !e.activo)!;
-  const reactivadaAl = guardarElemento(al, al.elementos, { nombre: inactiva.nombre, clave: inactiva.clave!, idCategoria: "", descripcion: "", activo: true }, inactiva).find((e) => e.id === inactiva.id)!;
-  ver(errores.every(Boolean) && Object.keys(validarCatalogo(al, al.elementos, base)).length === 0 && Object.keys(validarCatalogo(al, al.elementos, { nombre: fuera.nombre, clave: "", idCategoria: "", descripcion: "", activo: true }, fuera)).length === 0 && validarCatalogo(al, al.elementos, { nombre: fuera.nombre, clave: "", idCategoria: "", descripcion: "", activo: false }, fuera).activo !== undefined && reactivadaAl.activo === true, "HU 049: nombre único (sin distinguir acentos ni mayúsculas), clave obligatoria de 5 caracteres (09 y 3 dígitos) y única; «Fuera de la Ciudad de México» sin clave y sin poder desactivarse; Editar reactiva", `HU 049: ${errores}`);
-  const mo = CATALOGOS.motivos;
-  const em = validarCatalogo(mo, mo.elementos, { nombre: "Otro nuevo", clave: "", idCategoria: "", descripcion: "", activo: true });
-  const er = CATALOGOS.razas;
-  ver(em.idCategoria !== undefined && em.descripcion !== undefined && em.clave === undefined && Object.keys(validarCatalogo(er, er.elementos, { nombre: "Raza nueva", clave: "", idCategoria: "", descripcion: "", activo: true })).length === 0, "HU 050 y 051: las razas solo piden nombre; los motivos, además, categoría y descripción obligatorias", "HU 050/051: validación incorrecta");
+  return { estado: r.status, json, texto };
+}
+type Elemento = { id: number; nombre: string; clave?: string; idCategoria?: number; categoria?: string; descripcion?: string; activo: boolean; protegido: boolean; motivoNoDesactivable?: string };
+/** Todas las filas de un catálogo, leyendo todas las páginas del servidor. */
+async function filasDelCatalogo(tipo: string): Promise<Elemento[]> {
+  const todas: Elemento[] = [];
+  for (let p = 1; ; p++) {
+    const r = await api("GET", `/api/admin/catalogos/${tipo}?pagina=${p}`);
+    todas.push(...(r.json?.items ?? []));
+    if (p >= (r.json?.totalPaginas ?? 1)) return todas;
+  }
+}
+
+/** Reglas del diccionario (R9) con acciones REALES sobre datos reiniciados: el servidor es el que dice qué se puede desactivar (no hay datos de demostración). */
+async function reglasDeCatalogos() {
+  const esperados: Record<string, number[]> = { alcaldias: [17], razas: [1, 14], motivos: [14, 15], "estados-animal": [1, 5, 6] };
+  const malos: string[] = [];
+  for (const [tipo, ids] of Object.entries(esperados)) {
+    const filas = await filasDelCatalogo(tipo);
+    const prot = filas.filter((f) => f.protegido).map((f) => f.id);
+    if (JSON.stringify(prot) !== JSON.stringify(ids)) malos.push(`${tipo}: protegidos ${prot}`);
+    for (const f of filas) {
+      if (!f.activo) malos.push(`${tipo}:${f.id} sembrado inactivo`);
+      if (f.protegido && !/valor protegido: no puede desactivarse ni eliminarse/.test(f.motivoNoDesactivable ?? "")) malos.push(`${tipo}:${f.id} protegido sin bloqueo`);
+      if (!f.protegido && f.motivoNoDesactivable) malos.push(`${tipo}:${f.id} bloqueado sin razón (${f.motivoNoDesactivable})`);
+    }
+    for (const id of ids) if ((await api("POST", `/api/admin/catalogos/${tipo}/${id}/desactivar`)).estado !== 409) malos.push(`${tipo}:${id} se desactivó`);
+  }
+  ver(malos.length === 0, "catálogos del servidor: los valores protegidos (alcaldía 17; razas 1 y 14; motivos 14 y 15; estados 1, 5 y 6) existen, están activos, dicen por qué no se desactivan y el servidor los rechaza con 409; el resto no trae bloqueo", `catálogos del servidor: ${malos.join(" | ")}`);
+  // Última opción activa de una categoría (R9): se desactivan, una a una, 3 de las 4 de «Contención y ubicación».
+  const seguidas: number[] = [];
+  for (const id of [7, 8, 9]) seguidas.push((await api("POST", `/api/admin/catalogos/estados-animal/${id}/desactivar`)).estado);
+  const diez = (await filasDelCatalogo("estados-animal")).find((f) => f.id === 10)!;
+  const rechazo = await api("POST", "/api/admin/catalogos/estados-animal/10/desactivar");
+  const f7 = (await filasDelCatalogo("estados-animal")).find((f) => f.id === 7)!;
+  const reactivar7 = await api("PUT", "/api/admin/catalogos/estados-animal/7", { nombre: f7.nombre, idCategoria: f7.idCategoria, descripcion: f7.descripcion, activo: true });
+  const libre = (await filasDelCatalogo("estados-animal")).find((f) => f.id === 10)!;
+  ver(seguidas.join() === "200,200,200" && /[Úú]ltima opción activa de «Contención y ubicación»/.test(diez.motivoNoDesactivable ?? "") && rechazo.estado === 409 && rechazo.json?.error?.codigo === "ULTIMA_ACTIVA_DE_CATEGORIA" && libre.motivoNoDesactivable === undefined, "R9: tras desactivar 3 de las 4 opciones de «Contención y ubicación», la última queda bloqueada (el servidor la rechaza con 409); reactivar otra con «Editar» la libera", `R9: ${seguidas} · ${diez.motivoNoDesactivable} · ${rechazo.estado} · reactivar ${reactivar7.estado} ${reactivar7.texto.slice(0, 200)} · libre: ${libre.motivoNoDesactivable}`);
+  // Alta y edición de alcaldías: nombre único (sin acentos), clave de 5 caracteres (09 + 3 dígitos) única, «Fuera de la Ciudad de México» sin clave, reactivar con Editar.
+  const alta = (cuerpo: object) => api("POST", "/api/admin/catalogos/alcaldias", { nombre: "Nueva alcaldía", clave: "09018", ...cuerpo });
+  const errores = [await alta({ nombre: "" }), await alta({ nombre: "  coyoacan " }), await alta({ clave: "" }), await alta({ clave: "9018" }), await alta({ clave: "10018" }), await alta({ clave: "09003" })];
+  const campos = errores.map((e) => Object.keys(e.json?.error?.campos ?? {}).join());
+  const fuera = await api("PUT", "/api/admin/catalogos/alcaldias/17", { nombre: FUERA_DE_LA_CIUDAD });
+  const milpa = (await filasDelCatalogo("alcaldias")).find((f) => f.id === 12)!;
+  await api("POST", "/api/admin/catalogos/alcaldias/12/desactivar");
+  const reactivada = await api("PUT", "/api/admin/catalogos/alcaldias/12", { nombre: milpa.nombre, clave: milpa.clave, activo: true });
+  ver(campos.join("|") === "nombre|nombre|clave|clave|clave|clave" && errores.every((e) => e.estado === 422 || e.estado === 409) && (await alta({})).estado === 201 && fuera.estado === 200 && fuera.json?.sinCambios === true && reactivada.json?.reactivado === true && reactivada.json?.item?.activo === true, "HU 049: el servidor exige nombre único sin acentos ni mayúsculas y clave de 5 caracteres 09XXX única; «Fuera de la Ciudad de México» se edita sin clave; reactivar es editar con activo", `HU 049: ${campos.join("|")} · ${errores.map((e) => e.estado)} · ${fuera.estado} · ${JSON.stringify(reactivada.json)}`);
+  const em = await api("POST", "/api/admin/catalogos/motivos", { nombre: "Otro nuevo" });
+  const er = await api("POST", "/api/admin/catalogos/razas", { nombre: "Raza nueva" });
+  ver(Boolean(em.json?.error?.campos?.idCategoria) && Boolean(em.json?.error?.campos?.descripcion) && !em.json?.error?.campos?.clave && er.estado === 201, "HU 050 y 051: las razas solo piden nombre; los motivos, además, categoría y descripción", `HU 050 y 051: ${JSON.stringify(em.json)} ${er.estado}`);
 }
 
 async function catalogos(navegador: Browser) {
   const tarj = (p: Page, id: number) => p.locator(`li[data-elemento="${id}"]`);
   const fil = (p: Page, id: number) => p.locator(`tr[data-elemento="${id}"]`);
   const visibles = (p: Page) => p.locator("li[data-elemento]").evaluateAll((l) => l.map((x) => Number(x.getAttribute("data-elemento"))));
+  const aviso = (p: Page, texto: string) => p.getByRole("status").getByText(texto).isVisible();
   let { contexto, pagina } = await nuevaPagina(navegador, 390);
 
   // ADM-06 alcaldías, móvil.
   await irA(pagina, "/admin/alcaldias");
-  ver(JSON.stringify(await visibles(pagina)) === "[1,2,3,4,5,6]" && /1–6 de 17 elementos/.test(await pagina.locator("main").innerText()) && (await boton(pagina, "Agregar alcaldía").isVisible()) && (await pagina.getByLabel("Buscar", { exact: true }).isVisible()) && (await pagina.locator("table[data-tabla-compacta]").isVisible()) === false, "ADM-06 en móvil: «Agregar alcaldía», búsqueda por nombre, 6 tarjetas por página (17 alcaldías) y la tabla no se muestra", `ADM-06 en móvil: ${await visibles(pagina)}`);
+  ver(JSON.stringify(await visibles(pagina)) === "[1,2,3,4,5,6]" && /1–6 de 17 elementos/.test(await pagina.locator("main").innerText()) && (await boton(pagina, "Agregar alcaldía").isVisible()) && (await pagina.getByLabel("Buscar", { exact: true }).isVisible()) && (await pagina.locator("table[data-tabla-compacta]").isVisible()) === false, "ADM-06 en móvil: «Agregar alcaldía», búsqueda por nombre, 6 tarjetas por página (1–6 de 17 elementos) y sin tabla", `ADM-06 móvil: ${await visibles(pagina)}`);
   const a1 = tarj(pagina, 1);
   ver((await a1.getByRole("heading").innerText()) === "Álvaro Obregón" && /Clave geoestadística: 09010/.test(await a1.innerText()) && (await a1.getByText("Activa", { exact: true }).isVisible()) && (await boton(a1, /^Editar/).isEnabled()) && (await boton(a1, /^Desactivar/).isEnabled()), "ADM-06: la tarjeta lleva nombre, clave geoestadística, estatus «Activa», «Editar» y «Desactivar»", "ADM-06: tarjeta incorrecta");
-  // Inactiva: se identifica con texto y borde discontinuo; sin botón «Activar» (reactivar se hace con Editar, R9).
-  await boton(pagina, "Página 2").click();
+  // Paginación en el SERVIDOR por la URL.
+  await cambiarPagina(pagina, "Página 2");
+  ver(/[?&]pagina=2/.test(pagina.url()) && JSON.stringify(await visibles(pagina)) === "[7,8,9,10,11,12]" && /7–12 de 17 elementos/.test(await pagina.locator("main").innerText()), "paginación en el servidor: «Página 2» cambia la URL (?pagina=2) y trae las alcaldías 7 a 12", `paginación: ${pagina.url()} ${await visibles(pagina)}`);
+  // Desactivar de verdad: sin motivo, sigue en la lista como «Inactiva» (borde discontinuo) y sin botón «Activar»; reactivar es «Editar» (R9).
   const milpa = tarj(pagina, 12);
-  const sinActivar = (await pagina.getByRole("button", { name: /^Activar/ }).count()) === 0;
-  ver((await milpa.getByText("Inactiva", { exact: true }).isVisible()) && (await milpa.evaluate((e) => getComputedStyle(e).borderStyle)) === "dashed" && (await boton(milpa, /^Editar/).isEnabled()) && (await boton(milpa, /^Desactivar/).count()) === 0 && sinActivar, "alcaldía inactiva: chip «Inactiva» con texto, borde discontinuo, «Editar» y sin botón «Activar» (reactivar se hace con Editar, R9)", "alcaldía inactiva: incorrecta");
-  await boton(pagina, "Página 3").click();
-  const fuera = tarj(pagina, 17);
-  ver((await fuera.getByText("Valor protegido", { exact: true }).isVisible()) && /sin clave/.test(await fuera.innerText()) && (await boton(fuera, /^Desactivar/).isDisabled()) && /Valor protegido: no puede desactivarse ni eliminarse/.test(await textoDescrito(boton(fuera, /^Desactivar/))) && (await boton(fuera, /^Editar/).isEnabled()), "«Fuera de la Ciudad de México»: «Valor protegido», sin clave, «Desactivar» deshabilitado con su motivo a la vista y «Editar» disponible", "«Fuera de la Ciudad de México»: incorrecta");
-  // MOD-11 sobre el valor protegido: sin clave y sin poder quedar inactiva.
-  await boton(fuera, /^Editar/).click();
-  let dlg = pagina.getByRole("dialog", { name: "Editar alcaldía" });
-  ver((await dlg.getByLabel(/^Clave geoestadística/).isDisabled()) && (await dlg.getByLabel("Inactiva", { exact: true }).isDisabled()) && (await dlg.getByLabel("Activa", { exact: true }).isChecked()) && /Valor protegido/.test(await dlg.innerText()), "MOD-11 sobre «Fuera de la Ciudad de México»: la clave no aplica y «Inactiva» está deshabilitada con su razón", "MOD-11 sobre el valor protegido: permite desactivar");
-  await pagina.keyboard.press("Escape");
-  // Búsqueda.
-  await pagina.getByLabel("Buscar", { exact: true }).fill("xochi");
-  await boton(pagina, "Buscar").click();
-  ver(JSON.stringify(await visibles(pagina)) === "[16]", "búsqueda: «xochi» encuentra a Xochimilco y regresa a la página 1", `búsqueda: ${await visibles(pagina)}`);
-  await pagina.getByLabel("Buscar", { exact: true }).fill("zzzz");
-  await boton(pagina, "Buscar").click();
-  ver((await pagina.getByText("Ningún elemento coincide").isVisible()) && (await boton(pagina, "Limpiar búsqueda").isVisible()), "búsqueda sin resultados: estado vacío con «Limpiar búsqueda»", "búsqueda sin resultados: falta el estado vacío");
-  await boton(pagina, "Limpiar búsqueda").click();
-
-  // MOD-11: alta con validaciones.
-  const abrirAlta = boton(pagina, "Agregar alcaldía");
-  await abrirAlta.click();
-  dlg = pagina.getByRole("dialog", { name: "Agregar alcaldía" });
-  ver((await dlg.getByLabel(/^Nombre de la alcaldía/).isVisible()) && (await dlg.getByLabel(/^Clave geoestadística/).getAttribute("placeholder")) === "5 caracteres" && (await dlg.getByLabel("Activa", { exact: true }).isChecked()) && (await dlg.getByRole("button").allInnerTexts()).join("|").endsWith("Cancelar|Guardar cambios") && (await dlg.getByLabel(/^Categoría/).count()) === 0, "MOD-11 «Agregar alcaldía»: nombre, clave de 5 caracteres, estatus Activa/Inactiva, «Cancelar» y «Guardar cambios» (sin categoría ni descripción)", "MOD-11 alcaldías: campos incorrectos");
-  await focoAtrapado(pagina, "MOD-11");
-  await boton(dlg, "Guardar cambios").click();
-  ver((await dialogoAbierto(pagina)) && /Escribe el nombre/.test(await textoDescrito(dlg.getByLabel(/^Nombre de la alcaldía/))) && /Escribe la clave geoestadística/.test(await textoDescrito(dlg.getByLabel(/^Clave geoestadística/))) && (await foco(pagina)) === (await dlg.getByLabel(/^Nombre de la alcaldía/).evaluate((e) => e.tagName)), "MOD-11: sin nombre ni clave no se guarda; cada error queda asociado a su campo y el foco va al primero", "MOD-11: aceptó el formulario vacío");
-  await dlg.getByLabel(/^Nombre de la alcaldía/).fill("coyoacán");
-  await dlg.getByLabel(/^Clave geoestadística/).fill("09003");
-  await boton(dlg, "Guardar cambios").click();
-  ver(/Ya existe una alcaldía con ese nombre/.test(await textoDescrito(dlg.getByLabel(/^Nombre de la alcaldía/))) && /Esa clave ya está en uso/.test(await textoDescrito(dlg.getByLabel(/^Clave geoestadística/))), "MOD-11: el nombre y la clave deben ser únicos (mensajes asociados a cada campo)", "MOD-11: no validó la unicidad");
-  await dlg.getByLabel(/^Clave geoestadística/).fill("9018");
-  await boton(dlg, "Guardar cambios").click();
-  ver(/5 dígitos y empezar con 09/.test(await textoDescrito(dlg.getByLabel(/^Clave geoestadística/))), "MOD-11: la clave debe tener 5 dígitos y empezar con 09", "MOD-11: no validó el formato de la clave");
-  await pagina.keyboard.press("Escape");
-  await viasDeCierre(pagina, abrirAlta, "Agregar alcaldía", "MOD-11", async () => /1–6 de 17 elementos/.test(await pagina.locator("main").innerText()));
-  await abrirAlta.click();
-  await dlg.getByLabel(/^Nombre de la alcaldía/).fill("Alcaldía de prueba");
-  await dlg.getByLabel(/^Clave geoestadística/).fill("09018");
-  await boton(dlg, "Guardar cambios").click();
-  ver(!(await dialogoAbierto(pagina)) && /de 18 elementos/.test(await pagina.locator("main").innerText()) && (await pagina.getByRole("status").getByText("Se agregó «Alcaldía de prueba»").isVisible()), "MOD-11: «Guardar cambios» agrega la alcaldía (18 elementos) y se anuncia", "MOD-11: no agregó la alcaldía");
-
-  // Editar reactiva una inactiva; desactivar pide confirmación sin motivo y conserva el registro.
-  await boton(pagina, "Página 2").click();
-  await boton(milpa, /^Editar/).click();
-  dlg = pagina.getByRole("dialog", { name: "Editar alcaldía" });
-  ver((await dlg.getByLabel(/^Nombre de la alcaldía/).inputValue()) === "Milpa Alta" && (await dlg.getByLabel(/^Clave geoestadística/).inputValue()) === "09009" && (await dlg.getByLabel("Inactiva", { exact: true }).isChecked()) && /Elige «Activa» y guarda para reactivarlo/.test(await dlg.innerText()), "MOD-11 «Editar alcaldía»: trae los datos del elemento inactivo e indica cómo reactivarlo", "MOD-11 editar: datos incorrectos");
-  await dlg.getByText("Activa", { exact: true }).click();
-  await boton(dlg, "Guardar cambios").click();
-  ver((await milpa.getByText("Activa", { exact: true }).isVisible()) && (await milpa.evaluate((e) => getComputedStyle(e).borderStyle)) === "solid" && (await boton(milpa, /^Desactivar/).isEnabled()) && (await pagina.getByRole("status").getByText("«Milpa Alta» quedó reactivada").isVisible()), "Editar con «Activa» reactiva la alcaldía inactiva: vuelve a «Activa» y recupera «Desactivar»", "reactivar con Editar: no se reflejó");
   const abrirDesactivar = boton(milpa, /^Desactivar/);
   await abrirDesactivar.click();
-  dlg = pagina.getByRole("dialog", { name: "Desactivar alcaldía" });
-  ver((await dlg.getByText("Milpa Alta").isVisible()) && (await dlg.getByText("Dejará de ofrecerse en los formularios; los registros existentes se conservan.").isVisible()) && (await dlg.getByLabel(/Motivo/).count()) === 0 && (await dlg.getByRole("button").allInnerTexts()).join("|") === "Cancelar|Confirmar", "confirmación «Desactivar alcaldía»: advierte que dejará de ofrecerse y los registros se conservan, sin motivo", "confirmación de desactivar: contenido incorrecto");
+  let dlg = pagina.getByRole("dialog", { name: "Desactivar alcaldía" });
+  ver((await dlg.getByText("Milpa Alta").isVisible()) && (await dlg.getByText("Dejará de ofrecerse en los formularios nuevos; los registros existentes se conservan.").isVisible()) && (await dlg.getByLabel(/Motivo/).count()) === 0 && (await dlg.getByRole("button").allInnerTexts()).join("|") === "Cancelar|Confirmar", "confirmación «Desactivar alcaldía»: advierte que dejará de ofrecerse y los registros se conservan, sin pedir motivo (Cancelar | Confirmar)", "confirmación de desactivar incorrecta");
   await pagina.keyboard.press("Escape");
   await viasDeCierre(pagina, abrirDesactivar, "Desactivar alcaldía", "confirmación de desactivar", async () => (await milpa.getByText("Activa", { exact: true }).isVisible()));
   await abrirDesactivar.click();
   await boton(dlg, "Confirmar").click();
-  ver((await milpa.getByText("Inactiva", { exact: true }).isVisible()) && (await tarj(pagina, 12).count()) === 1 && (await pagina.getByRole("button", { name: /^Activar/ }).count()) === 0, "desactivar no elimina: «Milpa Alta» sigue en la lista como «Inactiva», sin botón «Activar»", "desactivar: se eliminó o apareció «Activar»");
+  await hasta(async () => (await milpa.getByText("Inactiva", { exact: true }).count()) === 1);
+  ver((await milpa.getByText("Inactiva", { exact: true }).isVisible()) && (await milpa.evaluate((e) => getComputedStyle(e).borderStyle)) === "dashed" && (await boton(milpa, /^Editar/).isEnabled()) && (await boton(milpa, /^Desactivar/).count()) === 0 && (await pagina.getByRole("button", { name: /^Activar/ }).count()) === 0 && (await aviso(pagina, "«Milpa Alta» quedó desactivada; los registros existentes se conservan")), "desactivar de verdad: «Milpa Alta» sigue en la lista como «Inactiva» (texto y borde discontinuo), sin «Desactivar» ni botón «Activar», y se anuncia", "desactivar: la alcaldía no quedó inactiva");
+  ver((await api("GET", "/api/admin/catalogos/alcaldias?pagina=2")).json?.items.find((x: Elemento) => x.id === 12)?.activo === false && (await bitacora_tipo("desactivación de catálogo")).includes("alcaldia:12"), "el cambio es REAL: el servidor la tiene inactiva y la bitácora registra «desactivación de catálogo» de alcaldia:12", "desactivar: el servidor no lo registró");
+  // Editar reactiva: el campo de estatus solo aparece para reactivar.
+  await boton(milpa, /^Editar/).click();
+  dlg = pagina.getByRole("dialog", { name: "Editar alcaldía" });
+  ver((await dlg.getByLabel(/^Nombre de la alcaldía/).inputValue()) === "Milpa Alta" && (await dlg.getByLabel(/^Clave geoestadística/).inputValue()) === "09009" && (await dlg.getByLabel("Inactiva", { exact: true }).isChecked()) && (await dlg.getByLabel("Activa", { exact: true }).isEnabled()) && /Elige «Activa» y guarda para reactivar la alcaldía/.test(await dlg.innerText()), "MOD-11 «Editar alcaldía» sobre una inactiva: trae los datos, muestra el estatus (Inactiva marcada) e indica cómo reactivarla", "MOD-11 editar inactiva: incorrecto");
+  await dlg.getByText("Activa", { exact: true }).click();
+  await boton(dlg, "Guardar cambios").click();
+  await hasta(async () => (await milpa.getByText("Activa", { exact: true }).count()) === 1);
+  ver((await milpa.getByText("Activa", { exact: true }).isVisible()) && (await milpa.evaluate((e) => getComputedStyle(e).borderStyle)) === "solid" && (await boton(milpa, /^Desactivar/).isEnabled()) && (await aviso(pagina, "«Milpa Alta» quedó reactivada")), "Editar con «Activa» reactiva la alcaldía: vuelve a «Activa» y recupera «Desactivar»", "reactivar con Editar: no reactivó");
+  await boton(tarj(pagina, 7), /^Editar/).click();
+  dlg = pagina.getByRole("dialog", { name: "Editar alcaldía" });
+  ver((await dlg.getByText("Estatus", { exact: true }).count()) === 0 && (await dlg.getByLabel("Inactiva", { exact: true }).count()) === 0, "editar NO desactiva: en una alcaldía activa el modal no muestra el campo de estatus (desactivar es su propia acción)", "editar activa: muestra el estatus");
+  await pagina.keyboard.press("Escape");
+  await cambiarPagina(pagina, "Página 3");
+  const fuera = tarj(pagina, 17);
+  ver((await fuera.getByText("Valor protegido", { exact: true }).isVisible()) && /sin clave/.test(await fuera.innerText()) && (await boton(fuera, /^Desactivar/).isDisabled()) && /valor protegido: no puede desactivarse ni eliminarse/.test(await textoDescrito(boton(fuera, /^Desactivar/))) && (await boton(fuera, /^Editar/).isEnabled()), "«Fuera de la Ciudad de México»: «Valor protegido», sin clave, «Desactivar» deshabilitado con su motivo y «Editar» disponible", "«Fuera de la Ciudad de México»: protección incorrecta");
+  await boton(fuera, /^Editar/).click();
+  dlg = pagina.getByRole("dialog", { name: "Editar alcaldía" });
+  ver((await dlg.getByLabel(/^Clave geoestadística/).isDisabled()) && (await dlg.getByText("Estatus", { exact: true }).count()) === 0 && /Esta opción no lleva clave/.test(await dlg.innerText()), "MOD-11 sobre «Fuera de la Ciudad de México»: la clave no aplica y no hay forma de dejarla inactiva", "MOD-11 sobre el valor protegido: incorrecto");
+  await pagina.keyboard.press("Escape");
+  // Búsqueda en el servidor (formulario GET): la URL lleva ?q= y el estado vacío es real.
+  await pagina.getByLabel("Buscar", { exact: true }).fill("xochi");
+  await navegando(pagina, () => boton(pagina, "Buscar").click());
+  ver(/[?&]q=xochi/.test(pagina.url()) && JSON.stringify(await visibles(pagina)) === "[16]" && (await pagina.getByLabel("Buscar", { exact: true }).inputValue()) === "xochi", "búsqueda en el servidor: «xochi» (?q=xochi) encuentra a Xochimilco y repite el texto en el campo", `búsqueda: ${pagina.url()} ${await visibles(pagina)}`);
+  await pagina.getByLabel("Buscar", { exact: true }).fill("zzzz");
+  await navegando(pagina, () => boton(pagina, "Buscar").click());
+  ver((await pagina.getByText("Ningún elemento coincide").isVisible()) && (await enlace(pagina, "Limpiar búsqueda").isVisible()), "búsqueda sin resultados: estado vacío real con «Limpiar búsqueda»", "búsqueda sin resultados: falta el estado vacío");
+  await navegando(pagina, () => enlace(pagina, "Limpiar búsqueda").click());
+
+  // MOD-11: alta con validaciones del servidor, cada error junto a su campo.
+  const abrirAlta = boton(pagina, "Agregar alcaldía");
+  await abrirAlta.click();
+  dlg = pagina.getByRole("dialog", { name: "Agregar alcaldía" });
+  ver((await dlg.getByLabel(/^Nombre de la alcaldía/).isVisible()) && (await dlg.getByLabel(/^Clave geoestadística/).getAttribute("placeholder")) === "5 caracteres" && (await dlg.getByText("Estatus", { exact: true }).count()) === 0 && (await dlg.getByRole("button").allInnerTexts()).join("|").endsWith("Cancelar|Guardar cambios") && (await dlg.getByLabel(/^Categoría/).count()) === 0, "MOD-11 «Agregar alcaldía»: nombre y clave (5 caracteres), sin estatus ni categoría, «Cancelar» y «Guardar cambios»", "MOD-11 alta: campos incorrectos");
+  await focoAtrapado(pagina, "MOD-11");
+  await boton(dlg, "Guardar cambios").click();
+  await hasta(async () => /Escribe el nombre/.test(await textoDescrito(dlg.getByLabel(/^Nombre de la alcaldía/))));
+  ver((await dialogoAbierto(pagina)) && /Escribe el nombre/.test(await textoDescrito(dlg.getByLabel(/^Nombre de la alcaldía/))) && /Escribe la clave geoestadística/.test(await textoDescrito(dlg.getByLabel(/^Clave geoestadística/))) && (await pagina.evaluate(() => document.activeElement?.id)) === "catalogo-nombre", "MOD-11: sin nombre ni clave no se guarda; el servidor señala cada campo y el foco va al primero", "MOD-11: no señaló los campos");
+  await dlg.getByLabel(/^Nombre de la alcaldía/).fill("coyoacán");
+  await dlg.getByLabel(/^Clave geoestadística/).fill("09003");
+  await boton(dlg, "Guardar cambios").click();
+  await hasta(async () => /Ya existe una alcaldía con ese nombre/.test(await textoDescrito(dlg.getByLabel(/^Nombre de la alcaldía/))));
+  ver(/Ya existe una alcaldía con ese nombre/.test(await textoDescrito(dlg.getByLabel(/^Nombre de la alcaldía/))) && (await dialogoAbierto(pagina)), "MOD-11: un nombre repetido (sin acentos ni mayúsculas) da «Ya existe una alcaldía con ese nombre.» junto al campo", "MOD-11: no validó el nombre repetido");
+  await dlg.getByLabel(/^Nombre de la alcaldía/).fill("Alcaldía de prueba");
+  await boton(dlg, "Guardar cambios").click();
+  await hasta(async () => /Esa clave ya está en uso/.test(await textoDescrito(dlg.getByLabel(/^Clave geoestadística/))));
+  ver(/Esa clave ya está en uso/.test(await textoDescrito(dlg.getByLabel(/^Clave geoestadística/))), "MOD-11: una clave repetida da «Esa clave ya está en uso.» junto a la clave", "MOD-11: no validó la clave repetida");
+  await dlg.getByLabel(/^Clave geoestadística/).fill("9018");
+  await boton(dlg, "Guardar cambios").click();
+  await hasta(async () => /5 dígitos y empezar con 09/.test(await textoDescrito(dlg.getByLabel(/^Clave geoestadística/))));
+  ver(/5 dígitos y empezar con 09/.test(await textoDescrito(dlg.getByLabel(/^Clave geoestadística/))), "MOD-11: la clave debe tener 5 dígitos y empezar con 09", "MOD-11: no validó el formato de la clave");
+  await pagina.keyboard.press("Escape");
+  await viasDeCierre(pagina, abrirAlta, "Agregar alcaldía", "MOD-11", async () => /de 17 elementos/.test(await pagina.locator("main").innerText()));
+  await abrirAlta.click();
+  await dlg.getByLabel(/^Nombre de la alcaldía/).fill("Alcaldía de prueba");
+  await dlg.getByLabel(/^Clave geoestadística/).fill("09018");
+  await boton(dlg, "Guardar cambios").click();
+  await hasta(async () => /de 18 elementos/.test(await pagina.locator("main").innerText()));
+  ver(!(await dialogoAbierto(pagina)) && /de 18 elementos/.test(await pagina.locator("main").innerText()) && (await aviso(pagina, "Se agregó «Alcaldía de prueba»")), "MOD-11: «Guardar cambios» agrega la alcaldía (18 elementos) y se anuncia", "MOD-11: no agregó la alcaldía");
+  // Un 409 de «ya cambió»: el elemento se desactiva por otra vía mientras el modal está abierto.
+  await cambiarPagina(pagina, "Página 1");
+  const dos = tarj(pagina, 2);
+  await boton(dos, /^Desactivar/).click();
+  await api("POST", "/api/admin/catalogos/alcaldias/2/desactivar");
+  await boton(pagina.getByRole("dialog", { name: "Desactivar alcaldía" }), "Confirmar").click();
+  await hasta(async () => (await dos.getByText("Inactiva", { exact: true }).count()) === 1);
+  ver(!(await dialogoAbierto(pagina)) && (await dos.getByText("Inactiva", { exact: true }).isVisible()) && /ya había cambiado/i.test(await pagina.getByRole("status").innerText()), "409 «ya cambió»: si otra persona la desactivó antes, el modal se cierra, se muestra el mensaje amable y la pantalla se actualiza con su estado real", "409 ya cambió: sin mensaje amable o sin actualizar");
   await contexto.close();
 
   // Escritorio: tabla de alcaldías.
@@ -1101,36 +1128,46 @@ async function catalogos(navegador: Browser) {
   ver(JSON.stringify(cab) === JSON.stringify(["Nombre", "Clave geoestadística", "Estatus", "Acciones"]) && (await pagina.locator("table[data-tabla-compacta]").getAttribute("data-excepcion-tactil")) === "compacto", "ADM-06 en escritorio: tabla con Nombre, Clave geoestadística, Estatus y Acciones, marcada como compacta", `ADM-06 escritorio: columnas ${cab}`);
   const altos = await pagina.locator("table[data-tabla-compacta] button").evaluateAll((bs) => bs.map((b) => Math.round(b.getBoundingClientRect().height)));
   ver(altos.length > 0 && altos.every((h) => h === 36), `ADM-06: los botones de la tabla son del tamaño compacto (${altos[0]} px)`, `ADM-06: alturas ${altos}`);
-  await boton(pagina, "Página 3").click();
-  ver((await boton(fil(pagina, 17), /^Desactivar/).isDisabled()) && (await fil(pagina, 17).getByText("Valor protegido", { exact: true }).isVisible()) && /Valor protegido/.test(await textoDescrito(boton(fil(pagina, 17), /^Desactivar/))), "ADM-06 en escritorio: «Fuera de la Ciudad de México» con «Valor protegido» y «Desactivar» deshabilitado con su motivo", "ADM-06 escritorio: valor protegido incorrecto");
+  await cambiarPagina(pagina, "Página 3");
+  ver((await boton(fil(pagina, 17), /^Desactivar/).isDisabled()) && (await fil(pagina, 17).getByText("Valor protegido", { exact: true }).isVisible()) && /valor protegido/.test(await textoDescrito(boton(fil(pagina, 17), /^Desactivar/))), "ADM-06 en escritorio: «Fuera de la Ciudad de México» con «Valor protegido» y «Desactivar» deshabilitado con su motivo", "ADM-06 escritorio: valor protegido incorrecto");
   await contexto.close();
 
   // ADM-07 razas, ADM-08 motivos y ADM-09 estados del animal: la misma plantilla, parametrizada.
+  await reiniciarDatos(base);
   ({ contexto, pagina } = await nuevaPagina(navegador, 390));
   await irA(pagina, "/admin/razas");
   ver(JSON.stringify(await visibles(pagina)) === "[1,2,3,4,5,6]" && (await pagina.getByRole("heading", { level: 1 }).innerText()) === "Catálogo de razas" && (await boton(pagina, "Agregar raza").isVisible()) && !/Clave geoestadística|Categoría/.test(await tarj(pagina, 1).innerText()), "ADM-07 razas: «Agregar raza», solo nombre y estatus (sin clave ni categoría), 6 por página", "ADM-07: pantalla incorrecta");
   ver((await boton(tarj(pagina, 1), /^Desactivar/).isDisabled()) && (await tarj(pagina, 1).getByText("Valor protegido", { exact: true }).isVisible()), "ADM-07: «Mestizo/No identificada» (id 1) es valor protegido y no se desactiva", "ADM-07: id 1 sin protección");
-  await boton(pagina, "Página 3").click();
+  await cambiarPagina(pagina, "Página 3");
   ver((await boton(tarj(pagina, 14), /^Desactivar/).isDisabled()) && (await boton(tarj(pagina, 13), /^Desactivar/).isEnabled()), "ADM-07: «Otra» (id 14) es valor protegido; «Calupoh» se puede desactivar", "ADM-07: id 14 sin protección");
-  await boton(pagina, "Página 1").click();
+  await cambiarPagina(pagina, "Página 1");
   await boton(pagina, "Agregar raza").click();
   dlg = pagina.getByRole("dialog", { name: "Agregar raza" });
-  ver((await dlg.getByLabel(/^Nombre de la raza/).isVisible()) && (await dlg.getByLabel(/^Clave/).count()) === 0 && (await dlg.getByLabel(/^Categoría/).count()) === 0 && (await dlg.getByLabel(/^Descripción/).count()) === 0 && (await dlg.getByLabel("Activa", { exact: true }).isChecked()), "MOD-11 de razas: solo nombre y estatus", "MOD-11 de razas: campos de más");
-  await pagina.keyboard.press("Escape");
+  ver((await dlg.getByLabel(/^Nombre de la raza/).isVisible()) && (await dlg.getByLabel(/^Clave/).count()) === 0 && (await dlg.getByLabel(/^Categoría/).count()) === 0 && (await dlg.getByLabel(/^Descripción/).count()) === 0 && (await dlg.getByText("Estatus", { exact: true }).count()) === 0, "MOD-11 de razas: solo nombre", "MOD-11 de razas: campos de más");
+  await dlg.getByLabel(/^Nombre de la raza/).fill("pug  (CARLINO)");
+  await boton(dlg, "Guardar cambios").click();
+  await hasta(async () => /Ya existe una raza con ese nombre/.test(await textoDescrito(dlg.getByLabel(/^Nombre de la raza/))));
+  ver(/Ya existe una raza con ese nombre/.test(await textoDescrito(dlg.getByLabel(/^Nombre de la raza/))), "MOD-11 de razas: «pug  (CARLINO)» ya existe (sin acentos, mayúsculas ni espacios de más): el error queda junto al nombre", "MOD-11 de razas: no detectó el nombre repetido");
+  await dlg.getByLabel(/^Nombre de la raza/).fill("<b>Raza</b> de prueba");
+  await boton(dlg, "Guardar cambios").click();
+  await hasta(async () => (await aviso(pagina, "Se agregó «Raza de prueba»")));
+  ver(await aviso(pagina, "Se agregó «Raza de prueba»"), "R34: «<b>Raza</b> de prueba» se guarda como «Raza de prueba» (sin etiquetas)", "R34: no se saneó el nombre");
   await irA(pagina, "/admin/motivos");
   ver((await pagina.getByRole("heading", { level: 1 }).innerText()) === "Catálogo de motivos de extravío" && (await boton(pagina, "Agregar motivo").isVisible()) && /Categoría: Detonantes Emocionales y Ambientales/.test(await tarj(pagina, 1).innerText()) && /Pirotecnia, truenos/.test(await tarj(pagina, 1).innerText()), "ADM-08 motivos: «Agregar motivo», con categoría y descripción en cada tarjeta", "ADM-08: pantalla incorrecta");
-  await boton(pagina, "Página 3").click();
+  await cambiarPagina(pagina, "Página 3");
   ver((await boton(tarj(pagina, 14), /^Desactivar/).isDisabled()) && (await boton(tarj(pagina, 15), /^Desactivar/).isDisabled()) && (await tarj(pagina, 14).getByText("Valor protegido", { exact: true }).isVisible()), "ADM-08: «Circunstancia desconocida o no presenciada» y «Otro motivo» (ids 14 y 15) son valores protegidos", "ADM-08: ids 14 y 15 sin protección");
   await boton(pagina, "Agregar motivo").click();
   dlg = pagina.getByRole("dialog", { name: "Agregar motivo de extravío" });
   const cats = await dlg.getByLabel(/^Categoría/).locator("option").allTextContents();
-  ver((await dlg.getByLabel(/^Nombre del motivo de extravío/).isVisible()) && JSON.stringify(cats) === JSON.stringify(["Elige una categoría", ...CATEGORIAS_MOTIVO.map((c) => c.nombre)]) && (await dlg.getByLabel(/^Descripción/).getAttribute("maxlength")) === "255", "MOD-11 de motivos: nombre, categoría (las 5 del sistema), descripción de hasta 255 caracteres y estatus Activo/Inactivo", "MOD-11 de motivos: campos incorrectos");
+  ver((await dlg.getByLabel(/^Nombre del motivo de extravío/).isVisible()) && JSON.stringify(cats) === JSON.stringify(["Elige una categoría", ...CATEGORIAS_MOTIVO.map((c) => c.nombre)]) && (await dlg.getByLabel(/^Descripción/).getAttribute("maxlength")) === "255", "MOD-11 de motivos: nombre, categoría (las 5 del sistema), descripción de hasta 255 caracteres", "MOD-11 de motivos: campos incorrectos");
   await boton(dlg, "Guardar cambios").click();
-  ver(/Elige una categoría/.test(await textoDescrito(dlg.getByLabel(/^Categoría/))) && /Escribe la descripción/.test(await textoDescrito(dlg.getByLabel(/^Descripción/))) && (await dlg.getByText("Activo", { exact: true }).isVisible()), "MOD-11 de motivos: categoría y descripción son obligatorias (errores asociados a cada campo)", "MOD-11 de motivos: no exigió categoría y descripción");
+  await hasta(async () => /Elige una categoría/.test(await textoDescrito(dlg.getByLabel(/^Categoría/))));
+  ver(/Elige una categoría/.test(await textoDescrito(dlg.getByLabel(/^Categoría/))) && /Escribe la descripción/.test(await textoDescrito(dlg.getByLabel(/^Descripción/))), "MOD-11 de motivos: categoría y descripción son obligatorias (errores del servidor junto a cada campo)", "MOD-11 de motivos: no exigió categoría y descripción");
   await dlg.getByLabel(/^Nombre del motivo de extravío/).fill("Motivo de prueba");
   await dlg.getByLabel(/^Categoría/).selectOption("3");
   await dlg.getByLabel(/^Descripción/).fill("Descripción de prueba.");
   await boton(dlg, "Guardar cambios").click();
+  await hasta(async () => /de 16 elementos/.test(await pagina.locator("main").innerText()));
   ver(!(await dialogoAbierto(pagina)) && /de 16 elementos/.test(await pagina.locator("main").innerText()), "MOD-11 de motivos: guarda el nuevo motivo con su categoría y descripción (16 elementos)", "MOD-11 de motivos: no guardó");
   await irA(pagina, "/admin/estados-animal");
   ver((await pagina.getByRole("heading", { level: 1 }).innerText()) === "Catálogo de estados del animal" && (await boton(pagina, "Agregar estado").isVisible()) && /Categoría: Integridad física y salud/.test(await tarj(pagina, 1).innerText()), "ADM-09 estados del animal: «Agregar estado», con categoría y descripción", "ADM-09: pantalla incorrecta");
@@ -1138,30 +1175,35 @@ async function catalogos(navegador: Browser) {
   for (const id of [1, 5]) protegidos.push((await boton(tarj(pagina, id), /^Desactivar/).isDisabled()) && (await tarj(pagina, id).getByText("Valor protegido", { exact: true }).isVisible()));
   protegidos.push(await boton(tarj(pagina, 6), /^Desactivar/).isDisabled());
   ver(protegidos.every(Boolean), "ADM-09: «Ileso / Buen estado», «Fallecido» y «No se puede determinar» (ids 1, 5 y 6) son valores protegidos", `ADM-09: protegidos ${protegidos}`);
-  // Última opción activa de «Identificación visible»: en los datos de la maqueta solo queda «Con placa y collar».
-  await boton(pagina, "Página 3").click();
+  // Última opción activa de «Identificación visible»: se desactivan de verdad el 16 y el 17, y el 15 queda como la última.
+  await cambiarPagina(pagina, "Página 3");
+  for (const id of [16, 17]) {
+    await boton(tarj(pagina, id), /^Desactivar/).click();
+    await boton(pagina.getByRole("dialog", { name: "Desactivar estado del animal" }), "Confirmar").click();
+    await hasta(async () => (await tarj(pagina, id).getByText("Inactivo", { exact: true }).count()) === 1);
+  }
   const placa = tarj(pagina, 15);
-  ver((await boton(placa, /^Desactivar/).isDisabled()) && /Última opción activa de «Identificación visible»: cada categoría conserva al menos una/.test(await textoDescrito(boton(placa, /^Desactivar/))) && (await placa.getByText(/Última opción activa/).isVisible()) && (await tarj(pagina, 16).getByText("Inactivo", { exact: true }).isVisible()), "ADM-09: «Con placa y collar» es la última opción activa de «Identificación visible»: «Desactivar» deshabilitado con su motivo a la vista", "ADM-09: la última opción activa no se bloqueó");
+  await hasta(async () => await boton(placa, /^Desactivar/).isDisabled());
+  ver((await boton(placa, /^Desactivar/).isDisabled()) && /[Úú]ltima opción activa de «Identificación visible»: cada categoría conserva al menos una/.test(await textoDescrito(boton(placa, /^Desactivar/))) && (await placa.getByText(/[Úú]ltima opción activa/).isVisible()) && (await tarj(pagina, 16).getByText("Inactivo", { exact: true }).isVisible()), "ADM-09: tras desactivar 16 y 17, «Con placa y collar» es la última opción activa de «Identificación visible»: «Desactivar» deshabilitado con su razón", "ADM-09: la última opción activa no se bloqueó");
   await boton(placa, /^Editar/).click();
-  dlg = pagina.getByRole("dialog", { name: "Editar estado del animal" });
-  ver((await dlg.getByLabel("Inactivo", { exact: true }).isDisabled()) && /Última opción activa de «Identificación visible»/.test(await dlg.innerText()), "MOD-11: en la última opción activa, «Inactivo» está deshabilitado con su razón", "MOD-11: permite desactivar la última opción activa");
-  await dlg.getByLabel(/^Categoría/).selectOption("1");
-  await boton(dlg, "Guardar cambios").click();
-  ver((await dialogoAbierto(pagina)) && /última opción activa de su categoría/.test(await textoDescrito(dlg.getByLabel(/^Categoría/))), "MOD-11: la última opción activa tampoco puede cambiarse de categoría", "MOD-11: dejó vacía una categoría");
+  let dlgE = pagina.getByRole("dialog", { name: "Editar estado del animal" });
+  ver((await dlgE.getByText("Estatus", { exact: true }).count()) === 0, "MOD-11: editar la última opción activa no ofrece estatus (no hay cómo dejarla inactiva)", "MOD-11: ofrece estatus en una activa");
+  await dlgE.getByLabel(/^Categoría/).selectOption("1");
+  await boton(dlgE, "Guardar cambios").click();
+  await hasta(async () => /última opción activa de/.test(await textoDescrito(dlgE.getByLabel(/^Categoría/))));
+  ver((await dialogoAbierto(pagina)) && /última opción activa de «Identificación visible»/.test(await textoDescrito(dlgE.getByLabel(/^Categoría/))), "MOD-11: la última opción activa tampoco puede cambiarse de categoría (409 explicado junto al campo)", "MOD-11: dejó vacía una categoría");
   await pagina.keyboard.press("Escape");
   // Reactivar otra opción con Editar libera a la primera.
   await boton(tarj(pagina, 16), /^Editar/).click();
-  dlg = pagina.getByRole("dialog", { name: "Editar estado del animal" });
-  await dlg.getByText("Activo", { exact: true }).click();
-  await boton(dlg, "Guardar cambios").click();
+  dlgE = pagina.getByRole("dialog", { name: "Editar estado del animal" });
+  await dlgE.getByText("Activo", { exact: true }).click();
+  await boton(dlgE, "Guardar cambios").click();
+  await hasta(async () => (await boton(placa, /^Desactivar/).isEnabled()));
   ver((await boton(tarj(pagina, 16), /^Desactivar/).isEnabled()) && (await boton(placa, /^Desactivar/).isEnabled()) && (await pagina.getByRole("button", { name: /^Activar/ }).count()) === 0, "reactivar «Con collar sin datos» con Editar libera la regla: «Con placa y collar» ya se puede desactivar", "reactivar con Editar: no liberó la regla");
   await boton(placa, /^Desactivar/).click();
   await boton(pagina.getByRole("dialog", { name: "Desactivar estado del animal" }), "Confirmar").click();
-  ver((await placa.getByText("Inactivo", { exact: true }).isVisible()) && (await boton(tarj(pagina, 16), /^Desactivar/).isDisabled()) && /Última opción activa de «Identificación visible»/.test(await textoDescrito(boton(tarj(pagina, 16), /^Desactivar/))), "tras desactivar «Con placa y collar», la que queda activa pasa a ser la última y se bloquea", "la regla no pasó a la siguiente opción activa");
-  await irA(pagina, "/admin/estados-animal?modal=editar");
-  ver(await pagina.getByRole("dialog", { name: "Editar estado del animal" }).isVisible(), "ADM-09 ?modal=editar: abre MOD-11 al cargar", "ADM-09 ?modal=editar: no abrió");
-  await irA(pagina, "/admin/alcaldias?estado=cargando");
-  ver((await pagina.getByRole("status").count()) === 4 && (await pagina.locator("li[data-elemento]").count()) === 0, "ADM-06 cargando: 4 esqueletos con role=\"status\"", "ADM-06 cargando: incorrecto");
+  await hasta(async () => (await boton(tarj(pagina, 16), /^Desactivar/).isDisabled()));
+  ver((await placa.getByText("Inactivo", { exact: true }).isVisible()) && (await boton(tarj(pagina, 16), /^Desactivar/).isDisabled()) && /[Úú]ltima opción activa de «Identificación visible»/.test(await textoDescrito(boton(tarj(pagina, 16), /^Desactivar/))), "tras desactivar «Con placa y collar», la que queda activa pasa a ser la última y se bloquea", "la regla no pasó a la siguiente opción activa");
   await contexto.close();
 
   // Escritorio: catálogo con categoría y descripción (motivos).
@@ -1175,7 +1217,19 @@ async function catalogos(navegador: Browser) {
   await irA(pagina, "/admin/razas");
   const cabR = await pagina.locator("table[data-tabla-compacta] thead th").allTextContents();
   ver(JSON.stringify(cabR) === JSON.stringify(["Nombre", "Estatus", "Acciones"]), "ADM-07 en escritorio: tabla con Nombre, Estatus y Acciones", `ADM-07 escritorio: columnas ${cabR}`);
+  // Páginas fuera de rango o inválidas se corrigen de forma controlada.
+  await irA(pagina, "/admin/razas?pagina=999");
+  const ultimaPagina = await pagina.locator("nav[aria-label='Paginación'] [aria-current='page']").getAttribute("aria-label");
+  await irA(pagina, "/admin/razas?pagina=abc");
+  const primera = await pagina.locator("nav[aria-label='Paginación'] [aria-current='page']").getAttribute("aria-label");
+  ver(ultimaPagina === "Página 3" && primera === "Página 1", "?pagina= fuera de rango (999) muestra la última página y uno inválido (abc), la primera; sin error", `?pagina=: ${ultimaPagina} / ${primera}`);
   await contexto.close();
+}
+
+/** Los tipos de acción que ya trae la bitácora, vistos con el id de lo afectado (para comprobar que la acción de la pantalla quedó registrada). */
+async function bitacora_tipo(tipo: string): Promise<string> {
+  const r = await api("GET", `/api/admin/bitacora?tipo=${encodeURIComponent(tipo)}`);
+  return (r.json?.items ?? []).map((i: { idAfectada: string }) => i.idAfectada).join(",");
 }
 
 // ---------- reglas de código ----------
@@ -1301,23 +1355,29 @@ async function reportes(navegador: Browser) {
 }
 
 async function estadosDelCaso(navegador: Browser) {
+  const esperados = ESTADOS_CASO.map((nombre, i) => ({ orden: i + 1, nombre }));
   let { contexto, pagina } = await nuevaPagina(navegador, 1280);
   await irA(pagina, "/admin/estados-caso");
   const filas = await pagina.locator("tbody tr").evaluateAll((trs) => trs.map((tr) => [tr.children[0].textContent!.trim(), tr.children[1].textContent!.trim()]));
-  ver(JSON.stringify(filas) === JSON.stringify(ESTADOS_CASO_CATALOGO.map((e) => [String(e.orden), e.nombre])) && filas.map((f) => f[1]).join() === "Extraviado,En búsqueda,Avistamiento reportado,En seguimiento,Localizado,Cerrado", "ADM-10 (1280): tabla con los 6 estados fijos en el orden 1 a 6", `ADM-10: filas ${JSON.stringify(filas)}`);
+  ver(JSON.stringify(filas) === JSON.stringify(esperados.map((e) => [String(e.orden), e.nombre])) && filas.map((f) => f[1]).join() === "Extraviado,En búsqueda,Avistamiento reportado,En seguimiento,Localizado,Cerrado", "ADM-10 (1280): tabla con los 6 estados fijos (leídos del almacén) en el orden 1 a 6", `ADM-10 (1280): filas ${JSON.stringify(filas)}`);
   const heads = await pagina.locator("thead th").allInnerTexts();
   ver(JSON.stringify(heads.map((h) => h.toLowerCase())) === JSON.stringify(["orden", "estado del caso"]), "ADM-10: columnas «Orden» y «Estado del caso»", `ADM-10: columnas ${heads}`);
   const controles = await pagina.locator("main").locator("button, input, select, textarea, [role=search], nav[aria-label='Paginación'], a[href]").count();
   ver(controles === 0, "ADM-10 de solo lectura: sin botones de agregar, editar o desactivar, ni búsqueda ni paginación", `ADM-10: ${controles} controles en el contenido`);
   const texto = await pagina.locator("main").innerText();
-  ver(texto.includes("Estos 6 estados los define el sistema; solo consulta. No se pueden agregar, editar, desactivar ni eliminar.") && texto.includes("El orden solo determina cómo se presentan los estados en pantallas y reportes; no define las transiciones válidas."), "ADM-10: aviso del sistema y nota de que el orden no define transiciones", "ADM-10: faltan los avisos");
+  ver(texto.includes("Estos 6 estados los define el sistema; solo consulta. No se pueden agregar, editar, desactivar ni eliminar.") && texto.includes("El orden solo determina cómo se presentan los estados en pantallas y reportes; no define las transiciones válidas."), "ADM-10: aviso del sistema y nota sobre el orden", "ADM-10: faltan los avisos");
   ver((await pagina.locator("ol").isHidden()) && (await pagina.locator("table").isVisible()), "ADM-10 (1280): la lista de tarjetas se oculta y se ve la tabla", "ADM-10 (1280): vista equivocada");
   await contexto.close();
   ({ contexto, pagina } = await nuevaPagina(navegador, 390));
   await irA(pagina, "/admin/estados-caso");
   const tarjetas = await pagina.locator("ol > li").allInnerTexts();
-  ver(JSON.stringify(tarjetas.map((t) => t.replace(/\s+/g, " ").trim())) === JSON.stringify(ESTADOS_CASO_CATALOGO.map((e) => `Orden ${e.orden} ${e.nombre}`)) && (await pagina.locator("table").isHidden()), "ADM-10 (390): 6 tarjetas con el chip «Orden n» junto al nombre (el chip no sustituye al estado)", `ADM-10 (390): ${JSON.stringify(tarjetas)}`);
+  ver(JSON.stringify(tarjetas.map((t) => t.replace(/\s+/g, " ").trim())) === JSON.stringify(esperados.map((e) => `Orden ${e.orden} ${e.nombre}`)) && (await pagina.locator("table").isHidden()), "ADM-10 (390): 6 tarjetas con el chip «Orden n» junto al nombre (el chip no sustituye al estado) y sin tabla", `ADM-10 (390): ${tarjetas}`);
   await contexto.close();
+  // Solo consulta de verdad: el servidor no ofrece ninguna escritura sobre los estados del caso y la API devuelve los mismos 6.
+  const lectura = await api("GET", "/api/admin/estados-caso");
+  const escrituras = await Promise.all(["POST", "PUT", "PATCH", "DELETE"].map((m) => api(m, "/api/admin/estados-caso", { nombre: "Nuevo" })));
+  const tutora = await api("GET", "/api/admin/estados-caso", undefined, "tutor1");
+  ver(JSON.stringify(lectura.json?.items.map((e: { orden: number; nombre: string }) => [e.orden, e.nombre])) === JSON.stringify(esperados.map((e) => [e.orden, e.nombre])) && escrituras.every((r) => r.estado === 405) && tutora.estado === 403, "ADM-10 en el servidor: GET devuelve los 6 estados; POST, PUT, PATCH y DELETE dan 405; la persona tutora recibe 403", `ADM-10 API: ${lectura.estado} ${escrituras.map((r) => r.estado)} ${tutora.estado}`);
 }
 
 async function parametros(navegador: Browser) {
@@ -1329,7 +1389,10 @@ async function parametros(navegador: Browser) {
   const version = campo("Versión vigente del aviso de privacidad");
   const token = campo("Tiempo de expiración del token de recuperación · minutos");
   const tamano = campo("Tamaño máximo de archivo permitido · MB");
-  ver((await version.inputValue()) === "1.0" && (await token.inputValue()) === "60" && (await tamano.inputValue()) === "4" && /Valor por defecto: 1\.0/.test(await textoDescrito(version)) && /Valor por defecto: 60/.test(await textoDescrito(token)) && /Valor por defecto: 4 · máximo 4\.5/.test(await textoDescrito(tamano)), "ADM-11: tres campos con su valor vigente y el valor por defecto bajo cada uno (1.0 · 60 · 4 con máximo 4.5)", "ADM-11: campos o valores por defecto incorrectos");
+  const exito = pagina.getByRole("status").filter({ hasText: "Configuración guardada" });
+  const valoresApi = async () => ((await api("GET", "/api/admin/parametros")).json?.parametros as { clave: string; valor: string }[]).map((p) => p.valor).join("|");
+  ver((await version.inputValue()) === "1.0" && (await token.inputValue()) === "60" && (await tamano.inputValue()) === "4" && /Valor por defecto: 1\.0/.test(await textoDescrito(version)) && /Valor por defecto: 60/.test(await textoDescrito(token)) && /Valor por defecto: 4 · máximo 4\.5/.test(await textoDescrito(tamano)), "ADM-11: valores vigentes del almacén (1.0 · 60 · 4), cada uno con su valor por defecto (4 · máximo 4.5)", "ADM-11: valores iniciales incorrectos");
+  ver(/se guarda, pero la recuperación de contraseña aún no está en el prototipo/i.test(await textoDescrito(token)), "ADM-11: la expiración del token declara en pantalla que se guarda pero la recuperación de contraseña no está en el prototipo", `ADM-11: ayuda del token «${await textoDescrito(token)}»`);
   ver((await reaceptacion.count()) === 0, "ADM-11: sin cambios en la versión no hay aviso de re-aceptación", "ADM-11: aviso de re-aceptación sin cambios");
   await version.fill("2.0");
   ver(await formulario.getByText("Al cambiar la versión del aviso de privacidad, todas las personas usuarias deberán aceptarlo de nuevo.").isVisible(), "ADM-11: al cambiar la versión del aviso aparece el aviso de re-aceptación (R22)", "ADM-11: falta el aviso de re-aceptación");
@@ -1346,7 +1409,7 @@ async function parametros(navegador: Browser) {
     await token.fill(t);
     await tamano.fill(mb);
     await boton(pagina, "Guardar configuración").click();
-    ver(re.test(await textoDescrito(token)) && (await token.getAttribute("aria-invalid")) === "true" && (await pagina.evaluate(() => document.activeElement?.id)) === "parametro-token" && (await pagina.getByRole("status").filter({ hasText: "Configuración guardada" }).count()) === 0, `ADM-11: ${nombre} → error bajo el campo, foco en él y no se guarda`, `ADM-11: ${nombre} sin error`);
+    ver(re.test(await textoDescrito(token)) && (await token.getAttribute("aria-invalid")) === "true" && (await pagina.evaluate(() => document.activeElement?.id)) === "parametro-token" && (await exito.count()) === 0, `ADM-11: ${nombre} → «Debe ser un número entero mayor que cero.» bajo el campo, el foco va al campo y no se guarda`, `ADM-11: ${nombre} sin el error esperado`);
   }
   await token.fill("60");
   for (const [valor, re] of [["0", /Debe ser un número mayor que cero\./], ["", /Debe ser un número mayor que cero\./], ["4.6", /No puede superar el límite técnico de 4\.5 MB\./], ["6", /No puede superar el límite técnico de 4\.5 MB\./]] as [string, RegExp][]) {
@@ -1364,16 +1427,30 @@ async function parametros(navegador: Browser) {
     await boton(pagina, "Guardar configuración").click();
     ver(/números separados por punto, como 1\.0 o 2\.1/.test(await textoDescrito(version)) && (await version.getAttribute("aria-invalid")) === "true", `ADM-11: la versión «${mala}» no tiene formato de versión (números separados por punto) y muestra el error bajo el campo`, `ADM-11: aceptó la versión «${mala}»`);
   }
-  await version.fill("2.1");
-  await boton(pagina, "Guardar configuración").click();
-  ver(!/números separados/.test(await textoDescrito(version)) && (await version.getAttribute("aria-invalid")) === null, "ADM-11: la versión «2.1» es válida", "ADM-11: rechazó «2.1»");
+  ver((await valoresApi()) === "1.0|60|4", "ADM-11: ningún intento inválido llegó al servidor (siguen 1.0 | 60 | 4)", `ADM-11: el servidor guardó ${await valoresApi()}`);
+  // Guardar de verdad: el servidor lo tiene, la bitácora lo registra con «anterior → nuevo» y la pantalla lo conserva al recargar.
   await version.fill("2.0");
   await token.fill("45");
   await tamano.fill("4.5");
   await boton(pagina, "Guardar configuración").click();
-  ver((await pagina.getByRole("status").filter({ hasText: "Configuración guardada" }).filter({ hasText: "El cambio se registra en la bitácora con el valor anterior y el nuevo." }).count()) === 1 && (await reaceptacion.count()) === 0 && (await token.getAttribute("aria-invalid")) === null, "ADM-11: guardar con 2.0 · 45 · 4.5 (el máximo permitido) muestra el mensaje de éxito: el cambio se registra en la bitácora con el valor anterior y el nuevo", "ADM-11: guardado sin el mensaje de éxito");
+  await hasta(async () => (await exito.count()) === 1);
+  ver((await exito.filter({ hasText: "El cambio se registra en la bitácora con el valor anterior y el nuevo." }).filter({ hasText: "deberán aceptar la nueva versión del aviso" }).count()) === 1 && (await token.getAttribute("aria-invalid")) === null, "ADM-11: «Guardar configuración» (2.0 · 45 · 4.5) muestra «Configuración guardada», la bitácora y que habrá que re-aceptar el aviso", "ADM-11: no mostró el éxito");
+  const bit = (await api("GET", "/api/admin/bitacora?tipo=modificar%20par%C3%A1metro")).json?.items as { idAfectada: string; detalle: string }[];
+  ver((await valoresApi()) === "2.0|45|4.5" && bit.length >= 3 && ["version_aviso_privacidad:1.0 → 2.0", "expiracion_token_minutos:60 → 45", "tamano_maximo_archivo_mb:4 → 4.5"].every((s) => bit.some((b) => `${b.idAfectada}:${b.detalle}` === s)), "ADM-11: el cambio es REAL: el servidor guarda 2.0 | 45 | 4.5 y la bitácora tiene una entrada por parámetro con «anterior → nuevo»", `ADM-11: ${await valoresApi()} · ${JSON.stringify(bit.slice(0, 3))}`);
+  await irA(pagina, "/admin/parametros");
+  ver((await version.inputValue()) === "2.0" && (await token.inputValue()) === "45" && (await tamano.inputValue()) === "4.5" && (await reaceptacion.count()) === 0, "ADM-11: al recargar, la pantalla conserva lo guardado (2.0 · 45 · 4.5) y no muestra el aviso de re-aceptación", "ADM-11: al recargar no conserva lo guardado");
+  await boton(pagina, "Guardar configuración").click();
+  await hasta(async () => (await pagina.getByRole("status").filter({ hasText: "Sin cambios" }).count()) === 1);
+  ver((await pagina.getByRole("status").filter({ hasText: "No hay cambios por guardar: los valores son los vigentes." }).count()) === 1 && (await api("GET", "/api/admin/bitacora?tipo=modificar%20par%C3%A1metro")).json?.items.length === bit.length, "ADM-11: guardar sin cambiar nada muestra «Sin cambios» y no escribe bitácora", "ADM-11: sin cambios incorrecto");
   await token.fill("46");
-  ver((await pagina.getByRole("status").filter({ hasText: "Configuración guardada" }).count()) === 0, "ADM-11: el mensaje de éxito se quita al editar un campo", "ADM-11: el mensaje de éxito no se quita");
+  ver((await pagina.getByRole("status").filter({ hasText: "Sin cambios" }).count()) === 0, "ADM-11: el mensaje se quita al editar un campo", "ADM-11: el mensaje no se quita");
+  // Errores del servidor (422 por campo) se muestran junto al campo, aunque el navegador no los hubiera detectado.
+  await pagina.route("**/api/admin/parametros", (ruta) => (ruta.request().method() === "PUT" ? ruta.fulfill({ status: 422, contentType: "application/json", body: JSON.stringify({ error: { codigo: "VALIDACION", mensaje: "Revisa los campos marcados.", campos: { expiracion_token_minutos: "Debe ser un número entero mayor que cero." } } }) }) : ruta.continue()));
+  await token.fill("30");
+  await boton(pagina, "Guardar configuración").click();
+  await hasta(async () => /entero mayor que cero/.test(await textoDescrito(token)));
+  ver(/entero mayor que cero/.test(await textoDescrito(token)) && (await pagina.evaluate(() => document.activeElement?.id)) === "parametro-token", "ADM-11: un 422 del servidor por campo se muestra bajo el campo y le da el foco", "ADM-11: no mostró el error del servidor");
+  await pagina.unroute("**/api/admin/parametros");
   // EXTENSIÓN OPCIONAL (MOD-12): restablecer con confirmación.
   const restablecer = boton(pagina, "Restablecer valores por defecto");
   await token.fill("30");
@@ -1381,22 +1458,215 @@ async function parametros(navegador: Browser) {
   await restablecer.click();
   await focoAtrapado(pagina, "MOD-12");
   const dlg = pagina.getByRole("dialog", { name: "Restablecer valores por defecto" });
-  ver(/aviso 1\.0, token 60 minutos, archivo 4 MB/.test(await dlg.innerText()) && /deberán aceptarlo de nuevo/.test(await dlg.innerText()) && /bitácora/.test(await dlg.innerText()), "MOD-12: la advertencia nombra los tres valores por defecto, la re-aceptación y la bitácora", "MOD-12: advertencia incompleta");
+  ver(/aviso 1\.0, token 60 minutos, archivo 4 MB/.test(await dlg.innerText()) && /deberán aceptarlo de nuevo/.test(await dlg.innerText()) && /bitácora/.test(await dlg.innerText()), "MOD-12: la advertencia nombra los tres valores por defecto (los del servidor), la re-aceptación y la bitácora", "MOD-12: advertencia incompleta");
   await boton(dlg, "Confirmar").click();
-  ver(!(await dialogoAbierto(pagina)) && (await version.inputValue()) === "1.0" && (await token.inputValue()) === "60" && (await tamano.inputValue()) === "4" && (await pagina.getByRole("status").filter({ hasText: "Valores restablecidos" }).count()) === 1, "MOD-12: «Confirmar» devuelve los tres parámetros a 1.0 · 60 · 4 y avisa", "MOD-12: Confirmar no restableció");
+  await hasta(async () => (await version.inputValue()) === "1.0");
+  ver(!(await dialogoAbierto(pagina)) && (await version.inputValue()) === "1.0" && (await token.inputValue()) === "60" && (await tamano.inputValue()) === "4" && (await pagina.getByRole("status").filter({ hasText: "Valores restablecidos" }).count()) === 1 && (await valoresApi()) === "1.0|60|4", "MOD-12: «Confirmar» devuelve los tres parámetros a 1.0 · 60 · 4, en pantalla y en el servidor, y lo anuncia", "MOD-12: no restableció");
   const fuente = readFileSync("src/components/features/parametros/ModalRestablecer.tsx", "utf8") + readFileSync("src/components/features/parametros/FormularioParametros.tsx", "utf8");
-  ver((fuente.match(/EXTENSIÓN OPCIONAL a validar con Raúl/g) ?? []).length >= 3 && !readFileSync("src/lib/parametros.ts", "utf8").includes("EXTENSIÓN"), "MOD-12 aislado: marcado con «EXTENSIÓN OPCIONAL a validar con Raúl» en su archivo y en el botón, fuera de la lógica de validación", "MOD-12: sin marcar o mezclado con la validación");
-  await irA(pagina, "/admin/parametros?variante=guardado");
-  ver((await pagina.getByRole("status").filter({ hasText: "Configuración guardada" }).filter({ hasText: "se registra en la bitácora con el valor anterior y el nuevo" }).isVisible()) && (await version.inputValue()) === "1.1" && (await token.inputValue()) === "45" && (await tamano.inputValue()) === "4.5" && (await reaceptacion.count()) === 0, "ADM-11 ?variante=guardado: muestra el estado de éxito tras guardar (1.1 · 45 · 4.5) sin aviso de re-aceptación", "ADM-11: ?variante=guardado sin el mensaje de éxito");
-  await irA(pagina, "/admin/parametros?variante=aviso");
-  ver(await reaceptacion.isVisible(), "ADM-11 ?variante=aviso: muestra el aviso de re-aceptación", "ADM-11: ?variante=aviso sin aviso");
-  await irA(pagina, "/admin/parametros?variante=errores");
-  ver(/mayor que cero/.test(await textoDescrito(token)) && /límite técnico de 4\.5 MB/.test(await textoDescrito(tamano)), "ADM-11 ?variante=errores: muestra los dos errores de validación", "ADM-11: ?variante=errores sin errores");
-  await irA(pagina, "/admin/parametros?modal=restablecer");
-  ver(await dialogoAbierto(pagina), "ADM-11 ?modal=restablecer: abre MOD-12", "ADM-11: ?modal=restablecer no abrió");
+  ver((fuente.match(/EXTENSIÓN OPCIONAL a validar con Raúl/g) ?? []).length >= 3 && !readFileSync("src/lib/parametros.ts", "utf8").includes("EXTENSIÓN"), "MOD-12 aislado: marcado con «EXTENSIÓN OPCIONAL a validar con Raúl» en su archivo y en el botón, fuera de la lógica de validación", "MOD-12: no está aislado o marcado");
   await contexto.close();
   const html = await (await fetchComo(base, "admin", "/admin/parametros")).text();
   ver(SECRETOS_TUTOR_5C.every((v) => !html.includes(v)), "ADM-11: ningún dato de la persona tutora en la página", "ADM-11: hay datos de la persona tutora");
+}
+
+// ---------- flujos de punta a punta con la interfaz real ----------
+const SIN_FECHAS = (t: string) => t.replace(/\d{4}-\d{2}-\d{2}(T[\d:.]+Z)?/g, "FECHA").replace(/\b\d{1,2} de [a-záéíóú]+ de \d{4}(,? \d{1,2}:\d{2})?/gi, "FECHA").replace(/\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/g, "FECHA");
+const huellaTexto = (t: string) => createHash("sha256").update(SIN_FECHAS(t)).digest("hex").slice(0, 12);
+const FOLIO_LABRADOR = "RUPE-P3H8WD5N"; // Luna: raza «Labrador Retriever», alcaldía «Benito Juárez»
+
+/** Lo que dicen, de un caso, la ficha pública, el estatus, el detalle del Administrador y el PDF de la ficha (texto decodificado). */
+async function vistasDelCaso(navegador: Browser, folio: string) {
+  const leerTexto = async (ruta: string, rol: RolPrueba | null) => {
+    const { contexto, pagina } = await nuevaPagina(navegador, 1280, "light", rol);
+    await irA(pagina, ruta);
+    const t = await pagina.locator("main").innerText();
+    await contexto.close();
+    return t;
+  };
+  const pdf = await fetchComo(base, "tutor1", `/api/casos/${folio}/ficha?hoja=carta`);
+  return {
+    ficha: await leerTexto(`/ficha/${folio}`, null),
+    estatus: await leerTexto(`/estatus/${folio}`, null),
+    detalle: await leerTexto(`/admin/registros/${folio}`, "admin"),
+    pdf: pdf.status === 200 ? await textoDePdf(navegador, new Uint8Array(await pdf.arrayBuffer())) : `HTTP ${pdf.status}`,
+  };
+}
+
+async function flujoRazaDesactivada(navegador: Browser) {
+  const opcionesDeRaza = async (): Promise<string[]> => {
+    const { contexto, pagina } = await nuevaPagina(navegador, 1280, "light", "tutor1");
+    await pagina.goto(`${base}/tutor/registrar`, { waitUntil: "load" });
+    await pagina.waitForSelector("main h1");
+    const o = await pagina.getByLabel(/^Raza/).locator("option").allTextContents();
+    await contexto.close();
+    return o;
+  };
+  const antes = await vistasDelCaso(navegador, FOLIO_LABRADOR);
+  const opcionesAntes = await opcionesDeRaza();
+  ver(opcionesAntes.includes("Labrador Retriever") && opcionesAntes.length === 15 && antes.ficha.includes("Labrador Retriever") && antes.detalle.includes("Labrador Retriever") && antes.pdf.includes("Labrador Retriever") && antes.ficha.includes("Benito Juárez") && antes.pdf.includes("Benito Juárez") && /En (seguimiento|búsqueda)|Avistamiento reportado/.test(antes.estatus), "punto de partida: /tutor/registrar ofrece las 14 razas; Luna muestra «Labrador Retriever» y «Benito Juárez» en la ficha pública, el detalle del Administrador y el PDF (texto decodificado); /estatus responde", `punto de partida: ${opcionesAntes.length} razas · pdf «${antes.pdf.slice(0, 80)}»`);
+  // El Administrador desactiva la raza con la interfaz.
+  let { contexto, pagina } = await nuevaPagina(navegador, 390);
+  await irA(pagina, "/admin/razas");
+  await cambiarPagina(pagina, "Página 1");
+  await boton(pagina.locator('li[data-elemento="4"]'), /^Desactivar/).click();
+  await boton(pagina.getByRole("dialog", { name: "Desactivar raza" }), "Confirmar").click();
+  await hasta(async () => (await pagina.locator('li[data-elemento="4"]').getByText("Inactiva", { exact: true }).count()) === 1);
+  ver(await pagina.locator('li[data-elemento="4"]').getByText("Inactiva", { exact: true }).isVisible(), "el Administrador desactiva «Labrador Retriever» en /admin/razas (queda «Inactiva»)", "no se desactivó la raza");
+  const despues = await opcionesDeRaza();
+  ver(!despues.includes("Labrador Retriever") && despues.length === opcionesAntes.length - 1, `/tutor/registrar ya no ofrece «Labrador Retriever» (${despues.length} opciones)`, `/tutor/registrar sigue ofreciendo la raza (${despues.length})`);
+  const foto = new Blob([JPEG_REAL as BlobPart], { type: "image/jpeg" });
+  const registrar = async (idRaza: number) => {
+    const f = new FormData();
+    f.set("datos", JSON.stringify({ nombre: "Pelusa", sexo: "Hembra", idRaza, edad: { valor: 0, unidad: "meses" }, tamano: "pequeño", color: "Blanco", fechaExtravio: new Date(Date.now() - 6 * 3600 * 1000).toISOString().slice(0, 10), momento: "tarde", alcaldia: "Coyoacán", colonia: "Del Carmen", idMotivo: 1 }));
+    f.set("fotografia", foto, "fotografia.jpg");
+    const r = await fetchComo(base, "tutor1", "/api/casos", { method: "POST", headers: { Origin: new URL(base).origin }, body: f });
+    return { estado: r.status, json: (await r.json().catch(() => undefined)) as Record<string, any> | undefined }; // eslint-disable-line @typescript-eslint/no-explicit-any
+  };
+  const rechazado = await registrar(4);
+  ver(rechazado.estado === 422 && rechazado.json?.error?.campos?.raza === "Elige la raza." && Object.keys(rechazado.json?.error?.campos ?? {}).length === 1, "el registro por API con esa raza (id 4) da 422 amable «Elige la raza.» y solo ese campo", `registro con raza desactivada: ${rechazado.estado} ${JSON.stringify(rechazado.json)}`);
+  const durante = await vistasDelCaso(navegador, FOLIO_LABRADOR);
+  ver(durante.ficha === antes.ficha && durante.detalle === antes.detalle && durante.pdf === antes.pdf && durante.estatus === antes.estatus, "con la raza desactivada, el caso existente sigue mostrando su nombre IDÉNTICO en la ficha pública, /estatus, el detalle del Administrador y el PDF (huella del contenido)", `con la raza desactivada cambió algo: ficha ${huellaTexto(antes.ficha)}→${huellaTexto(durante.ficha)} · detalle ${huellaTexto(antes.detalle)}→${huellaTexto(durante.detalle)} · pdf ${huellaTexto(antes.pdf)}→${huellaTexto(durante.pdf)}`);
+  // Reactivar con Editar.
+  await boton(pagina.locator('li[data-elemento="4"]'), /^Editar/).click();
+  const dlg = pagina.getByRole("dialog", { name: "Editar raza" });
+  await dlg.getByText("Activa", { exact: true }).click();
+  await boton(dlg, "Guardar cambios").click();
+  await hasta(async () => (await boton(pagina.locator('li[data-elemento="4"]'), /^Desactivar/).count()) === 1);
+  await contexto.close();
+  const reactivada = await opcionesDeRaza();
+  const creado = await registrar(4);
+  ver(reactivada.includes("Labrador Retriever") && reactivada.length === opcionesAntes.length && creado.estado === 201, "reactivada con Editar: /tutor/registrar vuelve a ofrecerla y el registro por API con ese id procede (201)", `reactivada: ${reactivada.length} opciones · registro ${creado.estado}`);
+  const final = await vistasDelCaso(navegador, FOLIO_LABRADOR);
+  ver(final.ficha === antes.ficha && final.detalle === antes.detalle && final.pdf === antes.pdf && final.estatus === antes.estatus, "tras desactivar y reactivar, todo vuelve a lo de antes (huella del contenido de ficha, estatus, detalle y PDF)", "tras reactivar, el contenido no volvió a lo de antes");
+  // O3: el filtro de avistamientos de la tutora lista TODAS las alcaldías del almacén, también una desactivada (filtra avistamientos ya reportados en ella).
+  await api("POST", "/api/admin/catalogos/alcaldias/3/desactivar");
+  const { contexto: ctxFiltro, pagina: pagFiltro } = await nuevaPagina(navegador, 1280, "light", "tutor1");
+  await irA(pagFiltro, `/tutor/casos/${FOLIO_LABRADOR}/avistamientos`);
+  const opcionesAlcaldia = await pagFiltro.getByLabel(/^Alcaldía/).locator("option").allTextContents();
+  await ctxFiltro.close();
+  const f3 = (await filasDelCatalogo("alcaldias")).find((x) => x.id === 3)!;
+  await api("PUT", "/api/admin/catalogos/alcaldias/3", { nombre: f3.nombre, clave: f3.clave, activo: true });
+  ver(opcionesAlcaldia.includes("Benito Juárez") && opcionesAlcaldia.includes("Fuera de la Ciudad de México") && opcionesAlcaldia.length === 18, `el filtro de avistamientos de la tutora lista las 17 alcaldías del almacén (con «Benito Juárez» desactivada y «Fuera de la Ciudad de México»): ${opcionesAlcaldia.length - 1} opciones`, `filtro de la tutora: ${opcionesAlcaldia.length} opciones, «Benito Juárez» ${opcionesAlcaldia.includes("Benito Juárez")}`);
+  // D7: renombrar cambia el nombre histórico, en los mismos cuatro lugares.
+  ({ contexto, pagina } = await nuevaPagina(navegador, 390));
+  await irA(pagina, "/admin/alcaldias");
+  await boton(pagina.locator('li[data-elemento="3"]'), /^Editar/).click();
+  const dlgA = pagina.getByRole("dialog", { name: "Editar alcaldía" });
+  await dlgA.getByLabel(/^Nombre de la alcaldía/).fill("Benito Juárez (renombrada)");
+  await boton(dlgA, "Guardar cambios").click();
+  await hasta(async () => (await pagina.locator('li[data-elemento="3"] h2').innerText()) === "Benito Juárez (renombrada)");
+  await contexto.close();
+  const renombrada = await vistasDelCaso(navegador, FOLIO_LABRADOR);
+  ver(renombrada.ficha.includes("Benito Juárez (renombrada)") && renombrada.detalle.includes("Benito Juárez (renombrada)") && renombrada.pdf.includes("Benito Juárez (renombrada)"), "D7: renombrar la alcaldía cambia su nombre en el caso existente: ficha pública, detalle del Administrador y PDF muestran «Benito Juárez (renombrada)»", `D7: ficha «${renombrada.ficha.slice(0, 120)}»`);
+  ({ contexto, pagina } = await nuevaPagina(navegador, 390));
+  await irA(pagina, "/admin/alcaldias");
+  await boton(pagina.locator('li[data-elemento="3"]'), /^Editar/).click();
+  const dlgB = pagina.getByRole("dialog", { name: "Editar alcaldía" });
+  await dlgB.getByLabel(/^Nombre de la alcaldía/).fill("Benito Juárez");
+  await boton(dlgB, "Guardar cambios").click();
+  await hasta(async () => (await pagina.locator('li[data-elemento="3"] h2').innerText()) === "Benito Juárez");
+  await contexto.close();
+  const devuelta = await vistasDelCaso(navegador, FOLIO_LABRADOR);
+  ver(devuelta.ficha === antes.ficha && devuelta.detalle === antes.detalle && devuelta.pdf === antes.pdf, "al devolverle su nombre, ficha, detalle y PDF vuelven a lo de antes (huella del contenido)", "tras devolver el nombre, el contenido no volvió a lo de antes");
+}
+
+async function flujoReaceptacionYTamano(navegador: Browser) {
+  await valorDeSesion(base, "tutor1"); // la sesión de la tutora se abre ANTES de subir la versión (después, entrar exige aceptar el aviso: eso se prueba abajo, con el formulario)
+  const admin = await nuevaPagina(navegador, 1280);
+  await irA(admin.pagina, "/admin/parametros");
+  const version = admin.pagina.getByLabel("Versión vigente del aviso de privacidad");
+  const tamano = admin.pagina.getByLabel("Tamaño máximo de archivo permitido · MB");
+  const etiquetas = async (ruta: string, ancho = 1280) => {
+    const { contexto, pagina } = await nuevaPagina(navegador, ancho, "light", null);
+    await irA(pagina, ruta);
+    const pie = await pagina.locator("footer").getByRole("link", { name: /^Aviso de privacidad/ }).innerText();
+    const titulo = ruta === "/" ? await pagina.locator("#titulo-aviso").innerText() : "";
+    await contexto.close();
+    return { pie, titulo };
+  };
+  const antes = await etiquetas("/");
+  ver(antes.pie === "Aviso de privacidad v1.0" && antes.titulo === "Aviso de privacidad v1.0", "etiqueta del aviso con el parámetro vigente: pie y encabezado de la página principal dicen «v1.0»", `etiqueta inicial: ${antes.pie} / ${antes.titulo}`);
+  await version.fill("2.0");
+  await boton(admin.pagina, "Guardar configuración").click();
+  await hasta(async () => (await admin.pagina.getByRole("status").filter({ hasText: "Configuración guardada" }).count()) === 1);
+  const nueva = await etiquetas("/");
+  const otraPagina = await etiquetas("/acceso");
+  ver(nueva.pie === "Aviso de privacidad v2.0" && nueva.titulo === "Aviso de privacidad v2.0" && otraPagina.pie === "Aviso de privacidad v2.0", "tras subir la versión a 2.0 las etiquetas del pie y de la página principal dicen «v2.0» (también en /acceso)", `etiqueta nueva: ${nueva.pie} / ${nueva.titulo} / ${otraPagina.pie}`);
+  const menu = await nuevaPagina(navegador, 390, "light", null);
+  await irA(menu.pagina, "/");
+  await boton(menu.pagina, "Menú").click();
+  ver(await menu.pagina.getByRole("link", { name: "Aviso de privacidad v2.0" }).first().isVisible(), "el menú móvil de la plantilla pública también dice «Aviso de privacidad v2.0»", "el menú móvil no muestra v2.0");
+  await menu.contexto.close();
+  // La tutora entra: debe re-aceptar el aviso 2.0, lo acepta y ya no se lo piden.
+  const c = credencial("tutor1");
+  const tutora = await nuevaPagina(navegador, 390, "light", null);
+  const entrar = async () => {
+    await irA(tutora.pagina, "/acceso");
+    await tutora.pagina.getByLabel("Correo electrónico").fill(c.correo);
+    await tutora.pagina.getByLabel(/^Contraseña/).fill(c.contrasena);
+    await boton(tutora.pagina, "Iniciar sesión").click();
+  };
+  await entrar();
+  const modal = tutora.pagina.getByRole("dialog", { name: /Aviso de privacidad actualizado v2\.0/ });
+  await modal.waitFor();
+  ver((await modal.isVisible()) && /\/acceso/.test(tutora.pagina.url()), "R22 en pantalla: la tutora inicia sesión y ve el modal «Aviso de privacidad actualizado v2.0» (todavía en /acceso)", "R22: no apareció el modal con v2.0");
+  await Promise.all([tutora.pagina.waitForURL(/\/tutor/), boton(modal, "Aceptar").click()]);
+  ver(/\/tutor/.test(tutora.pagina.url()), "al aceptar, la tutora entra a su espacio", `al aceptar: ${tutora.pagina.url()}`);
+  await tutora.contexto.clearCookies();
+  await entrar();
+  await tutora.pagina.waitForURL(/\/tutor/);
+  ver(/\/tutor/.test(tutora.pagina.url()) && (await tutora.pagina.getByRole("dialog", { name: /Aviso de privacidad actualizado/ }).count()) === 0, "en el siguiente inicio de sesión ya no se lo vuelven a pedir", "se volvió a pedir el aviso");
+  await tutora.contexto.close();
+  // Restablecer devuelve la versión 1.0.
+  await boton(admin.pagina, "Restablecer valores por defecto").click();
+  await boton(admin.pagina.getByRole("dialog", { name: "Restablecer valores por defecto" }), "Confirmar").click();
+  await hasta(async () => (await version.inputValue()) === "1.0");
+  const vuelta = await etiquetas("/");
+  ver(vuelta.pie === "Aviso de privacidad v1.0" && vuelta.titulo === "Aviso de privacidad v1.0", "«Restablecer» devuelve la versión 1.0 y las etiquetas dicen «v1.0» de nuevo", `tras restablecer: ${vuelta.pie}`);
+
+  // Tamaño máximo de la foto: el Administrador baja el tope; el formulario lo refleja y rechaza una foto real mayor.
+  await tamano.fill("0.2");
+  await boton(admin.pagina, "Guardar configuración").click();
+  await hasta(async () => (await admin.pagina.getByRole("status").filter({ hasText: "Configuración guardada" }).count()) === 1);
+  const t = await nuevaPagina(navegador, 1280, "light", "tutor1");
+  await t.pagina.goto(`${base}/tutor/registrar`, { waitUntil: "load" });
+  await t.pagina.waitForSelector("main h1");
+  ver(/JPG o PNG, máx\. 0\.2 MB/.test(await t.pagina.locator("main").innerText()), "con el tope en 0.2 MB, el texto de ayuda de la foto del registro dice «máx. 0.2 MB»", `ayuda de la foto: ${(await t.pagina.locator("main").innerText()).match(/JPG o PNG[^.]*\./)?.[0]}`);
+  await elegirImagenGenerada(t.pagina, "ruido-grande");
+  await hasta(async () => (await t.pagina.getByText(/La foto pesa más de 0\.2 MB/).count()) > 0, 30000);
+  ver((await t.pagina.getByText(/La foto pesa más de 0\.2 MB/).first().isVisible()) && (await t.pagina.getByAltText("Vista previa de la fotografía").count()) === 0, "una foto real mayor al tope se RECHAZA en pantalla con «La foto pesa más de 0.2 MB» y no queda vista previa", `foto grande: ${(await t.pagina.locator("main").innerText()).slice(0, 200)}`);
+  await t.contexto.close();
+  await boton(admin.pagina, "Restablecer valores por defecto").click();
+  await boton(admin.pagina.getByRole("dialog", { name: "Restablecer valores por defecto" }), "Confirmar").click();
+  await hasta(async () => (await tamano.inputValue()) === "4");
+  const t2 = await nuevaPagina(navegador, 1280, "light", "tutor1");
+  await t2.pagina.goto(`${base}/tutor/registrar`, { waitUntil: "load" });
+  await t2.pagina.waitForSelector("main h1");
+  ver(/JPG o PNG, máx\. 4 MB/.test(await t2.pagina.locator("main").innerText()), "al restablecer, la ayuda de la foto vuelve a «máx. 4 MB»", "la ayuda de la foto no volvió a 4 MB");
+  await t2.contexto.close();
+  await admin.contexto.close();
+}
+
+/** Las cifras del tablero y de Reportes no se mueven por acciones de catálogo hechas con la interfaz y la API (huella del contenido). */
+async function cifrasTrasCatalogos(navegador: Browser) {
+  const leer = async (ruta: string) => {
+    const { contexto, pagina } = await nuevaPagina(navegador, 1280);
+    await irA(pagina, ruta);
+    const t = await pagina.locator("main").innerText();
+    await contexto.close();
+    return t;
+  };
+  const rutas = ["/admin", "/admin/reportes?desde=2026-06-01&hasta=2026-10-18"];
+  const antes = await Promise.all(rutas.map(leer));
+  ver(antes[0].includes("163") && antes[0].includes("141") && antes[0].includes("19") && antes[0].includes("199"), "el tablero muestra las cifras de siempre (163 casos, 141 activos, 19 localizados, 199 avistamientos)", "el tablero no muestra las cifras de siempre");
+  const nuevo = [{ t: "alcaldias", c: { nombre: "Alcaldía de cifras", clave: "09019" } }, { t: "razas", c: { nombre: "Raza de cifras" } }, { t: "motivos", c: { nombre: "Motivo de cifras", idCategoria: 1, descripcion: "d" } }, { t: "estados-animal", c: { nombre: "Estado de cifras", idCategoria: 1, descripcion: "d" } }];
+  for (const n of nuevo) await api("POST", `/api/admin/catalogos/${n.t}`, n.c);
+  await api("PUT", "/api/admin/catalogos/alcaldias/4", { nombre: "Coyoacán renombrada", clave: "09003" });
+  await api("PUT", "/api/admin/catalogos/motivos/1", { nombre: "Pánico renombrado", idCategoria: 1, descripcion: "d" });
+  await api("PUT", "/api/admin/catalogos/estados-animal/2", { nombre: "Herido renombrado", idCategoria: 1, descripcion: "d" });
+  for (const [t, id] of [["alcaldias", 5], ["razas", 6], ["motivos", 2], ["estados-animal", 16]] as const) await api("POST", `/api/admin/catalogos/${t}/${id}/desactivar`);
+  const despues = await Promise.all(rutas.map(leer));
+  ver(huellaTexto(antes[0]) === huellaTexto(despues[0]) && huellaTexto(antes[1]) === huellaTexto(despues[1]), `tras crear, renombrar y desactivar en los 4 catálogos, el tablero (#${huellaTexto(antes[0])}) y Reportes (#${huellaTexto(antes[1])}) tienen la misma huella de contenido`, `las cifras cambiaron: tablero #${huellaTexto(antes[0])}→#${huellaTexto(despues[0])} · reportes #${huellaTexto(antes[1])}→#${huellaTexto(despues[1])}`);
 }
 
 /** Las 5 reactivaciones de catálogo que el seed agrega a las 25 del mock (posteriores a las desactivaciones del mismo elemento). */
@@ -1681,7 +1951,7 @@ async function exportacionDeshabilitada(navegador: Browser) {
 /** Esqueletos de carga de pantallas sin fotografías: sin el recuadro de la foto. */
 async function esqueletosSinFoto(navegador: Browser) {
   const { contexto, pagina } = await nuevaPagina(navegador, 390);
-  for (const r of ["/admin/reportes?estado=cargando", "/admin/parametros?estado=cargando"]) {
+  for (const r of ["/admin/reportes?estado=cargando"]) {
     await irA(pagina, r);
     const n = await pagina.locator("[role=status][aria-busy=true]").count();
     const fotos = await pagina.locator("[role=status][aria-busy=true] > span.size-20").count();
@@ -1788,17 +2058,22 @@ function problemasDeBitacora(bit: typeof BITACORA): string[] {
     if ((desde && a.fechaHora < desde.fechaHora) || (!u.activo && hasta && a.fechaHora > hasta.fechaHora)) problemas.push(`acción ${a.id}: ${a.administrador} no era administrador activo en esa fecha`);
   }
   // Catálogos: existe el valor, y su estatus y nombre finales cuadran.
-  const nombreDe: Record<string, keyof typeof CATALOGOS> = { Alcaldías: "alcaldias", Razas: "razas", Motivos: "motivos", "Estados del animal": "estados-animal" };
+  // P6b: los catálogos del seed salen de los mocks de siempre y quedan TODOS ACTIVOS; la bitácora sembrada trae, además de las 25 del mock, las 5 reactivaciones (la última acción de estatus de cada uno).
+  const nombresDe: Record<string, readonly { id: number; nombre: string }[]> = {
+    Alcaldías: [...ALCALDIAS, FUERA_DE_LA_CIUDAD].map((nombre, i) => ({ id: nombre === FUERA_DE_LA_CIUDAD ? 17 : i + 1, nombre })), Razas: RAZAS, Motivos: MOTIVOS, "Estados del animal": ESTADOS_ANIMAL,
+  };
   for (const clave of [...new Set(bit.filter((a) => a.entidad === "catálogo").map((a) => a.idEntidad))]) {
     const [nombre, id] = clave.split(" · ");
-    const el = CATALOGOS[nombreDe[nombre]]?.elementos.find((x) => String(x.id) === id);
+    const base = nombresDe[nombre]?.find((x) => String(x.id) === id);
+    const el = base ? { ...base, activo: true } : undefined;
     if (!el) {
       problemas.push(`catálogo ${clave} no existe`);
       continue;
     }
-    const mias = ascendente.filter((a) => a.entidad === "catálogo" && a.idEntidad === clave);
+    const mias = [...ascendente.filter((a) => a.entidad === "catálogo" && a.idEntidad === clave), ...REACTIVACIONES_SEMBRADAS.filter((r) => r.idEntidad === clave)];
     const estatus = fin(mias as typeof BITACORA, (a) => a.tipo === "desactivación de catálogo" || (a.tipo === "edición de catálogo" && /Inactiv\w+ → Activ/.test(a.detalle ?? "")));
-    if ((estatus && el.activo) || (!estatus && !el.activo)) problemas.push(`catálogo ${clave}: estatus final incoherente`);
+    // El valor termina inactivo si su ÚLTIMA acción de estatus es una desactivación; una reactivación posterior (P6b: las 5 sembradas) lo deja activo. Todos los valores sembrados están activos.
+    if ((estatus?.tipo === "desactivación de catálogo") === el.activo) problemas.push(`catálogo ${clave}: estatus final incoherente`);
     for (const a of mias) {
       if (a.tipo === "alta de catálogo" && (a.detalle !== el.nombre || a.detalle!.includes("→"))) problemas.push(`catálogo ${clave}: el alta debe mostrar solo el nombre «${el.nombre}»`);
       if (a.tipo === "desactivación de catálogo" && !/^Activ\w+ → Inactiv\w+$/.test(a.detalle ?? "")) problemas.push(`catálogo ${clave}: una desactivación pasa de Activo a Inactivo`);
@@ -1807,7 +2082,7 @@ function problemasDeBitacora(bit: typeof BITACORA): string[] {
     }
   }
   // Parámetros: el valor final de cada uno es el vigente.
-  const finalDe: Record<string, string> = { ...VALORES_POR_DEFECTO };
+  const finalDe: Record<string, string> = { version_aviso_privacidad: "1.0", expiracion_token_minutos: "60", tamano_maximo_archivo_mb: "4" }; // los valores sembrados (por defecto)
   for (const p of Object.keys(finalDe)) {
     const u = ascendente.filter((a) => a.tipo === "modificar parámetro" && a.idEntidad === p).at(-1);
     if (u && u.detalle!.split(" → ")[1] !== finalDe[p]) problemas.push(`parámetro ${p}: valor final ${u.detalle} ≠ ${finalDe[p]}`);
@@ -1849,7 +2124,7 @@ function autopruebaBitacora() {
 
 // ---------- enlaces y geometría ----------
 async function enlacesYGeometria(navegador: Browser) {
-  const rutas = ["/admin/usuarios", "/admin/usuarios?pagina=2", "/admin/usuarios?q=hector", "/admin/usuarios?estatus=inactivo", "/admin/usuarios?estatus=raro", "/admin/bitacora", "/admin/bitacora?pagina=2", "/admin/bitacora?tipo=cambiar%20rol", "/admin/bitacora?tipo=inventado&desde=2026-13-45", "/admin/registros", "/admin/registros?estado=Cerrado", "/admin/registros?alcaldia=999", `/admin/registros/${FOLIO_MODERACION_ACTIVO}`, `/admin/registros/${FOLIO_MODERACION_DESHABILITADO}`, `/admin/registros/${FOLIO_MODERACION_CANCELADO}`, "/admin/avistamientos", "/admin/avistamientos?pagina=2", "/admin/avistamientos?estatus=oculto", "/admin/avistamientos?desde=2026-10-10&hasta=2026-10-01", "/admin/avistamientos?detalle=101", "/admin/avistamientos?detalle=102", "/admin/avistamientos?detalle=102&foto=visible", "/admin/avistamientos?detalle=105", "/admin", `/admin?desde=2026-09-01&hasta=2026-09-30`, "/admin/reportes", "/admin/reportes?desde=2026-10-01&hasta=2026-10-18", "/admin/reportes?estado=vacio", "/admin/reportes?estado=cargando", "/admin/reportes?generar=1", "/admin/estados-caso", "/admin/parametros", "/admin/parametros?variante=aviso", "/admin/parametros?variante=errores", "/admin/parametros?modal=restablecer", "/admin/parametros?estado=cargando", ...["alcaldias", "razas", "motivos", "estados-animal"].flatMap((c) => [`/admin/${c}`, `/admin/${c}?modal=nuevo`, `/admin/${c}?modal=editar`, `/admin/${c}?modal=desactivar`]), "/admin/alcaldias?estado=cargando"];
+  const rutas = ["/admin/usuarios", "/admin/usuarios?pagina=2", "/admin/usuarios?q=hector", "/admin/usuarios?estatus=inactivo", "/admin/usuarios?estatus=raro", "/admin/bitacora", "/admin/bitacora?pagina=2", "/admin/bitacora?tipo=cambiar%20rol", "/admin/bitacora?tipo=inventado&desde=2026-13-45", "/admin/registros", "/admin/registros?estado=Cerrado", "/admin/registros?alcaldia=999", `/admin/registros/${FOLIO_MODERACION_ACTIVO}`, `/admin/registros/${FOLIO_MODERACION_DESHABILITADO}`, `/admin/registros/${FOLIO_MODERACION_CANCELADO}`, "/admin/avistamientos", "/admin/avistamientos?pagina=2", "/admin/avistamientos?estatus=oculto", "/admin/avistamientos?desde=2026-10-10&hasta=2026-10-01", "/admin/avistamientos?detalle=101", "/admin/avistamientos?detalle=102", "/admin/avistamientos?detalle=102&foto=visible", "/admin/avistamientos?detalle=105", "/admin", `/admin?desde=2026-09-01&hasta=2026-09-30`, "/admin/reportes", "/admin/reportes?desde=2026-10-01&hasta=2026-10-18", "/admin/reportes?estado=vacio", "/admin/reportes?estado=cargando", "/admin/reportes?generar=1", "/admin/estados-caso", "/admin/parametros", ...["alcaldias", "razas", "motivos", "estados-animal"].flatMap((c) => [`/admin/${c}`, `/admin/${c}?pagina=2`, `/admin/${c}?pagina=999`, `/admin/${c}?q=a`, `/admin/${c}?q=zzzz`])];
   const vistos = new Set<string>();
   const { contexto, pagina } = await nuevaPagina(navegador, 1280);
   for (const r of rutas) {
@@ -1882,6 +2157,13 @@ async function enlacesYGeometria(navegador: Browser) {
     ["/admin/registros", (p) => boton(p, /^Deshabilitar RUPE-K7M4XQ9T/), "Deshabilitar registro"],
     [`/admin/registros/${FOLIO_MODERACION_ACTIVO}`, (p) => boton(p, "Deshabilitar registro"), "Deshabilitar registro"],
     ["/admin/avistamientos", (p) => boton(p, /^Ocultar el avistamiento 201/), "Ocultar avistamiento"],
+    ["/admin/alcaldias", (p) => boton(p, "Agregar alcaldía"), "Agregar alcaldía"],
+    ["/admin/alcaldias", (p) => boton(p, /^Editar Álvaro Obregón/), "Editar alcaldía"],
+    ["/admin/alcaldias", (p) => boton(p, /^Desactivar Álvaro Obregón/), "Desactivar alcaldía"],
+    ["/admin/razas", (p) => boton(p, "Agregar raza"), "Agregar raza"],
+    ["/admin/motivos", (p) => boton(p, "Agregar motivo"), "Agregar motivo de extravío"],
+    ["/admin/estados-animal", (p) => boton(p, "Agregar estado"), "Agregar estado del animal"],
+    ["/admin/parametros", (p) => boton(p, "Restablecer valores por defecto"), "Restablecer valores por defecto"],
   ];
   for (const [r, abrir, nombre] of modales) {
     for (const ancho of ANCHOS) {
@@ -1930,12 +2212,15 @@ async function main() {
     await corre("rotulosDelDetalle", () => rotulosDelDetalle(navegador!), { reiniciar: true });
     await corre("foliosEnUnaLinea", () => foliosEnUnaLinea(navegador!), { reiniciar: true });
     await corre("moderacionAvistamientos", () => moderacionAvistamientos(navegador!), { reiniciar: true });
-    await corre("reglasDeCatalogos", () => reglasDeCatalogos());
-    await corre("catalogos", () => catalogos(navegador!));
-    await corre("chipValorProtegido", () => chipValorProtegido(navegador!));
+    await corre("reglasDeCatalogos", () => reglasDeCatalogos(), { reiniciar: true });
+    await corre("catalogos", () => catalogos(navegador!), { reiniciar: true });
+    await corre("chipValorProtegido", () => chipValorProtegido(navegador!), { reiniciar: true });
     await corre("reportes", () => reportes(navegador!));
-    await corre("estadosDelCaso", () => estadosDelCaso(navegador!));
-    await corre("parametros", () => parametros(navegador!));
+    await corre("estadosDelCaso", () => estadosDelCaso(navegador!), { reiniciar: true });
+    await corre("parametros", () => parametros(navegador!), { reiniciar: true });
+    await corre("flujoRazaDesactivada", () => flujoRazaDesactivada(navegador!), { reiniciar: true });
+    await corre("flujoReaceptacionYTamano", () => flujoReaceptacionYTamano(navegador!), { reiniciar: true });
+    await corre("cifrasTrasCatalogos", () => cifrasTrasCatalogos(navegador!), { reiniciar: true });
     await corre("bitacora", () => bitacora(navegador!), { reiniciar: true });
     await corre("bitacoraCoherente", () => bitacoraCoherente());
     await corre("autopruebaBitacora", () => autopruebaBitacora());

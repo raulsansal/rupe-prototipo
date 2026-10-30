@@ -8,8 +8,9 @@ import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { fetchComo } from "./sesion-pruebas";
 import { chromium, type Browser, type BrowserContext, type Locator, type Page } from "playwright";
 import { AVISTAMIENTOS } from "../src/mocks/avistamientos";
-import { PARAMETROS } from "../src/mocks/parametros";
-import { CATALOGOS } from "../src/mocks/catalogosAdmin";
+// El tamaño máximo sembrado (valor por defecto del parámetro tamano_maximo_archivo_mb) es 4 MB.
+const TAMANO_MAXIMO_MB = 4;
+import { ESTADOS_ANIMAL as ESTADOS_DEL_MAQUETADO } from "../src/mocks/catalogos";
 import { CASOS_ORIGEN, FOLIO_EN_CURSO, FOLIO_INEXISTENTE, valoresReservados } from "../src/mocks/casos";
 import { CLAVE_TEMA } from "../src/lib/tema";
 import { existsSync } from "node:fs";
@@ -254,7 +255,7 @@ async function flujo(navegador: Browser) {
   const pasoFoto = paso(pagina, 2);
   const medidas = await Promise.all(["Tomar foto", "Elegir de galería"].map((n) => pasoFoto.getByRole("button", { name: n }).evaluate((b) => { const r = b.getBoundingClientRect(); return { alto: r.height, ancho: r.width, y: r.top, envuelve: b.scrollHeight > b.clientHeight + 1 }; })));
   ver(medidas.every((m) => m.alto >= 43.5 && !m.envuelve) && Math.abs(medidas[0].ancho - medidas[1].ancho) < 1.5, `paso 2: «Tomar foto» y «Elegir de galería» miden ${Math.round(medidas[0].alto)} px de alto, del mismo ancho (${Math.round(medidas[0].ancho)} px) y sin partir el texto`, `paso 2: botones de la fotografía ${JSON.stringify(medidas)}`);
-  ver((await pasoFoto.locator("input[type=file][capture]").count()) === 1 && (await pasoFoto.getByText(`Una sola fotografía del avistamiento. JPG o PNG, máx. ${PARAMETROS.tamano_maximo_archivo_mb} MB. Puedes reemplazarla.`).isVisible()) && (await pasoFoto.getByRole("button", { name: "Quitar fotografía" }).count()) === 0, "paso 2: «Tomar foto» usa la cámara (capture), con la ayuda de formato y tamaño máximo del parámetro y sin × de quitar", "paso 2: faltan la cámara, la ayuda o sobra la ×");
+  ver((await pasoFoto.locator("input[type=file][capture]").count()) === 1 && (await pasoFoto.getByText(`Una sola fotografía del avistamiento. JPG o PNG, máx. ${TAMANO_MAXIMO_MB} MB. Puedes reemplazarla.`).isVisible()) && (await pasoFoto.getByRole("button", { name: "Quitar fotografía" }).count()) === 0, "paso 2: «Tomar foto» usa la cámara (capture), con la ayuda de formato y tamaño máximo del parámetro y sin × de quitar", "paso 2: faltan la cámara, la ayuda o sobra la ×");
   const [selector] = await Promise.all([pagina.waitForEvent("filechooser"), pasoFoto.getByRole("button", { name: "Elegir de galería" }).click()]);
   ver(!!selector, "paso 2: «Elegir de galería» abre el selector de archivos", "paso 2: «Elegir de galería» no abrió el selector");
   await archivo.setInputFiles({ name: "avistamiento.png", mimeType: "image/png", buffer: PNG });
@@ -466,7 +467,7 @@ async function ubicacion(navegador: Browser) {
 
 // ---------- (f) recorrido real de cada opción ACTIVA del catálogo de estados del animal ----------
 /** Estados del animal del catálogo sembrado. En el Prototipo el seed los deja TODOS activos (aunque las pantallas del Administrador conserven sus banderas); lo desactivado se prueba con un almacén de prueba en `probar`. */
-const ESTADOS_DEL_CATALOGO = (CATALOGOS["estados-animal"].elementos as unknown as { id: number; nombre: string; idCategoria: number }[]).map((e) => ({ id: e.id, nombre: e.nombre, activo: true, idCategoria: e.idCategoria }));
+const ESTADOS_DEL_CATALOGO = (ESTADOS_DEL_MAQUETADO as unknown as { id: number; nombre: string; idCategoria: number }[]).map((e) => ({ id: e.id, nombre: e.nombre, activo: true, idCategoria: e.idCategoria }));
 const NOMBRES_CATEGORIA: Record<number, string> = { 1: "Integridad física y salud", 2: "Contención y ubicación", 3: "Conducta", 4: "Identificación visible" };
 
 async function recorridoDeOpciones(navegador: Browser) {

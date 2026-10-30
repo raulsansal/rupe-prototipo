@@ -2,7 +2,6 @@
 import { CLAVES_PARAMETRO, LIMITE_TECNICO_MB, LONGITUD_VERSION, PATRON_VERSION, type ClaveParametro } from "../config/parametros";
 
 export { LIMITE_TECNICO_MB, LONGITUD_VERSION, PATRON_VERSION };
-export const VALORES_POR_DEFECTO = { version_aviso_privacidad: "1.0", expiracion_token_minutos: "60", tamano_maximo_archivo_mb: "4" } as const;
 
 export type ValoresParametros = { version_aviso_privacidad: string; expiracion_token_minutos: string; tamano_maximo_archivo_mb: string };
 export type ErroresParametros = Partial<Record<keyof ValoresParametros, string>>;

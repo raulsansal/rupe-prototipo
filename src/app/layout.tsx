@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
+import { ProveedorVersionAviso } from "@/components/layout/VersionAviso";
 import { SCRIPT_TEMA_INICIAL } from "@/lib/tema";
+import { versionVigenteDelAvisoSincrona } from "@/server/servicios/aviso";
 import "./globals.css";
 
 // Montserrat alojada en el repositorio (src/app/fonts, licencia OFL): el build no hace peticiones a Google. Una sola carga con las dos
@@ -19,7 +21,11 @@ export const metadata: Metadata = {
   description: "Registro Único de Perros Extraviados de la Ciudad de México.",
 };
 
+// El aviso lleva la versión REAL (parámetro): se lee en cada petición, así que ninguna ruta puede ser estática.
+export const dynamic = "force-dynamic";
+
 export default function RootLayout({ children }: LayoutProps<"/">) {
+  const versionAviso = versionVigenteDelAvisoSincrona(); // lectura síncrona a propósito: ver su comentario (404 uniformes)
   return (
     <html lang="es-MX" className={`${montserrat.variable} h-full antialiased`} suppressHydrationWarning>
       <body className="min-h-full flex flex-col">
@@ -27,7 +33,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             si el layout raíz se vuelve a renderizar en el cliente (404, 403, recuperación) React 19 avisa «Encountered a script tag while rendering React component». next/script
             beforeInteractive tampoco sirve: Next lo ejecuta después del primer pintado y hay parpadeo. */}
         <div hidden suppressHydrationWarning dangerouslySetInnerHTML={{ __html: `<script>${SCRIPT_TEMA_INICIAL}</script>` }} />
-        {children}
+        <ProveedorVersionAviso version={versionAviso}>{children}</ProveedorVersionAviso>
       </body>
     </html>
   );

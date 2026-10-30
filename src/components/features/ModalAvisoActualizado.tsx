@@ -3,7 +3,7 @@
 import { Alerta } from "@/components/ui/Alerta";
 import { Boton } from "@/components/ui/Boton";
 import { Modal } from "@/components/ui/Modal";
-import { etiquetaVersionAviso } from "@/mocks/parametros";
+import { useEtiquetaVersionAviso } from "@/components/layout/VersionAviso";
 
 type Props = {
   abierto: boolean;
@@ -12,16 +12,18 @@ type Props = {
   /** Acciones: «Aceptar» registra la aceptación y entra; «Rechazar» no entra. */
   onAceptar: () => void;
   onRechazar: () => void;
-  /** Etiqueta de la versión vigente (p. ej. «v2.0»); por defecto la del parámetro del maquetado. */
+  /** Etiqueta de la versión vigente (p. ej. «v2.0»); por defecto la del parámetro real (la entrega el layout raíz). */
   version?: string;
   /** Mientras se registra la aceptación. */
   enviando?: boolean;
 };
 
 /** TRA-03: aviso de privacidad actualizado; reaceptación al iniciar sesión (HU 003). */
-export function ModalAvisoActualizado({ abierto, onCerrar, onAceptar, onRechazar, version = etiquetaVersionAviso(), enviando }: Props) {
+export function ModalAvisoActualizado({ abierto, onCerrar, onAceptar, onRechazar, version, enviando }: Props) {
+  const vigente = useEtiquetaVersionAviso();
+  const etiqueta = version ?? vigente;
   return (
-    <Modal abierto={abierto} onCerrar={onCerrar} titulo={`Aviso de privacidad actualizado ${version}`}>
+    <Modal abierto={abierto} onCerrar={onCerrar} titulo={`Aviso de privacidad actualizado ${etiqueta}`}>
       <p className="text-small text-text-muted">Actualizamos el aviso de privacidad. Revisa la nueva versión antes de continuar.</p>
       <Alerta tipo="info" titulo="Para continuar">
         Debes aceptar la nueva versión; queda registrada con su fecha.

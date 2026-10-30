@@ -6,7 +6,7 @@ import { ImagenPrincipal } from "@/components/features/ImagenPrincipal";
 import { clasesBoton } from "@/components/ui/clasesBoton";
 import { Icono, type NombreIcono } from "@/components/ui/Icono";
 import { Plegable } from "@/components/ui/Plegable";
-import { etiquetaVersionAviso } from "@/mocks/parametros";
+import { versionVigenteDelAviso } from "@/server/servicios/aviso";
 
 export const metadata: Metadata = { title: "RUPE · Registro Único de Perros Extraviados" };
 
@@ -95,7 +95,7 @@ export default async function PaginaPrincipal({ searchParams }: PageProps<"/">) 
 
       <section id="aviso-de-privacidad" aria-labelledby="titulo-aviso" className="scroll-mt-20 rounded-tarjeta border border-border bg-surface p-4">
         <h2 id="titulo-aviso" className="text-h3 font-semibold">
-          Aviso de privacidad {etiquetaVersionAviso()}
+          Aviso de privacidad v{await versionVigenteDelAviso()}
         </h2>
         <p className="mb-3 mt-2 text-small text-text-muted">
           Los datos de la persona tutora se usan solo para avisarle de un avistamiento y nunca se publican. Reportar un avistamiento no requiere registro.

@@ -11,6 +11,7 @@ import { ModalSesionExpirada } from "../ModalSesionExpirada";
 import { PASOS_REGISTRO, REGISTRO_VACIO, TITULOS_REGISTRO, validarRegistro, type DatosRegistro, type ErroresRegistro } from "./datos";
 import { PasoCircunstancias } from "./PasoCircunstancias";
 import { PasoDatosPerro, type ActualizarRegistro } from "./PasoDatosPerro";
+import type { OpcionesDeRegistro } from "@/server/servicios/catalogosRegistro";
 
 export type EstadoInicialRegistro = { paso: 1 | 2; datos: Partial<DatosRegistro> };
 
@@ -19,7 +20,7 @@ export type EstadoInicialRegistro = { paso: 1 | 2; datos: Partial<DatosRegistro>
  * los dos pasos permanecen montados y solo se oculta el que no toca, así Regresar no pierde nada. «Guardar registro» envía UNA sola petición a POST /api/casos
  * (datos + fotografía ya reducida) y lleva a la confirmación con el folio real. Los errores por campo del servidor vuelven a su paso.
  */
-export function FlujoRegistro({ inicial }: { inicial: EstadoInicialRegistro }) {
+export function FlujoRegistro({ inicial, opciones }: { inicial: EstadoInicialRegistro; /** Catálogos ACTIVOS y tamaño máximo de la foto, del servidor. */ opciones: OpcionesDeRegistro }) {
   const router = useRouter();
   const [paso, setPaso] = useState<1 | 2>(inicial.paso);
   const [datos, setDatos] = useState<DatosRegistro>({ ...REGISTRO_VACIO, ...inicial.datos });
@@ -138,10 +139,10 @@ export function FlujoRegistro({ inicial }: { inicial: EstadoInicialRegistro }) {
         )}
         <div data-paso={1} hidden={paso !== 1} className="flex flex-col gap-4">
           <AvisoPublicoReservado />
-          <PasoDatosPerro datos={datos} errores={errores} actualizar={actualizar} fotoInicial={inicial.datos.fotoUrl} />
+          <PasoDatosPerro datos={datos} errores={errores} actualizar={actualizar} fotoInicial={inicial.datos.fotoUrl} razas={opciones.razas} maximoMb={opciones.maximoMb} />
         </div>
         <div data-paso={2} hidden={paso !== 2}>
-          <PasoCircunstancias datos={datos} errores={errores} actualizar={actualizar} />
+          <PasoCircunstancias datos={datos} errores={errores} actualizar={actualizar} alcaldias={opciones.alcaldias} motivos={opciones.motivos} categoriasMotivo={opciones.categoriasMotivo} />
         </div>
       </div>
       <ModalSesionExpirada abierto={sesionExpirada} onCerrar={() => setSesionExpirada(false)} onIniciarSesion={() => router.push("/acceso?siguiente=%2Ftutor%2Fregistrar")} />

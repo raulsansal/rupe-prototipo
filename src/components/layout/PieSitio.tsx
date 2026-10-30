@@ -1,7 +1,9 @@
+"use client";
+
 import Link from "next/link";
 import { cx } from "@/lib/clases";
-import { etiquetaVersionAviso } from "@/mocks/parametros";
 import { IconoRedSocial } from "./IconoRedSocial";
+import { useEtiquetaVersionAviso } from "./VersionAviso";
 
 type Props = {
   /** completo: enlaces y redes; minimo: solo los enlaces (plantilla de flujo). */
@@ -13,8 +15,8 @@ type Props = {
   className?: string;
 };
 
-const ENLACES = [
-  { href: "/#aviso-de-privacidad", etiqueta: `Aviso de privacidad ${etiquetaVersionAviso()}` },
+const enlaces = (etiquetaAviso: string) => [
+  { href: "/#aviso-de-privacidad", etiqueta: etiquetaAviso },
   { href: "/#preguntas-frecuentes", etiqueta: "Preguntas frecuentes" },
   { href: "/#contacto", etiqueta: "Contacto" },
 ];
@@ -27,6 +29,7 @@ const REDES = [
 ] as const;
 
 export function PieSitio({ variante = "completo", inert, contenedor = "max-w-7xl md:px-8", className }: Props) {
+  const ENLACES = enlaces(`Aviso de privacidad ${useEtiquetaVersionAviso()}`); // la versión VIGENTE del parámetro
   return (
     <footer inert={inert} className={cx("border-t border-border bg-surface", className)}>
       <div className={cx("mx-auto flex w-full flex-col gap-2 px-4 py-4", contenedor)}>

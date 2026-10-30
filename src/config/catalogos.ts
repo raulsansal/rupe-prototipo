@@ -10,6 +10,8 @@ export const PATRON_CLAVE = /^09[0-9]{3}$/;
 export const LONGITUD_DESCRIPCION = 255;
 /** «Fuera de la Ciudad de México»: no se desactiva, no lleva clave y no se ofrece al registrar un caso. */
 export const ID_ALCALDIA_FUERA_DE_LA_CIUDAD = 17;
+/** Raza «Otra» (protegida): exige especificar la raza (R8). */
+export const ID_RAZA_OTRA = 14;
 
 export type ReglasCatalogo = {
   tipo: TipoCatalogo;

@@ -5,23 +5,32 @@ import { AreaTexto } from "@/components/ui/AreaTexto";
 import { CampoTexto } from "@/components/ui/CampoTexto";
 import { GrupoRadio } from "@/components/ui/GrupoRadio";
 import { Selector } from "@/components/ui/Selector";
-import { CATEGORIAS_MOTIVO, MOMENTOS_DEL_DIA, MOTIVOS } from "@/mocks/catalogos";
-import { ALCALDIAS, type Alcaldia, type MomentoDelDia } from "@/mocks/tipos";
+import { MOMENTOS_DEL_DIA } from "@/mocks/catalogos";
+import type { MomentoDelDia } from "@/mocks/tipos";
+import type { OpcionesDeRegistro } from "@/server/servicios/catalogosRegistro";
 import { hoyLocal } from "../avistamiento/datos";
 import { MAXIMOS, type DatosRegistro, type ErroresRegistro } from "./datos";
 import type { ActualizarRegistro } from "./PasoDatosPerro";
 
-type Props = { datos: DatosRegistro; errores: ErroresRegistro; actualizar: ActualizarRegistro };
+type Props = {
+  datos: DatosRegistro;
+  errores: ErroresRegistro;
+  actualizar: ActualizarRegistro;
+  /** Alcaldías y motivos ACTIVOS del catálogo (los entrega el servidor). */
+  alcaldias: OpcionesDeRegistro["alcaldias"];
+  motivos: OpcionesDeRegistro["motivos"];
+  categoriasMotivo: OpcionesDeRegistro["categoriasMotivo"];
+};
 
 /** TUT-03: circunstancias del extravío (HU 012). Separa lo que será público de lo reservado. */
-export function PasoCircunstancias({ datos, errores, actualizar }: Props) {
+export function PasoCircunstancias({ datos, errores, actualizar, alcaldias, motivos, categoriasMotivo }: Props) {
   const hoy = useSyncExternalStore(
     () => () => {},
     () => hoyLocal(),
     () => undefined,
   );
-  const motivo = MOTIVOS.find((m) => String(m.id) === datos.motivoId);
-  const categoria = CATEGORIAS_MOTIVO.find((c) => c.id === motivo?.idCategoria);
+  const motivo = motivos.find((m) => String(m.id) === datos.motivoId);
+  const categoria = categoriasMotivo.find((c) => c.id === motivo?.idCategoria);
 
   return (
     <div className="flex flex-col gap-4">
@@ -42,9 +51,9 @@ export function PasoCircunstancias({ datos, errores, actualizar }: Props) {
           etiqueta="Alcaldía"
           required
           marcador="Elige una alcaldía"
-          opciones={ALCALDIAS.map((a) => ({ valor: a, etiqueta: a }))}
+          opciones={alcaldias.map((a) => ({ valor: a.nombre, etiqueta: a.nombre }))}
           value={datos.alcaldia}
-          onChange={(e) => actualizar({ alcaldia: e.target.value as Alcaldia | "" }, ["alcaldia"])}
+          onChange={(e) => actualizar({ alcaldia: e.target.value }, ["alcaldia"])}
           error={errores.alcaldia}
         />
         <CampoTexto
@@ -92,7 +101,7 @@ export function PasoCircunstancias({ datos, errores, actualizar }: Props) {
             etiqueta="Motivo del extravío"
             required
             marcador="Elige un motivo"
-            opciones={MOTIVOS.map((m) => ({ valor: String(m.id), etiqueta: m.nombre }))}
+            opciones={motivos.map((m) => ({ valor: String(m.id), etiqueta: m.nombre }))}
             value={datos.motivoId}
             onChange={(e) => actualizar({ motivoId: e.target.value }, ["motivo"])}
             error={errores.motivo}

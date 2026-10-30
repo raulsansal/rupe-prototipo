@@ -2,7 +2,7 @@
 
 import { Boton } from "@/components/ui/Boton";
 import { Modal } from "@/components/ui/Modal";
-import { etiquetaVersionAviso } from "@/mocks/parametros";
+import { useEtiquetaVersionAviso } from "@/components/layout/VersionAviso";
 
 /** Texto del aviso de privacidad (ilustrativo en la maqueta; el definitivo lo redacta la institución responsable). */
 export function TextoAvisoPrivacidad() {
@@ -28,14 +28,16 @@ type Props = {
   modo: "lectura" | "registro";
   onAceptar?: () => void;
   onRechazar?: () => void;
-  /** Etiqueta de la versión vigente (p. ej. «v1.0»); por defecto la del parámetro del maquetado. */
+  /** Etiqueta de la versión vigente (p. ej. «v1.0»); por defecto la del parámetro real (la entrega el layout raíz). */
   version?: string;
 };
 
 /** MOD-01: aviso de privacidad completo, con la versión del parámetro `version_aviso_privacidad`. */
-export function ModalAvisoPrivacidad({ abierto, onCerrar, modo, onAceptar, onRechazar, version = etiquetaVersionAviso() }: Props) {
+export function ModalAvisoPrivacidad({ abierto, onCerrar, modo, onAceptar, onRechazar, version }: Props) {
+  const vigente = useEtiquetaVersionAviso();
+  const etiqueta = version ?? vigente;
   return (
-    <Modal abierto={abierto} onCerrar={onCerrar} titulo={`Aviso de privacidad ${version}`} tamano="md">
+    <Modal abierto={abierto} onCerrar={onCerrar} titulo={`Aviso de privacidad ${etiqueta}`} tamano="md">
       <TextoAvisoPrivacidad />
       {modo === "registro" ? (
         <div className="mt-2 grid grid-cols-2 gap-3">

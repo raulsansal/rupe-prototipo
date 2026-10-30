@@ -5,13 +5,21 @@ import { CampoTexto } from "@/components/ui/CampoTexto";
 import { CargaFotografia } from "@/components/ui/CargaFotografia";
 import { GrupoRadio } from "@/components/ui/GrupoRadio";
 import { Selector } from "@/components/ui/Selector";
-import { RAZAS } from "@/mocks/catalogos";
 import type { Sexo, Tamano } from "@/mocks/tipos";
 import { esRazaOtra, MAXIMOS, opcionesEdad, type DatosRegistro, type ErroresRegistro } from "./datos";
 
 export type ActualizarRegistro = (cambios: Partial<DatosRegistro>, limpiar?: (keyof ErroresRegistro)[]) => void;
 
-type Props = { datos: DatosRegistro; errores: ErroresRegistro; actualizar: ActualizarRegistro; fotoInicial?: string };
+type Props = {
+  datos: DatosRegistro;
+  errores: ErroresRegistro;
+  actualizar: ActualizarRegistro;
+  fotoInicial?: string;
+  /** Razas ACTIVAS del catálogo (las entrega el servidor). */
+  razas: readonly { id: number; nombre: string }[];
+  /** Tamaño máximo de la fotografía: el parámetro `tamano_maximo_archivo_mb` vigente. */
+  maximoMb: number;
+};
 
 const SEXOS: Sexo[] = ["Macho", "Hembra", "No sé"];
 const TAMANOS: { valor: Tamano; etiqueta: string }[] = [
@@ -21,7 +29,7 @@ const TAMANOS: { valor: Tamano; etiqueta: string }[] = [
 ];
 
 /** TUT-02: datos del perro y fotografía (HU 011). Todo es obligatorio salvo las características y la raza especificada. */
-export function PasoDatosPerro({ datos, errores, actualizar, fotoInicial }: Props) {
+export function PasoDatosPerro({ datos, errores, actualizar, fotoInicial, razas, maximoMb }: Props) {
   return (
     <div className="flex flex-col gap-4">
       <CampoTexto
@@ -47,7 +55,7 @@ export function PasoDatosPerro({ datos, errores, actualizar, fotoInicial }: Prop
         etiqueta="Raza"
         required
         marcador="Elige una raza"
-        opciones={RAZAS.map((r) => ({ valor: String(r.id), etiqueta: r.nombre }))}
+        opciones={razas.map((r) => ({ valor: String(r.id), etiqueta: r.nombre }))}
         value={datos.razaId}
         onChange={(e) => actualizar({ razaId: e.target.value, razaEspecificada: "" }, ["raza", "razaEspecificada"])}
         error={errores.raza}
@@ -126,6 +134,7 @@ export function PasoDatosPerro({ datos, errores, actualizar, fotoInicial }: Prop
         variante="ancha"
         vistaPreviaInicial={fotoInicial}
         reducir
+        maximoMb={maximoMb}
         onCambio={(fotoUrl, foto) => actualizar({ fotoUrl, foto }, ["foto"])}
         errorExterno={errores.foto}
       />

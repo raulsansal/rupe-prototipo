@@ -1,73 +1,110 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Alerta } from "@/components/ui/Alerta";
 import { Boton } from "@/components/ui/Boton";
 import { CampoTexto } from "@/components/ui/CampoTexto";
-import { LIMITE_TECNICO_MB, validarParametros, VALORES_POR_DEFECTO, type ErroresParametros, type ValoresParametros } from "@/lib/parametros";
+import { CLAVES_PARAMETRO, LIMITE_TECNICO_MB, type ClaveParametro } from "@/config/parametros";
+import { enviarAdmin } from "@/lib/clienteAdmin";
+import { validarParametros, type ErroresParametros, type ValoresParametros } from "@/lib/parametros";
+import type { ParametroAdmin } from "@/server/serializadores/admin";
 import { ModalRestablecer } from "./ModalRestablecer";
 
-type Props = {
-  /** Capturas y pruebas: valores con los que abre el formulario (los guardados siguen siendo los de por defecto). */
-  valoresIniciales?: ValoresParametros;
-  /** Capturas y pruebas: abre con los errores de validación ya mostrados. */
-  validarAlCargar?: boolean;
-  /** Capturas y pruebas: abre el modal MOD-12. */
-  restablecerAbierto?: boolean;
-  /** Capturas y pruebas: abre con esos valores ya guardados y el mensaje de éxito. */
-  guardadoInicial?: boolean;
-};
+type Props = { parametros: readonly ParametroAdmin[] };
 
-const EXITO_GUARDADO = { titulo: "Configuración guardada", texto: "El cambio se registra en la bitácora con el valor anterior y el nuevo." };
-const CLAVES = ["version_aviso_privacidad", "expiracion_token_minutos", "tamano_maximo_archivo_mb"] as const;
-const ID_CAMPO: Record<(typeof CLAVES)[number], string> = { version_aviso_privacidad: "parametro-version", expiracion_token_minutos: "parametro-token", tamano_maximo_archivo_mb: "parametro-tamano" };
+type Aviso = { tipo: "exito" | "info" | "peligro"; titulo: string; texto: string };
+const ID_CAMPO: Record<ClaveParametro, string> = { version_aviso_privacidad: "parametro-version", expiracion_token_minutos: "parametro-token", tamano_maximo_archivo_mb: "parametro-tamano" };
+const EN_BITACORA = "El cambio se registra en la bitácora con el valor anterior y el nuevo.";
+const deServidor = (p: readonly ParametroAdmin[], campo: "valor" | "valorPorDefecto"): ValoresParametros => Object.fromEntries(CLAVES_PARAMETRO.map((c) => [c, p.find((x) => x.clave === c)![campo]])) as ValoresParametros;
 
 /**
- * ADM-11 (HU 054): tres parámetros con su valor por defecto bajo cada campo. Cambiar la versión del aviso avisa que todas las personas
- * usuarias deberán aceptarlo de nuevo (R22). Cada cambio se registra en la bitácora con el valor anterior y el nuevo (aquí solo se avisa).
+ * ADM-11 (HU 054): tres parámetros con su valor por defecto bajo cada campo. Los valores vigentes y los de por defecto vienen del servidor; guardar y restablecer llaman a /api/admin/parametros
+ * y refrescan con el estado real. Cambiar la versión del aviso avisa que todas las personas usuarias deberán aceptarlo de nuevo (R22). Cada cambio se registra en la bitácora con el valor
+ * anterior y el nuevo. La expiración del token se guarda, pero la recuperación de contraseña no está en el Prototipo.
  */
-export function FormularioParametros({ valoresIniciales = { ...VALORES_POR_DEFECTO }, validarAlCargar = false, restablecerAbierto = false, guardadoInicial = false }: Props) {
-  const [guardados, setGuardados] = useState<ValoresParametros>(guardadoInicial ? valoresIniciales : { ...VALORES_POR_DEFECTO });
-  const [valores, setValores] = useState<ValoresParametros>(valoresIniciales);
-  const [errores, setErrores] = useState<ErroresParametros>(validarAlCargar ? validarParametros(valoresIniciales) : {});
-  const [modal, setModal] = useState(restablecerAbierto);
-  // Mensaje de éxito en la página (no desaparece solo): se quita al editar cualquier campo.
-  const [aviso, setAviso] = useState<{ titulo: string; texto: string } | undefined>(guardadoInicial ? EXITO_GUARDADO : undefined);
+export function FormularioParametros({ parametros }: Props) {
+  const router = useRouter();
+  const enviando = useRef(false);
+  const guardados = deServidor(parametros, "valor");
+  const porDefecto = deServidor(parametros, "valorPorDefecto");
+  const firma = JSON.stringify(guardados);
+  const [firmaVista, setFirmaVista] = useState(firma);
+  const [valores, setValores] = useState<ValoresParametros>(guardados);
+  const [errores, setErrores] = useState<ErroresParametros>({});
+  const [modal, setModal] = useState(false);
+  // Mensaje en la página (no desaparece solo): se quita al editar cualquier campo.
+  const [aviso, setAviso] = useState<Aviso>();
+  // Si el servidor entrega otros valores (tras guardar o restablecer), el formulario los muestra.
+  if (firma !== firmaVista) {
+    setFirmaVista(firma);
+    setValores(guardados);
+  }
 
   const cambiaVersion = valores.version_aviso_privacidad.trim() !== guardados.version_aviso_privacidad;
 
-  function cambiar(clave: (typeof CLAVES)[number], valor: string) {
+  function cambiar(clave: ClaveParametro, valor: string) {
     setValores({ ...valores, [clave]: valor });
     setErrores({ ...errores, [clave]: undefined });
     setAviso(undefined);
   }
 
-  function guardar() {
+  async function guardar() {
+    if (enviando.current) return;
     const e = validarParametros(valores);
     setErrores(e);
-    const primero = CLAVES.find((c) => e[c]);
+    const primero = CLAVES_PARAMETRO.find((c) => e[c]);
     if (primero) return document.getElementById(ID_CAMPO[primero])?.focus();
-    const limpios = { ...valores, version_aviso_privacidad: valores.version_aviso_privacidad.trim() };
-    const cambiados = CLAVES.filter((c) => limpios[c] !== guardados[c]);
-    setGuardados(limpios);
-    setValores(limpios);
-    setAviso(cambiados.length ? EXITO_GUARDADO : { titulo: "Sin cambios", texto: "No hay cambios por guardar: los valores son los vigentes." });
+    enviando.current = true;
+    try {
+      const r = await enviarAdmin("/api/admin/parametros", "PUT", { ...valores, version_aviso_privacidad: valores.version_aviso_privacidad.trim() });
+      if (r.ok) {
+        if (r.datos?.sinCambios) setAviso({ tipo: "info", titulo: "Sin cambios", texto: "No hay cambios por guardar: los valores son los vigentes." });
+        else
+          setAviso({
+            tipo: "exito",
+            titulo: "Configuración guardada",
+            texto: `${EN_BITACORA}${r.datos?.avisoReaceptacion ? " Las personas usuarias deberán aceptar la nueva versión del aviso en su siguiente inicio de sesión." : ""}`,
+          });
+        router.refresh();
+        return;
+      }
+      if (r.campos) {
+        const deCampos: ErroresParametros = {};
+        for (const c of CLAVES_PARAMETRO) if (r.campos[c]) deCampos[c] = r.campos[c];
+        setErrores(deCampos);
+        const campo = CLAVES_PARAMETRO.find((c) => deCampos[c]);
+        if (campo) return document.getElementById(ID_CAMPO[campo])?.focus();
+      }
+      if (r.estado === 401 || r.estado === 403) return router.refresh();
+      setAviso({ tipo: "peligro", titulo: "No se pudo guardar", texto: r.mensaje ?? "Inténtalo de nuevo." });
+    } finally {
+      enviando.current = false;
+    }
   }
 
   // EXTENSIÓN OPCIONAL a validar con Raúl (MOD-12): ver ModalRestablecer.
-  function restablecer() {
-    setValores({ ...VALORES_POR_DEFECTO });
-    setGuardados({ ...VALORES_POR_DEFECTO });
-    setErrores({});
-    setModal(false);
-    setAviso({ titulo: "Valores restablecidos", texto: "El cambio se registra en la bitácora con el valor anterior y el nuevo." });
+  async function restablecer() {
+    if (enviando.current) return;
+    enviando.current = true;
+    try {
+      const r = await enviarAdmin("/api/admin/parametros/restablecer", "POST", undefined);
+      setModal(false);
+      if (r.ok) {
+        setErrores({});
+        setAviso(r.datos?.sinCambios ? { tipo: "info", titulo: "Sin cambios", texto: "Los parámetros ya tenían sus valores por defecto." } : { tipo: "exito", titulo: "Valores restablecidos", texto: EN_BITACORA });
+        router.refresh();
+      } else setAviso({ tipo: "peligro", titulo: "No se pudo restablecer", texto: r.mensaje ?? "Inténtalo de nuevo." });
+    } finally {
+      enviando.current = false;
+    }
   }
 
   return (
     <div className="flex flex-col gap-4">
       <h1 className="text-h1">Parámetros del sistema</h1>
       {aviso && (
-        <Alerta tipo={aviso.titulo === "Sin cambios" ? "info" : "exito"} titulo={aviso.titulo} className="max-w-xl">
+        <Alerta tipo={aviso.tipo} titulo={aviso.titulo} className="max-w-xl">
           {aviso.texto}
         </Alerta>
       )}
@@ -76,14 +113,14 @@ export function FormularioParametros({ valoresIniciales = { ...VALORES_POR_DEFEC
         noValidate
         onSubmit={(e) => {
           e.preventDefault();
-          guardar();
+          void guardar();
         }}
         className="flex max-w-xl flex-col gap-4 rounded-tarjeta border border-border bg-surface p-4"
       >
         <CampoTexto
           id={ID_CAMPO.version_aviso_privacidad}
           etiqueta="Versión vigente del aviso de privacidad"
-          ayuda={`Valor por defecto: ${VALORES_POR_DEFECTO.version_aviso_privacidad}`}
+          ayuda={`Valor por defecto: ${porDefecto.version_aviso_privacidad}`}
           error={errores.version_aviso_privacidad}
           value={valores.version_aviso_privacidad}
           onChange={(e) => cambiar("version_aviso_privacidad", e.target.value)}
@@ -97,7 +134,7 @@ export function FormularioParametros({ valoresIniciales = { ...VALORES_POR_DEFEC
           id={ID_CAMPO.expiracion_token_minutos}
           etiqueta="Tiempo de expiración del token de recuperación · minutos"
           inputMode="numeric"
-          ayuda={`Valor por defecto: ${VALORES_POR_DEFECTO.expiracion_token_minutos}`}
+          ayuda={`Valor por defecto: ${porDefecto.expiracion_token_minutos}. Se guarda, pero la recuperación de contraseña aún no está en el prototipo, así que por ahora no tiene efecto.`}
           error={errores.expiracion_token_minutos}
           value={valores.expiracion_token_minutos}
           onChange={(e) => cambiar("expiracion_token_minutos", e.target.value)}
@@ -106,7 +143,7 @@ export function FormularioParametros({ valoresIniciales = { ...VALORES_POR_DEFEC
           id={ID_CAMPO.tamano_maximo_archivo_mb}
           etiqueta="Tamaño máximo de archivo permitido · MB"
           inputMode="decimal"
-          ayuda={`Valor por defecto: ${VALORES_POR_DEFECTO.tamano_maximo_archivo_mb} · máximo ${LIMITE_TECNICO_MB}`}
+          ayuda={`Valor por defecto: ${porDefecto.tamano_maximo_archivo_mb} · máximo ${LIMITE_TECNICO_MB}`}
           error={errores.tamano_maximo_archivo_mb}
           value={valores.tamano_maximo_archivo_mb}
           onChange={(e) => cambiar("tamano_maximo_archivo_mb", e.target.value)}
@@ -121,7 +158,7 @@ export function FormularioParametros({ valoresIniciales = { ...VALORES_POR_DEFEC
           </Boton>
         </div>
       </form>
-      <ModalRestablecer abierto={modal} onCerrar={() => setModal(false)} onConfirmar={restablecer} />
+      <ModalRestablecer abierto={modal} onCerrar={() => setModal(false)} onConfirmar={() => void restablecer()} porDefecto={{ version: porDefecto.version_aviso_privacidad, token: porDefecto.expiracion_token_minutos, tamano: porDefecto.tamano_maximo_archivo_mb }} />
     </div>
   );
 }

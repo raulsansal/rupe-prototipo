@@ -4,7 +4,6 @@ import { useState } from "react";
 import { Boton } from "@/components/ui/Boton";
 import { CampoTexto } from "@/components/ui/CampoTexto";
 import { Selector } from "@/components/ui/Selector";
-import { ALCALDIAS, FUERA_DE_LA_CIUDAD } from "@/mocks/tipos";
 
 export type Filtro = { desde: string; hasta: string; alcaldia: string };
 export const SIN_FILTRO: Filtro = { desde: "", hasta: "", alcaldia: "" };
@@ -16,11 +15,13 @@ type Props = {
   onAplicar: (f: Filtro) => void;
   /** TUT-09 solo filtra por fecha (HU 047). */
   conAlcaldia?: boolean;
+  /** Con `conAlcaldia`: TODAS las alcaldías del almacén, activas e inactivas (filtra avistamientos ya reportados en cualquiera de ellas). */
+  alcaldias?: readonly { id: number; nombre: string }[];
   prefijoId: string;
 };
 
 /** Panel de filtros de avistamientos: fechas (opcionales y combinables) y, en el listado, alcaldía o zona. */
-export function FiltroFechas({ desdeMinimo, aplicado, onAplicar, conAlcaldia = true, prefijoId }: Props) {
+export function FiltroFechas({ desdeMinimo, aplicado, onAplicar, conAlcaldia = true, alcaldias = [], prefijoId }: Props) {
   const [f, setF] = useState<Filtro>(aplicado);
   const [errores, setErrores] = useState<{ desde?: string; hasta?: string }>({});
 
@@ -51,7 +52,7 @@ export function FiltroFechas({ desdeMinimo, aplicado, onAplicar, conAlcaldia = t
         <Selector
           etiqueta="Alcaldía o zona"
           marcador="Todas"
-          opciones={[...ALCALDIAS, FUERA_DE_LA_CIUDAD].map((a) => ({ valor: a, etiqueta: a }))}
+          opciones={alcaldias.map((a) => ({ valor: a.nombre, etiqueta: a.nombre }))}
           value={f.alcaldia}
           onChange={(e) => setF({ ...f, alcaldia: e.target.value })}
         />

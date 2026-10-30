@@ -7,7 +7,8 @@
 // Opciones: --sin-build  reutiliza el build existente · --base=URL  usa un servidor que ya corre
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { chromium, type Browser, type BrowserContext, type Locator, type Page } from "playwright";
-import { PARAMETROS } from "../src/mocks/parametros";
+// El tamaño máximo sembrado (valor por defecto del parámetro tamano_maximo_archivo_mb) es 4 MB.
+const TAMANO_MAXIMO_MB = 4;
 import { avistamientosDelCaso, casosDeLaPersonaTutora } from "./mocks-de-prueba";
 import { AVISTAMIENTOS, FOLIO_CON_AVISTAMIENTOS, FOLIO_UN_AVISTAMIENTO, FOTO_SENSIBLE } from "../src/mocks/avistamientos";
 import { CASOS_ORIGEN, FOLIO_EN_CURSO, FOLIO_NUEVO, valoresReservados } from "../src/mocks/casos";
@@ -198,7 +199,7 @@ async function registro(navegador: Browser) {
   ver((await pagina.getByText("Públicos: aparecen en la ficha").isVisible()) && (await pagina.getByText("Reservados: nunca aparecen en la ficha").isVisible()) && (await resumen.isVisible()), "TUT-02: al desplegarlo muestra las listas de datos públicos y reservados (y la línea sigue visible)", "TUT-02: el aviso desplegado no muestra las listas");
   await aviso.click();
   const paso1 = pagina.locator('[data-paso="1"]');
-  const ayudaFoto = `Solo una fotografía por caso. JPG o PNG, máx. ${PARAMETROS.tamano_maximo_archivo_mb} MB. Reemplazable.`;
+  const ayudaFoto = `Solo una fotografía por caso. JPG o PNG, máx. ${TAMANO_MAXIMO_MB} MB. Reemplazable.`;
   const caja = await pagina.locator('[data-paso="1"]').evaluate((paso) => {
     const dentro = [...paso.querySelectorAll<HTMLElement>("div.border-dashed")].find((d) => d.textContent?.includes("Agregar fotografía"))!;
     const r = dentro.getBoundingClientRect();

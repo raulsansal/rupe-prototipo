@@ -35,7 +35,7 @@ const PASOS_CON_CAMPOS = [2, 3, 4, 5];
  * los seis pasos permanecen montados y solo se oculta el que no toca, así Regresar y Continuar no pierden nada.
  * No se guarda en almacenamiento del navegador. Al confirmar se envía UNA petición POST /api/avistamientos (la foto ya reducida); el servidor vuelve a validar el acceso y todos los campos.
  */
-export function FlujoAvistamiento({ ficha, acceso, alcaldias, estadosAnimal, inicial }: Props) {
+export function FlujoAvistamiento({ ficha, acceso, alcaldias, estadosAnimal, maximoMb, inicial }: Props) {
   const [paso, setPaso] = useState(inicial.paso);
   const [datos, setDatos] = useState<DatosAvistamiento>({ ...DATOS_VACIOS, ...inicial.datos });
   const [errores, setErrores] = useState<Errores>({});
@@ -143,7 +143,7 @@ export function FlujoAvistamiento({ ficha, acceso, alcaldias, estadosAnimal, ini
 
   const contenidos = [
     <PasoInicio key={1} ficha={ficha} />,
-    <PasoFotografia key={2} vistaPreviaInicial={inicial.datos.fotoUrl} error={errores.foto} onCambio={(fotoUrl, foto) => actualizar({ fotoUrl, foto }, ["foto"])} />,
+    <PasoFotografia key={2} maximoMb={maximoMb} vistaPreviaInicial={inicial.datos.fotoUrl} error={errores.foto} onCambio={(fotoUrl, foto) => actualizar({ fotoUrl, foto }, ["foto"])} />,
     <PasoUbicacion key={3} datos={datos} errores={errores} actualizar={actualizar} alcaldias={alcaldias} />,
     <PasoEstadoAnimal key={4} datos={datos} errores={errores} actualizar={actualizar} estadosAnimal={estadosAnimal} abrirTodas={inicial.abrirTodasCategorias} />,
     <PasoComentario key={5} valor={datos.comentario} bajoResguardo={bajoResguardo(datos.estados)} error={errores.comentario} onCambio={(comentario) => actualizar({ comentario }, ["comentario"])} />,

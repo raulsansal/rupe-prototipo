@@ -1,5 +1,5 @@
-import { ID_RAZA_OTRA } from "@/mocks/catalogos";
-import type { Alcaldia, MomentoDelDia, Sexo, Tamano } from "@/mocks/tipos";
+import { ID_RAZA_OTRA } from "@/config/catalogos";
+import type { MomentoDelDia, Sexo, Tamano } from "@/mocks/tipos";
 
 export const PASOS_REGISTRO = ["Datos del perro", "Circunstancias"];
 export const TITULOS_REGISTRO = ["Datos del perro", "Circunstancias del extravío"];
@@ -20,7 +20,8 @@ export type DatosRegistro = {
   foto?: Blob;
   fechaExtravio: string;
   momento: MomentoDelDia | "";
-  alcaldia: Alcaldia | "";
+  /** Nombre de la alcaldía elegida (las opciones salen del catálogo activo del servidor). */
+  alcaldia: string;
   calle: string;
   colonia: string;
   referencias: string;

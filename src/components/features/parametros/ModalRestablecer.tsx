@@ -2,15 +2,21 @@
 // y el botón «Restablecer valores por defecto» de FormularioParametros.
 import { DialogoConfirmacion } from "@/components/ui/DialogoConfirmacion";
 
-type Props = { abierto: boolean; onCerrar: () => void; onConfirmar: () => void };
+type Props = {
+  abierto: boolean;
+  onCerrar: () => void;
+  onConfirmar: () => void;
+  /** Los valores por defecto vigentes (los entrega el servidor). */
+  porDefecto: { version: string; token: string; tamano: string };
+};
 
-export function ModalRestablecer({ abierto, onCerrar, onConfirmar }: Props) {
+export function ModalRestablecer({ abierto, onCerrar, onConfirmar, porDefecto }: Props) {
   return (
     <DialogoConfirmacion
       abierto={abierto}
       onCerrar={onCerrar}
       titulo="Restablecer valores por defecto"
-      descripcion="Los tres parámetros volverán a sus valores por defecto (aviso 1.0, token 60 minutos, archivo 4 MB). Si cambia la versión del aviso, las personas usuarias deberán aceptarlo de nuevo. Se registra en la bitácora."
+      descripcion={`Los tres parámetros volverán a sus valores por defecto (aviso ${porDefecto.version}, token ${porDefecto.token} minutos, archivo ${porDefecto.tamano} MB). Si cambia la versión del aviso, las personas usuarias deberán aceptarlo de nuevo. Se registra en la bitácora.`}
       textoCancelar="Cancelar"
       textoConfirmar="Confirmar"
       variante="primario"

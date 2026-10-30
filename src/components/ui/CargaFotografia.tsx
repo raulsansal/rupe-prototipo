@@ -4,13 +4,11 @@ import Image from "next/image";
 import { useEffect, useId, useRef, useState, type ChangeEvent } from "react";
 import { cx } from "@/lib/clases";
 import { reducirImagen } from "@/components/features/registro/ReduccionDeImagen";
-import { PARAMETROS } from "@/mocks/parametros";
 import { Boton } from "./Boton";
 import { Icono } from "./Icono";
 
-/** Tamaño máximo del parámetro `tamano_maximo_archivo_mb` del diccionario (R11). */
-const MAX_MB = PARAMETROS.tamano_maximo_archivo_mb;
-const MAX_BYTES = MAX_MB * 1024 * 1024;
+/** Tamaño máximo por omisión (valor por defecto del parámetro `tamano_maximo_archivo_mb`, R11): la galería de componentes; los formularios reales pasan el del parámetro. */
+export const MAXIMO_MB_POR_DEFECTO = 4;
 const TIPOS = ["image/jpeg", "image/png"];
 /** Con reducción en el navegador se aceptan originales grandes (la foto de un teléfono); más que esto ni se intenta decodificar. */
 const MAX_ORIGINAL_BYTES = 30 * 1024 * 1024;
@@ -38,11 +36,15 @@ type Props = {
   variante?: "cuadrada" | "ancha";
   /** Texto de ayuda de la variante ancha; «{max}» se sustituye por el máximo del parámetro (MB). */
   ayuda?: string;
+  /** Tamaño máximo en MB: el parámetro `tamano_maximo_archivo_mb` vigente (lo entrega el servidor). */
+  maximoMb?: number;
   className?: string;
 };
 
 /** Carga de una fotografía (JPG o PNG, con el tamaño máximo del parámetro del sistema). El recorte de la variante cuadrada es solo de presentación. */
-export function CargaFotografia({ etiqueta, name, requerido, vistaPreviaInicial, errorInicial, onCambio, reducir = false, errorExterno, variante = "cuadrada", ayuda = "Solo una fotografía por caso. JPG o PNG, máx. {max} MB. Reemplazable.", className }: Props) {
+export function CargaFotografia({ etiqueta, name, requerido, vistaPreviaInicial, errorInicial, onCambio, reducir = false, errorExterno, variante = "cuadrada", maximoMb = MAXIMO_MB_POR_DEFECTO, ayuda = "Solo una fotografía por caso. JPG o PNG, máx. {max} MB. Reemplazable.", className }: Props) {
+  const MAX_MB = maximoMb;
+  const MAX_BYTES = MAX_MB * 1024 * 1024;
   const id = useId();
   const galeria = useRef<HTMLInputElement>(null);
   const camara = useRef<HTMLInputElement>(null);

@@ -1,5 +1,5 @@
 // Llamadas del navegador a las rutas /api/admin (P6a). Las pantallas del Administrador solo MUESTRAN lo que el servidor devuelve: tras cada acción llaman a `router.refresh()`.
-export type RespuestaAdmin = { ok: boolean; estado: number; codigo?: string; mensaje?: string; datos?: Record<string, unknown> };
+export type RespuestaAdmin = { ok: boolean; estado: number; codigo?: string; mensaje?: string; /** Mensajes por campo del formulario (422 y 409 de nombre o clave repetidos). */ campos?: Record<string, string>; datos?: Record<string, unknown> };
 
 export const MENSAJE_YA_CAMBIO = "Ya había cambiado. Se actualizó la pantalla con su estado actual.";
 export const MENSAJE_SIN_CONEXION = "No se pudo completar la acción. Revisa tu conexión e inténtalo de nuevo.";
@@ -7,9 +7,9 @@ export const MENSAJE_SIN_CONEXION = "No se pudo completar la acción. Revisa tu 
 export async function enviarAdmin(ruta: string, metodo: "POST" | "PUT", cuerpo: unknown): Promise<RespuestaAdmin> {
   try {
     const r = await fetch(ruta, { method: metodo, headers: { "Content-Type": "application/json" }, body: JSON.stringify(cuerpo) });
-    const json = (await r.json().catch(() => undefined)) as { error?: { codigo?: string; mensaje?: string } } & Record<string, unknown>;
+    const json = (await r.json().catch(() => undefined)) as { error?: { codigo?: string; mensaje?: string; campos?: Record<string, string> } } & Record<string, unknown>;
     if (r.ok) return { ok: true, estado: r.status, datos: json };
-    return { ok: false, estado: r.status, codigo: json?.error?.codigo, mensaje: json?.error?.mensaje };
+    return { ok: false, estado: r.status, codigo: json?.error?.codigo, mensaje: json?.error?.mensaje, campos: json?.error?.campos };
   } catch {
     return { ok: false, estado: 0, mensaje: MENSAJE_SIN_CONEXION };
   }

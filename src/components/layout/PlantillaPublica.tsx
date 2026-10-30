@@ -8,11 +8,11 @@ import { clasesBoton } from "@/components/ui/clasesBoton";
 import { Icono, type NombreIcono } from "@/components/ui/Icono";
 import { Logo } from "@/components/ui/Logo";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
-import { etiquetaVersionAviso } from "@/mocks/parametros";
 import { EnlaceSaltar } from "./EnlaceSaltar";
 import { EnlacesNavegacion } from "./EnlacesNavegacion";
 import { hrefActivo } from "./navegacion";
 import { PieSitio } from "./PieSitio";
+import { useEtiquetaVersionAviso } from "./VersionAviso";
 
 type EnlaceMenu = { href: string; etiqueta: string; icono: NombreIcono };
 
@@ -20,15 +20,16 @@ const CUENTA: EnlaceMenu[] = [
   { href: "/acceso", etiqueta: "Iniciar sesión", icono: "login" },
   { href: "/registro", etiqueta: "Registrarse como persona tutora", icono: "person_add" },
 ];
-const EXPLORAR: EnlaceMenu[] = [
+/** El aviso lleva la versión VIGENTE (parámetro `version_aviso_privacidad`), que entrega el proveedor del layout raíz. */
+const explorar = (etiquetaAviso: string): EnlaceMenu[] => [
   { href: "/", etiqueta: "Inicio", icono: "home" },
   { href: "/#como-funciona", etiqueta: "¿Cómo funciona RUPE?", icono: "info" },
   { href: "/#buscar-folio", etiqueta: "Consultar folio", icono: "search" },
   { href: "/#preguntas-frecuentes", etiqueta: "Preguntas frecuentes", icono: "help" },
-  { href: "/#aviso-de-privacidad", etiqueta: `Aviso de privacidad ${etiquetaVersionAviso()}`, icono: "lock" },
+  { href: "/#aviso-de-privacidad", etiqueta: etiquetaAviso, icono: "lock" },
   { href: "/#contacto", etiqueta: "Contacto", icono: "mail" },
 ];
-const NAVEGACION_ESCRITORIO = EXPLORAR.slice(0, 3);
+const NAVEGACION_ESCRITORIO = explorar("").slice(0, 3);
 
 type Props = {
   children: ReactNode;
@@ -45,6 +46,7 @@ type Props = {
  */
 export function PlantillaPublica({ children, menuAbiertoInicial = false, rutaActiva }: Props) {
   const pathname = usePathname();
+  const EXPLORAR = explorar(`Aviso de privacidad ${useEtiquetaVersionAviso()}`);
   const activo = rutaActiva ?? hrefActivo(NAVEGACION_ESCRITORIO.map((e) => e.href), pathname);
   const [abierto, setAbierto] = useState(menuAbiertoInicial);
   const boton = useRef<HTMLButtonElement>(null);
