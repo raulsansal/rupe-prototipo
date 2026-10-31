@@ -20,6 +20,7 @@ import { imagenesDePrimeraPagina } from "./lib/imagenesPdf";
 import { leerXlsx, filasDeHoja, type Celda } from "./lib/leerXlsx";
 import { textoDePdf } from "./lib/textoPdf";
 import { reporteOraculo, tableroOraculo } from "./mocks-de-prueba";
+import { precargarTokens, tokensPrecargados } from "./lib/tokenDeFicha";
 import { fetchComo, NOMBRE_COOKIE, reiniciarDatos, valorDeSesion, type RolPrueba } from "./sesion-pruebas";
 
 const PUERTO = 3143;
@@ -106,11 +107,13 @@ const tasa = (num: number, den: number) => Math.round((num / den) * 1000) / 10;
 const delta = (nombre: string, antes: Datos, despues: Datos, ok: boolean, detalle = "") => ver(ok, `Δ ${nombre}: ${resumen(antes)} → ${resumen(despues)}${detalle ? ` · ${detalle}` : ""}`, `Δ ${nombre} NO dio lo esperado: ${resumen(antes)} → ${resumen(despues)}${detalle ? ` · ${detalle}` : ""}`);
 const bitacoraTotal = async () => (await como("admin", "/api/admin/bitacora")).json!.total as number;
 
-const SECRETOS = [...USUARIOS_INICIALES.filter((u) => u.rol === "Tutor").flatMap((u) => [u.nombreCompleto, u.correo]), CASOS_ORIGEN[0].tutor.nombreCompleto, CASOS_ORIGEN[0].tutor.correo, CASOS_ORIGEN[0].tutor.telefono, ...CASOS_ORIGEN.map((c) => c.tokenPublico), "Calle Reservada"];
+const SECRETOS_BASE = [...USUARIOS_INICIALES.filter((u) => u.rol === "Tutor").flatMap((u) => [u.nombreCompleto, u.correo]), CASOS_ORIGEN[0].tutor.nombreCompleto, CASOS_ORIGEN[0].tutor.correo, CASOS_ORIGEN[0].tutor.telefono, "Calle Reservada"];
+const secretos = () => [...SECRETOS_BASE, ...tokensPrecargados()]; // los tokens del QR son aleatorios: se leen al arrancar (precargarTokens)
 
 async function pruebas(navegador: Browser) {
   const reinicio = await reiniciarDatos(base);
   ver(reinicio === 200, "el servidor permite reiniciar los datos (RUPE_PERMITIR_REINICIO=1)", `no se pudo reiniciar los datos: HTTP ${reinicio}`);
+  if (reinicio === 200) await precargarTokens(base);
   if (reinicio !== 200) throw new Error("Sin reinicio no hay pruebas confiables");
   ver(HOY >= "2026-10-19", `precondición: hoy (CDMX) es ${HOY}, posterior al 18 de octubre (fin de la base): el periodo 1 oct → hoy cubre toda la base y 19 oct → hoy no tiene datos reales`, `hoy es ${HOY}: estas pruebas suponen un reloj del 19 de octubre de 2026 en adelante`);
 
@@ -289,7 +292,7 @@ async function pruebas(navegador: Browser) {
   ver(hay(new RegExp(`Número de casos\\s+${repX.totalCasos}\\b`)) && hay(new RegExp(`Casos localizados\\s+${repX.casosLocalizados}\\b`)) && hay(new RegExp(`Tasa de recuperación \\(%\\)\\s+${repX.tasaRecuperacion.toFixed(1)} %`)) && hay(new RegExp(`Avistamientos ocultos \\(aparte\\)\\s+${repX.avistamientosOcultos}\\b`)), `PDF decodificado: indicadores = pantalla (${repX.totalCasos} casos · ${repX.casosLocalizados} localizados · ${repX.tasaRecuperacion.toFixed(1)} % · ${repX.avistamientosOcultos} ocultos)`, "los indicadores del PDF no coinciden con el reporte");
   const nombres = [...repX.porMotivo, ...repX.porEstadoCaso, ...repX.cierres, ...repX.porAlcaldiaAvistamiento].map((b: Datos) => b.nombre as string);
   ver(nombres.every((n) => texto.includes(n)) && /Página 1 de \d+/.test(texto) && /Avistamientos por alcaldía del avistamiento/.test(texto), `PDF decodificado: los ${nombres.length} rótulos de los desgloses y el pie «Página 1 de N» (varias páginas)`, "faltan rótulos de los desgloses en el PDF");
-  ver(SECRETOS.every((s) => !texto.includes(s)), "PDF: ningún dato de la persona tutora", "el PDF contiene datos de la persona tutora");
+  ver(secretos().every((s) => !texto.includes(s)), "PDF: ningún dato de la persona tutora", "el PDF contiene datos de la persona tutora");
 
   const xlsx = await exportar({ formato: "xlsx", filtros, huella: repX.huella });
   const nombreXlsx = `reporte-rupe-${filtros.desde}_${filtros.hasta}.xlsx`;
@@ -304,7 +307,7 @@ async function pruebas(navegador: Browser) {
   const nv = (b: Datos[]) => b.map((x) => [x.nombre, x.valor]);
   ver(igual(tabla("Casos por motivo"), nv(repX.porMotivo)) && igual(tabla("Casos por estado"), nv(repX.porEstadoCaso)) && igual(tabla("Cierres por tipo"), nv(repX.cierres)) && igual(tabla("Estado del animal"), repX.porEstadoAnimal.flatMap((g: Datos) => g.barras.map((b: Datos) => [`${g.categoria}: ${b.nombre}`, b.valor]))) && igual(tabla("Alcaldía del avistamiento"), nv(repX.porAlcaldiaAvistamiento)),
     `Excel releído celda por celda: los 5 desgloses (${tabla("Casos por motivo").length + tabla("Casos por estado").length + tabla("Cierres por tipo").length + tabla("Estado del animal").length + tabla("Alcaldía del avistamiento").length} filas) = pantalla`, "algún desglose del Excel no coincide con la pantalla");
-  ver(SECRETOS.every((s) => ![...leerXlsx(xlsx.bytes)].some((h) => [...h.celdas.values()].some((v) => String(v).includes(s)))), "Excel: ningún dato de la persona tutora", "el Excel contiene datos de la persona tutora");
+  ver(secretos().every((s) => ![...leerXlsx(xlsx.bytes)].some((h) => [...h.celdas.values()].some((v) => String(v).includes(s)))), "Excel: ningún dato de la persona tutora", "el Excel contiene datos de la persona tutora");
 
   const falsa = await exportar({ formato: "pdf", filtros, huella: "0".repeat(32) });
   const sinH = await exportar({ formato: "pdf", filtros });
@@ -350,7 +353,7 @@ async function pruebas(navegador: Browser) {
   const trasReinicio = await tablero();
   ver(sinHora(trasReinicio) === huellaInicial && igual(parcial(trasReinicio), INICIAL) && (await reporte()).huella === huellaReporte, `tras «reiniciar»: vuelve a las cifras iniciales EXACTAS (${resumen(trasReinicio)}), con la misma huella de contenido (#${huellaDe(sinHora(trasReinicio))}) y los 12 sembrados fuera de la capa real`, `tras reiniciar: ${resumen(trasReinicio)}`);
   const cuerpos = [t0.texto, r0.texto, (await como("admin", `/api/admin/reportes?desde=2026-10-01&hasta=${HOY}&alcaldia=4`)).texto];
-  ver(SECRETOS.every((s) => cuerpos.every((c) => !c.includes(s))), "tablero y reportes: ningún dato de la persona tutora (nombre, correo, teléfono, token, dirección reservada)", "una respuesta contiene datos de la persona tutora");
+  ver(secretos().every((s) => cuerpos.every((c) => !c.includes(s))), "tablero y reportes: ningún dato de la persona tutora (nombre, correo, teléfono, token, dirección reservada)", "una respuesta contiene datos de la persona tutora");
 }
 
 async function abrirNavegador(): Promise<Browser> {

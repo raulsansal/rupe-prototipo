@@ -7,8 +7,8 @@
 // Imprime la respuesta REAL de cada paso. Opciones: --sin-build · --base=URL (servidor con RUPE_PERMITIR_REINICIO=1).
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { CASOS_ORIGEN } from "../src/mocks/casos";
 import { ESTADOS_CASO } from "../src/mocks/tipos";
+import { casoVivoEnEstado, precargarTokens, tokenSembrado } from "./lib/tokenDeFicha";
 import { credencial, fetchComo, NOMBRE_COOKIE, olvidarSesiones, reiniciarDatos, valorDeSesion, type RolPrueba } from "./sesion-pruebas";
 
 const PUERTO = 3141;
@@ -52,12 +52,13 @@ const bitacora = async (q = "") => (await como("admin", `/api/admin/bitacora${q}
 
 const MAX = "RUPE-K7M4XQ9T"; // Rosa (tutor1), En búsqueda
 const COCO = "RUPE-H4TQ7V2M"; // Rosa, En búsqueda
-const TOBY = "RUPE-B6R2TZ7C"; // Rosa, Localizado
 const SIMBA = "RUPE-F7L3MN6Y"; // Luis, Cerrado por cancelación
 const ROCKY = "RUPE-3HN8WD2B"; // Rosa, Cerrado por cierre confirmado
 const KIRA = "RUPE-D5W2QK8X"; // Luis, Cerrado por deshabilitación
 const INEXISTENTE = "RUPE-ZZZZZZZZ";
-const tokenDe = (folio: string) => CASOS_ORIGEN.find((c) => c.folio === folio)?.tokenPublico ?? `MAQUETA${folio.slice(5)}`.padEnd(32, "0");
+// Toby (Localizado) ya no muestra su QR a su dueña: el caso «Localizado» de la sección D se crea por la vía real y se lee su token en búsqueda (ver scripts/lib/tokenDeFicha.ts).
+let vivoLocalizado: { folio: string; token: string } | undefined;
+const tokenDe = (folio: string) => (vivoLocalizado && folio === vivoLocalizado.folio ? vivoLocalizado.token : tokenSembrado(folio));
 const canalesPublicos = (folio: string) => ({
   "API ficha por folio": `/api/fichas/${folio}`, "API estatus por folio": `/api/estatus/${folio}`, "API foto pública": `/api/fichas/${folio}/fotografia`,
   "página ficha": `/ficha/${folio}`, "página estatus": `/estatus/${folio}`, "página reportar": `/ficha/${folio}/avistamiento`,
@@ -90,6 +91,7 @@ async function pruebas() {
   const reinicio = await reiniciarDatos(base);
   ver(reinicio === 200, "el servidor permite reiniciar los datos (RUPE_PERMITIR_REINICIO=1)", `no se pudo reiniciar los datos: HTTP ${reinicio}`);
   if (reinicio !== 200) throw new Error("Sin reinicio no hay pruebas confiables");
+  await precargarTokens(base); // tokens aleatorios: se leen como los lee la persona dueña
 
   console.log("\n— Guardas por rol en cada ruta de Administrador —");
   const rutas: Array<[string, string, unknown?]> = [
@@ -105,9 +107,10 @@ async function pruebas() {
   const otroOrigen = await enviar("admin", `/api/admin/registros/${MAX}/moderacion`, { accion: "restaurar" }, "POST", "https://otro.example");
   ver(otroOrigen.estado === 403 && sinOrigen.estado !== 403, `mutación con Origin ajeno: ${otroOrigen.estado}; sin cabecera Origin pasa (como en el resto de las rutas: ${sinOrigen.estado})`, `Origen: ${sinOrigen.estado}/${otroOrigen.estado}`);
 
-  console.log("\n— D) Visibilidad pública al deshabilitar y restaurar (MAX en búsqueda y TOBY localizado) —");
+  console.log("\n— D) Visibilidad pública al deshabilitar y restaurar (MAX en búsqueda y un caso Localizado) —");
+  vivoLocalizado = await casoVivoEnEstado(base, "Localizado");
   const inexistente = await huellasPublicas(INEXISTENTE);
-  for (const folio of [MAX, TOBY]) {
+  for (const folio of [MAX, vivoLocalizado.folio]) {
     const antes = await huellasPublicas(folio);
     const tokenAntes = await como(null, `/api/fichas/qr/${tokenDe(folio)}`);
     const d = await deshabilitar(folio);
@@ -129,7 +132,7 @@ async function pruebas() {
     const qrDespues = await como(null, `/api/fichas/qr/${tokenDe(folio)}`);
     ver(distintos.length === 0 && qrDespues.estado === tokenAntes.estado, `${folio}: tras restaurar, los ${Object.keys(antes).length} canales vuelven a lo de antes (el QR, ${qrDespues.estado}, con el mismo token)`, `${folio}: cambiaron ${distintos.join(", ")} · QR ${tokenAntes.estado}→${qrDespues.estado}`);
   }
-  const rest = await como("admin", `/api/admin/registros/${TOBY}/moderacion`, { method: "POST", headers: { "Content-Type": "application/json", Origin: ORIGEN }, body: JSON.stringify({ accion: "restaurar" }) });
+  const rest = await como("admin", `/api/admin/registros/${vivoLocalizado.folio}/moderacion`, { method: "POST", headers: { "Content-Type": "application/json", Origin: ORIGEN }, body: JSON.stringify({ accion: "restaurar" }) });
   ver(rest.estado === 409, `restaurar un caso ya restaurado: 409 (${codigo(rest)})`, `restaurar repetido: ${linea(rest)}`);
 
   console.log("\n— Reglas de la matriz R12 por HTTP —");

@@ -52,6 +52,22 @@ test("R27 · la ficha por token exige un token vigente y sensible a mayúsculas"
   await rechaza(consultarFichaPorToken(token.toLowerCase(), ctx), 404);
 });
 
+test("R33 por QR · los 12 casos sembrados, con su token real: abren los que están En curso o Localizados (9); Rocky, Simba y Kira (Cerrado: cierre, cancelación y deshabilitación) responden el MISMO 404 QR_NO_VIGENTE que un token inexistente", async () => {
+  const { ctx, almacen } = nuevoContexto();
+  const inexistente = await consultarFichaPorToken("x".repeat(32), ctx).then(() => "abre", (e: ErrorApp) => JSON.stringify(cuerpoDeError(e)));
+  const abren: string[] = [];
+  const cerrados: string[] = [];
+  for (const caso of almacen.casos) {
+    const token = (await ctx.repos.qr.activoDe(caso.idCasoExtravio))!.tokenPublico;
+    const estado = almacen.estadosCaso.find((e) => e.idEstadoCaso === caso.idEstadoCaso)!.nombre;
+    const r = await consultarFichaPorToken(token, ctx).then(() => "abre", (e: ErrorApp) => JSON.stringify(cuerpoDeError(e)));
+    if (estado === "Cerrado") { cerrados.push(caso.folio); assert.equal(r, inexistente, `${caso.folio}: el 404 por QR debe ser idéntico al de un token inexistente`); }
+    else { abren.push(caso.folio); assert.equal(r, "abre", `${caso.folio} (${estado}) debía abrir por QR`); }
+  }
+  assert.deepEqual(cerrados.sort(), ["RUPE-3HN8WD2B", "RUPE-D5W2QK8X", "RUPE-F7L3MN6Y"]);
+  assert.equal(abren.length, 9);
+});
+
 test("R7/R27 · regenerar el QR invalida el anterior: deja de abrir la ficha y el reporte", async () => {
   const { ctx } = nuevoContexto();
   const caso = (await ctx.repos.casos.porFolio(BUSQUEDA))!;

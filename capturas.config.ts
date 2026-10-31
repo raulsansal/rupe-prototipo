@@ -50,7 +50,8 @@ export const RUTAS: Captura[] = [
 ];
 const FICHA = `/ficha/${FOLIO_EN_CURSO}`;
 const AVISTAMIENTO = `${FICHA}/avistamiento`;
-const TOKEN_MAX = CASOS_ORIGEN.find((c) => c.folio === FOLIO_EN_CURSO)!.tokenPublico;
+/** Marcador de la ruta del QR de Max: el token es aleatorio por arranque y `scripts/capturas.ts` lo lee como la persona dueña antes de capturar (scripts/lib/tokenDeFicha.ts). */
+export const MARCADOR_TOKEN_MAX = "{TOKEN_MAX}";
 const FOLIO_LOCALIZADO = CASOS_ORIGEN.find((c) => c.estado === "Localizado")!.folio;
 const M = [390]; // solo móvil: variantes de pantalla
 
@@ -63,7 +64,7 @@ RUTAS.push(
   { ruta: `${AVISTAMIENTO}/enviado`, archivo: "avistamiento-enviado", anchos: M },
   // P4: la ficha real por folio y por QR (la clave de 32 caracteres), el QR no vigente, un caso Localizado real y el reporte con su ID.
   { ruta: FICHA, archivo: "ficha-por-folio", anchos: M },
-  { ruta: `/ficha/${TOKEN_MAX}`, archivo: "ficha-por-qr", anchos: M },
+  { ruta: `/ficha/${MARCADOR_TOKEN_MAX}`, archivo: "ficha-por-qr", anchos: M },
   { ruta: `/ficha/${"x".repeat(32)}`, archivo: "ficha-qr-no-vigente", anchos: M },
   { ruta: `/ficha/${FOLIO_LOCALIZADO}`, archivo: "ficha-localizado-real", anchos: M },
   { ruta: `/ficha/${FOLIO_LOCALIZADO}/avistamiento`, archivo: "avistamiento-no-disponible", anchos: M },

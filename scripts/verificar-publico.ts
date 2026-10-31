@@ -8,9 +8,8 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import sharp from "sharp";
-import { CASOS_ORIGEN } from "../src/mocks/casos";
-import { decodificarQr, rasterizarMatriz } from "../src/server/pruebas/pdf";
 import { fetchComo, reiniciarDatos } from "./sesion-pruebas";
+import { casoVivoEnEstado, FOLIOS_SEMBRADOS, hayTokenDe, precargarTokens, tokenSembrado, urlDelQrDe } from "./lib/tokenDeFicha";
 
 const PUERTO = 3114;
 const baseExterna = process.argv.find((a) => a.startsWith("--base="))?.split("=")[1];
@@ -64,20 +63,9 @@ async function crearCaso(extra: Record<string, unknown> = {}, foto: Uint8Array =
   return String(r.json?.folio);
 }
 const SEN = { calle: "CALLE-SENUELO-7Q3", ref: "REF-SENUELO-9ZK", desc: "DESC-SENUELO-4MX" };
-const tokenDeMaqueta = (folio: string) => `MAQUETA${folio.slice(5)}`.padEnd(32, "0");
-const tokenSembrado = (folio: string) => CASOS_ORIGEN.find((c) => c.folio === folio)?.tokenPublico ?? tokenDeMaqueta(folio);
 
-/** Matriz del QR de la ficha de la persona tutora (se lee del SVG de la pantalla) → URL del QR. */
-async function urlDelQrActual(folio: string): Promise<string | undefined> {
-  const html = (await comoDuena(`/tutor/casos/${folio}/ficha`)).texto;
-  const vb = /<svg[^>]*aria-label="Código QR[^"]*"[^>]*viewBox="0 0 (\d+) \d+"/.exec(html) ?? /viewBox="0 0 (\d+) \d+"[^>]*aria-label="Código QR/.exec(html);
-  const d = /<path d="(M[^"]+)"/.exec(html.slice(html.indexOf("Código QR")))?.[1];
-  if (!vb || !d) return undefined;
-  const n = Number(vb[1]) - 8;
-  const filas = Array.from({ length: n }, () => Array<boolean>(n).fill(false));
-  for (const m of d.matchAll(/M(\d+) (\d+)h(\d+)v1h-\d+z/g)) for (let i = 0; i < Number(m[3]); i++) filas[Number(m[2]) - 4][Number(m[1]) - 4 + i] = true;
-  return decodificarQr(rasterizarMatriz(filas, 8))?.texto;
-}
+/** URL del QR que muestra la pantalla de la ficha de la persona tutora 1 (se lee del SVG de la pantalla y se decodifica). */
+const urlDelQrActual = (folio: string) => urlDelQrDe(base, folio, "tutor1");
 
 async function esperarServidor(servidor: ChildProcess) {
   for (let i = 0; i < 120; i++) {
@@ -94,6 +82,11 @@ async function esperarServidor(servidor: ChildProcess) {
 
 async function pruebas() {
   await reiniciarDatos(base);
+  await precargarTokens(base); // los tokens sembrados son aleatorios: se leen como los lee la persona dueña (pantalla de su ficha)
+  // Los casos sembrados que ya no están «En curso» no muestran su QR a su dueña (no hay vía real para leer su token): el canal del QR en cada estado se prueba con un caso creado por la
+  // vía real y llevado a ese estado (el token se lee mientras estaba en búsqueda). La ficha y el reporte POR FOLIO siguen usando los casos sembrados.
+  const vivos = { "Localizado": await casoVivoEnEstado(base, "Localizado"), "Cerrado confirmado": await casoVivoEnEstado(base, "Cerrado confirmado"), "Cancelado": await casoVivoEnEstado(base, "Cancelado"), "Deshabilitado": await casoVivoEnEstado(base, "Deshabilitado") };
+  const tokenQrDe = (etiqueta: string, folio: string) => (etiqueta in vivos ? vivos[etiqueta as keyof typeof vivos].token : tokenSembrado(folio));
   const SITUACIONES = [
     { etiqueta: "Activo (En búsqueda)", folio: "RUPE-K7M4XQ9T", ficha: 200, reportarFolio: 201, qr: 200, reportarQr: 201 },
     { etiqueta: "Localizado", folio: "RUPE-B6R2TZ7C", ficha: 200, reportarFolio: 409, qr: 200, reportarQr: 409 },
@@ -105,8 +98,8 @@ async function pruebas() {
   const noEncontradosFolio: Resp[] = [];
   const noVigentesQr: Resp[] = [];
   for (const s of SITUACIONES) {
-    const [ficha, foto, qr] = [await anonimo(`/api/fichas/${s.folio}`), await anonimo(`/api/fichas/${s.folio}/fotografia`), await anonimo(`/api/fichas/qr/${tokenSembrado(s.folio)}`)];
-    const [repF, repQ] = [await reportar({ canal: "folio", folio: s.folio }), await reportar({ canal: "qr", token: tokenSembrado(s.folio) })];
+    const [ficha, foto, qr] = [await anonimo(`/api/fichas/${s.folio}`), await anonimo(`/api/fichas/${s.folio}/fotografia`), await anonimo(`/api/fichas/qr/${tokenQrDe(s.etiqueta.split(" (")[0], s.folio)}`)];
+    const [repF, repQ] = [await reportar({ canal: "folio", folio: s.folio }), await reportar({ canal: "qr", token: tokenQrDe(s.etiqueta.split(" (")[0], s.folio) })];
     console.log(`  ${s.etiqueta.padEnd(22)} ficha folio ${resumen(ficha).padEnd(28)} ficha QR ${resumen(qr).padEnd(30)} reportar folio ${resumen(repF).padEnd(40)} reportar QR ${resumen(repQ)}`);
     ver(ficha.estado === s.ficha && qr.estado === s.qr && repF.estado === s.reportarFolio && repQ.estado === s.reportarQr, `R33 · ${s.etiqueta}: ficha por folio ${s.ficha}, ficha por QR ${s.qr}, reportar por folio ${s.reportarFolio}, reportar por QR ${s.reportarQr}`, `R33 · ${s.etiqueta}: ${ficha.estado}/${qr.estado}/${repF.estado}/${repQ.estado}`);
     if (s.ficha === 404) {
@@ -126,6 +119,12 @@ async function pruebas() {
   ver(noEncontradosFolio.every((r) => r.estado === 404) && mismoCuerpo(noEncontradosFolio.filter((r) => r.json)), `404 por FOLIO idénticos byte por byte: Cerrado, Cancelado, Deshabilitado, inexistente (ficha, foto y reporte) → ${noEncontradosFolio.length} respuestas, una sola huella`, `404 por folio distintos: ${noEncontradosFolio.map(resumen).join(" | ")}`);
   ver(noVigentesQr.every((r) => r.estado === 404 && r.json?.error?.codigo === "QR_NO_VIGENTE") && mismoCuerpo(noVigentesQr), `404 por QR idénticos byte por byte (Cerrado, Cancelado, Deshabilitado, inexistente, mal formado, minúsculas): ${noVigentesQr.length} respuestas QR_NO_VIGENTE con una sola huella`, `404 por QR distintos: ${noVigentesQr.map(resumen).join(" | ")}`);
   ver(noVigentesQr[0].json?.error?.mensaje === "Este código QR ya no está vigente o no es válido" && !noVigentesQr[0].texto.includes("folio"), "el mensaje del QR es «Este código QR ya no está vigente o no es válido» (no el de «folio no encontrado»)", `mensaje QR: ${noVigentesQr[0].texto}`);
+  // P7: los tokens sembrados ya no se derivan del folio. El token de antes («MAQUETA» + folio, relleno de ceros a 32) ya no abre NINGÚN caso sembrado en curso, pero el real sí.
+  const enCurso = FOLIOS_SEMBRADOS.filter((f) => hayTokenDe(f));
+  const antiguos = enCurso.map((f) => `MAQUETA${f.slice(5)}`.padEnd(32, "0"));
+  const [apiAntigua, paginaAntigua, reales] = [await Promise.all(antiguos.map((t) => anonimo(`/api/fichas/qr/${t}`))), await Promise.all(antiguos.map((t) => anonimo(`/ficha/${t}`))), await Promise.all(enCurso.map((f) => anonimo(`/api/fichas/qr/${tokenSembrado(f)}`)))];
+  console.log(`  token derivado del folio (${enCurso.length} casos en curso): API ${apiAntigua.map((r) => r.estado).join(" ")} · página ${paginaAntigua.map((r) => r.estado).join(" ")} · token real ${reales.map((r) => r.estado).join(" ")}`);
+  ver(enCurso.length >= 5 && apiAntigua.every((r) => r.estado === 404 && r.json?.error?.codigo === "QR_NO_VIGENTE") && mismoCuerpo(apiAntigua) && apiAntigua[0].texto === noVigentesQr[0].texto && paginaAntigua.every((r) => r.estado === 404 && r.texto.includes("ya no está vigente o no es válido")) && reales.every((r) => r.estado === 200), `tokens sembrados aleatorios: el token que antes salía del folio (MAQUETA…) da 404 QR_NO_VIGENTE en ${enCurso.length} casos en curso (API y página, mismo cuerpo que un token inexistente) y el token real sigue dando 200`, `token derivado: API ${apiAntigua.map((r) => r.estado).join(",")} · página ${paginaAntigua.map((r) => r.estado).join(",")} · real ${reales.map((r) => r.estado).join(",")}`);
   const [f400a, f400b] = [await anonimo("/api/fichas/RUPE-123"), await anonimo("/api/fichas/RUPE-I0000000")];
   console.log(`  folio mal formado: ${resumen(f400a)} | ${resumen(f400b)}`);
   ver(f400a.estado === 400 && f400b.estado === 400 && f400a.json?.error?.codigo === "FOLIO_INVALIDO", "HU 025 · un folio con formato inválido da 400 FOLIO_INVALIDO", `folio inválido: ${resumen(f400a)}`);
@@ -209,8 +208,8 @@ async function pruebas() {
   const cerradoFicha = await anonimo("/ficha/RUPE-3HN8WD2B");
   const cerradoReporte = await anonimo("/ficha/RUPE-3HN8WD2B/avistamiento");
   ver(cerradoFicha.estado === 404 && cerradoFicha.texto.includes("NEXT_HTTP_ERROR_FALLBACK;404") && cerradoReporte.estado === 200 && /ya no recibe avistamientos/.test(cerradoReporte.texto), "Cerrado confirmado por folio: la ficha pública da 404 real y la pantalla de reporte avisa «Este caso ya no recibe avistamientos» (R13, como el 409 de la API)", `cerrado: ficha ${cerradoFicha.estado}, reporte ${cerradoReporte.estado}`);
-  const tokenCerrado = tokenSembrado("RUPE-3HN8WD2B");
-  const tokenesMalos = ["x".repeat(32), "A".repeat(33), "mal-formado", tokenViejo, tokenSembrado("RUPE-F7L3MN6Y"), tokenCerrado, tokenSembrado("RUPE-D5W2QK8X")];
+  const tokenCerrado = vivos["Cerrado confirmado"].token;
+  const tokenesMalos = ["x".repeat(32), "A".repeat(33), "mal-formado", tokenViejo, vivos["Cancelado"].token, tokenCerrado, vivos["Deshabilitado"].token];
   const paginasQr: Resp[] = [];
   for (const t of tokenesMalos) paginasQr.push(await anonimo(`/ficha/${t}`), await anonimo(`/ficha/${t}/avistamiento`));
   const variantesQr = new Set(tokenesMalos.flatMap((t, i) => [normaliza(paginasQr[2 * i], t), `A${normaliza(paginasQr[2 * i + 1], t)}`]));

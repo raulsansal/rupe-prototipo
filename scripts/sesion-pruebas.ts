@@ -34,6 +34,8 @@ export function credencial(rol: RolPrueba): { correo: string; contrasena: string
 }
 
 const cache = new Map<string, string>();
+/** Funciones que se ejecutan al reiniciar los datos (p. ej. la caché de tokens del QR, que cambian con cada siembra). */
+export const alReiniciar: Array<(base: string) => void | Promise<void>> = [];
 
 /** Inicia sesión por HTTP y devuelve el valor de la cookie (sin el nombre). Con caché por servidor y rol. */
 export async function valorDeSesion(base: string, rol: RolPrueba): Promise<string> {
@@ -83,5 +85,6 @@ export async function reiniciarDatos(base: string): Promise<number> {
     olvidarSesiones();
   }
   if (estado !== 200) throw new Error(`No se pudieron reiniciar los datos (HTTP ${estado}). Arranca el servidor con RUPE_PERMITIR_REINICIO=1 y una cuenta de Administrador activa.`);
+  for (const f of alReiniciar) await f(base);
   return estado;
 }

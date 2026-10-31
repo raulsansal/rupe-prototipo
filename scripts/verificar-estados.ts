@@ -7,9 +7,9 @@
 // Imprime la respuesta REAL de cada paso. Opciones: --sin-build · --base=URL (servidor con RUPE_PERMITIR_REINICIO=1).
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
-import { CASOS_ORIGEN } from "../src/mocks/casos";
 import { JPEG_REAL } from "../src/server/pruebas/imagenes";
 import { chromium, type Browser, type Page } from "playwright";
+import { precargarTokens, tokenSembrado } from "./lib/tokenDeFicha";
 import { agregarSesion, fetchComo, reiniciarDatos, type RolPrueba } from "./sesion-pruebas";
 
 const PUERTO = 3139;
@@ -45,7 +45,6 @@ const linea = (r: Resp) => `${r.estado} ${r.json ? JSON.stringify(r.json) : `#${
 const normalizar = (t: string, ...claves: string[]) => claves.reduce((x, c) => x.split(c).join("CLAVE"), t);
 const sinComentarios = (html: string) => html.replace(/<!-- -->/g, "");
 
-const tokenSembrado = (folio: string) => CASOS_ORIGEN.find((c) => c.folio === folio)?.tokenPublico ?? `MAQUETA${folio.slice(5)}`.padEnd(32, "0");
 const NOMBRE_ETIQUETA = { localizado: "Marcado como localizado", revisado: "Avistamiento revisado", reactivado: "Caso reactivado", cierre: "Cierre confirmado", cancelado: "Registro cancelado" };
 /** Cuántas veces aparece una etiqueta del historial en el detalle del caso (HTML real de la persona dueña). */
 async function contarEnHistorial(rol: RolPrueba, folio: string, etiqueta: string) {
@@ -84,6 +83,7 @@ async function esperarServidor(servidor: ChildProcess) {
 
 async function pruebas() {
   await reiniciarDatos(base);
+  await precargarTokens(base); // tokens aleatorios: se leen como los lee la persona dueña
   console.log("— Max (En búsqueda, de Rosa): localizar, repetir, reporte, estatus, reactivar, reporte, localizar, cerrar —");
   const qr0 = await publico(`/api/fichas/qr/${tokenSembrado(MAX)}`);
   const l1 = await estado("tutor1", MAX, "localizar");

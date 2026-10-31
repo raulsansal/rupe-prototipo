@@ -28,6 +28,26 @@ test("Origin · detrás de un proxy se usan x-forwarded-host y x-forwarded-proto
   assert.equal(estado(peticion("http://interno:3000/api/x", { ...h, origin: "http://interno:3000" })), 403);
 });
 
+const PUBLICO = "https://rupe-demo.example.test";
+const ENTORNO = { RUPE_URL_PUBLICA: PUBLICO };
+const estadoCon = (p: Request, entorno: Record<string, string | undefined>) => { try { exigirMismoOrigen(p, entorno); return 200; } catch (e) { return e instanceof ErrorApp ? e.estado : -1; } };
+
+test("Origin · con RUPE_URL_PUBLICA se acepta su origen aunque Host sea localhost (túnel sin x-forwarded-host); sin la variable sigue siendo 403", () => {
+  const tras = peticion("http://localhost:3000/api/x", { host: "localhost:3000", origin: PUBLICO });
+  assert.equal(estadoCon(tras, {}), 403);
+  assert.equal(estadoCon(tras, ENTORNO), 200);
+  assert.equal(estadoCon(peticion("http://localhost:3000/api/x", { host: "localhost:3000", origin: "https://rupe-demo.example.test/" }), { RUPE_URL_PUBLICA: `${PUBLICO}/` }), 403, "el Origin siempre va sin barra final");
+});
+
+test("Origin · con RUPE_URL_PUBLICA siguen rechazados otros sitios, puerto, esquema, «null» y subdominios engañosos; el propio Host sigue valiendo", () => {
+  for (const origin of ["http://evil.example", "http://rupe-demo.example.test", "https://rupe-demo.example.test:8443", "https://rupe-demo.example.test.evil.example", "https://evil.rupe-demo.example.test", "null"]) {
+    assert.equal(estadoCon(peticion("http://localhost:3000/api/x", { host: "localhost:3000", origin }), ENTORNO), 403, origin);
+  }
+  assert.equal(estadoCon(peticion("http://localhost:3000/api/x", { host: "localhost:3000", origin: "http://localhost:3000" }), ENTORNO), 200);
+  assert.equal(estadoCon(peticion("http://localhost:3000/api/x", { host: "localhost:3000" }), ENTORNO), 200, "sin Origin se acepta");
+  assert.equal(estadoCon(peticion("http://localhost:3000/api/x", { host: "localhost:3000", origin: "http://evil.example" }), { RUPE_URL_PUBLICA: "no es una url" }), 403, "variable inválida = como si no existiera");
+});
+
 test("no-store · TODA respuesta de la API lleva Cache-Control: no-store, incluidas las de error y las redirecciones", async () => {
   assert.equal(SIN_CACHE["Cache-Control"], "no-store");
   const respuestas = [jsonApi({ ok: true }), jsonApi({ x: 1 }, 201, { "X-Otra": "1" }), redireccionApi("/"), respuestaDeError(noEncontrado()), respuestaDeError(new ErrorApp(422, "X", "x", "R1", { a: "b" })), respuestaDeError(new Error("interno"))];

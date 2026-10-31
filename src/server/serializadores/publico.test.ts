@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { CASOS_ORIGEN } from "../../mocks/casos";
 import { USUARIOS_INICIALES } from "../../mocks/usuarios";
 import { nuevoContexto } from "../pruebas/auxiliares";
 import { consultarEstatusPorFolio, consultarFichaPorFolio } from "../servicios/fichas";
@@ -16,7 +15,7 @@ function reservadosDe(idCaso: number): string[] {
   const perro = almacen.perros.find((p) => p.idPerro === caso.idPerro)!;
   const dueno = almacen.usuarios.find((u) => u.idUsuario === perro.idUsuario)!;
   const motivo = almacen.motivos.find((m) => m.idMotivo === caso.idMotivo)!;
-  return [caso.direccionAproximada, caso.referenciasDelLugar, caso.descripcionCircunstancias, motivo.nombre, dueno.nombreCompleto, dueno.correo, dueno.telefono, ...CASOS_ORIGEN.map((c) => c.tokenPublico), ...almacen.qr.map((q) => q.tokenPublico)].filter((v): v is string => Boolean(v));
+  return [caso.direccionAproximada, caso.referenciasDelLugar, caso.descripcionCircunstancias, motivo.nombre, dueno.nombreCompleto, dueno.correo, dueno.telefono, ...almacen.qr.map((q) => q.tokenPublico)].filter((v): v is string => Boolean(v));
 }
 
 test("D6 · la ficha pública trae exactamente las columnas P (ni una más) para cada caso visible", async () => {

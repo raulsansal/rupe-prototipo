@@ -8,12 +8,9 @@ const FOTO = "/mocks/perro-ejemplo.svg";
 /** Datos de la persona tutora (tbl_usuario): nunca son públicos. */
 export type DatosTutor = { nombreCompleto: string; correo: string; telefono: string };
 
-export type CasoOrigen = Perro & CasoExtravio & { tutor: DatosTutor; tokenPublico: string; fechaRegistro: string };
+export type CasoOrigen = Perro & CasoExtravio & { tutor: DatosTutor; fechaRegistro: string };
 
-/** Token ficticio de 32 caracteres para la URL del QR (CHAR(32) en el diccionario). */
-const token = (folio: Folio) => `MAQUETA${folio.slice(5)}`.padEnd(32, "0");
-
-type Base = Omit<CasoOrigen, "tokenPublico" | "tutor"> & { tutor?: DatosTutor };
+type Base = Omit<CasoOrigen, "tutor"> & { tutor?: DatosTutor };
 
 const TUTOR: DatosTutor = { nombreCompleto: "Rosa Hernández Ficticia", correo: "rosa.ficticia@example.org", telefono: "5500000000" };
 
@@ -70,18 +67,13 @@ const casos: Base[] = [
   },
 ];
 
-export const CASOS_ORIGEN: readonly CasoOrigen[] = casos.map((c) => ({ ...c, tutor: c.tutor ?? TUTOR, tokenPublico: token(c.folio) }));
+export const CASOS_ORIGEN: readonly CasoOrigen[] = casos.map((c) => ({ ...c, tutor: c.tutor ?? TUTOR }));
 
 /** Folio con formato válido que no existe en la maqueta (estado «folio no encontrado»). */
 export const FOLIO_INEXISTENTE: Folio = "RUPE-Z5C6VR4P";
 
 /** Folio ficticio de un caso en curso, para enlaces de ejemplo. */
 export const FOLIO_EN_CURSO: Folio = "RUPE-K7M4XQ9T";
-
-/** Resuelve la clave de la URL: el folio o el token de 32 caracteres del QR. */
-export function resolverCaso(clave: string): CasoOrigen | undefined {
-  return CASOS_ORIGEN.find((c) => c.folio === clave.toUpperCase() || c.tokenPublico === clave);
-}
 
 /** Copia SOLO los campos de `FichaPublica` (lista permitida): calle, referencias, momento, motivo, descripción y tutor no salen. */
 export function aFichaPublica(c: CasoOrigen): FichaPublica {

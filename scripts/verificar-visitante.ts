@@ -6,6 +6,7 @@
 // Opciones: --sin-build  reutiliza el build existente · --base=URL  usa un servidor que ya corre (no compila ni arranca nada)
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { fetchComo } from "./sesion-pruebas";
+import { hayTokenDe, precargarTokens, tokenSembrado } from "./lib/tokenDeFicha";
 import { chromium, type Browser, type BrowserContext, type Locator, type Page } from "playwright";
 import { AVISTAMIENTOS } from "../src/mocks/avistamientos";
 // El tamaño máximo sembrado (valor por defecto del parámetro tamano_maximo_archivo_mb) es 4 MB.
@@ -26,7 +27,10 @@ const AVISTAMIENTO = `${FICHA}/avistamiento`;
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
 
 let fallos = 0;
+let totalVer = 0;
+const porSeccion: Array<[string, number]> = [];
 const ver = (ok: boolean, bien: string, mal: string) => {
+  totalVer++;
   if (ok) console.log(`✓ ${bien}`);
   else {
     fallos++;
@@ -163,7 +167,7 @@ async function ficha(navegador: Browser) {
   for (const origen of CASOS_ORIGEN) {
     const reservados = valoresReservados(origen);
     if (reservados.length < 5) throw new Error(`El origen de ${origen.folio} no tiene suficientes datos reservados para la prueba`);
-    for (const clave of [origen.folio, origen.tokenPublico]) {
+    for (const clave of [origen.folio, ...(hayTokenDe(origen.folio) ? [tokenSembrado(origen.folio)] : [])]) { // solo los casos «En curso» entregan su token a su dueña
       for (const q of ["", "?estado=en-curso", "?estado=localizado", "?estado=no-disponible"]) {
         const html = await (await fetch(`${base}/ficha/${clave}${q}`)).text();
         comprobaciones++;
@@ -175,12 +179,12 @@ async function ficha(navegador: Browser) {
       }
     }
   }
-  ver(fugas === 0, `sin fugas: ${comprobaciones} respuestas HTML (5 casos × folio y token × 4 variantes) sin ningún valor reservado ni dato de la persona tutora del origen`, `${fugas} respuesta(s) con datos reservados`);
+  ver(fugas === 0, `sin fugas: ${comprobaciones} respuestas HTML (${CASOS_ORIGEN.length} casos por folio y, los que entregan su token a su dueña (En curso), también por QR; × 4 variantes) sin ningún valor reservado ni dato de la persona tutora del origen`, `${fugas} respuesta(s) con datos reservados`);
 
   // Controles de sensibilidad: la búsqueda sí detecta un valor presente, y el token resuelve la misma ficha.
   const max = CASOS_ORIGEN[0];
   const htmlMax = await (await fetch(`${base}/ficha/${max.folio}`)).text();
-  const htmlToken = await (await fetch(`${base}/ficha/${max.tokenPublico}`)).text();
+  const htmlToken = await (await fetch(`${base}/ficha/${tokenSembrado(max.folio)}`)).text();
   ver(htmlMax.includes(max.color) && htmlMax.includes(max.coloniaZona) && !htmlMax.includes(max.direccionAproximada!), "control: el HTML sí contiene los campos públicos (color, colonia) y no la dirección reservada", "control: la prueba de fugas no distingue público de reservado");
   ver(htmlToken.includes(max.folio) && htmlToken.includes(max.coloniaZona), "la clave de 32 caracteres del QR resuelve la misma ficha que el folio", "la clave del QR no resolvió la ficha");
 
@@ -738,7 +742,7 @@ async function sinReservadosDeAvistamientos() {
   const reservados = AVISTAMIENTOS.flatMap((a) => [a.direccionAproximada, a.referencias, a.comentario]).filter((v): v is string => Boolean(v));
   const rutas = ["/", "/registro", "/registro?estado=aviso", "/acceso", "/acceso?estado=aviso-actualizado", "/ruta-que-no-existe", "/dev/transversales/error", "/dev/visitante"];
   for (const o of CASOS_ORIGEN) {
-    for (const clave of [o.folio, o.tokenPublico]) rutas.push(`/ficha/${clave}`, `/ficha/${clave}?estado=localizado`, `/ficha/${clave}?estado=no-disponible`);
+    for (const clave of [o.folio, ...(hayTokenDe(o.folio) ? [tokenSembrado(o.folio)] : [])]) rutas.push(`/ficha/${clave}`, `/ficha/${clave}?estado=localizado`, `/ficha/${clave}?estado=no-disponible`);
     rutas.push(`/ficha/${o.folio}/avistamiento?paso=6&datos=ejemplo`, `/ficha/${o.folio}/avistamiento/enviado`);
   }
   let fugas = 0;
@@ -860,17 +864,21 @@ async function main() {
   let navegador: Browser | undefined;
   try {
     if (servidor) await esperarServidor(servidor);
+    await precargarTokens(base); // tokens aleatorios por arranque: se leen como los lee la persona dueña (pantalla de su ficha)
     navegador = await abrirNavegador();
     const nav = navegador;
     const solo = process.argv.find((a) => a.startsWith("--solo="))?.split("=")[1];
     const seccion = async (nombre: string, f: () => Promise<void>) => {
       if (solo && !nombre.includes(solo)) return;
+      const antes = totalVer;
       try {
         await f();
       } catch (e) {
         fallos++;
         console.log(`✗ la sección «${nombre}» se interrumpió: ${String(e).split("\n")[0]} ${String((e as Error).stack).split("\n").find((l) => l.includes("verificar-visitante.ts")) ?? ""}`);
       }
+      porSeccion.push([nombre, totalVer - antes]);
+      console.log(`  ▸ ${nombre}: ${totalVer - antes} comprobaciones`);
     };
     await seccion("PUB-01", () => principal(nav));
     await seccion("portada", () => portada(nav));
@@ -890,6 +898,7 @@ async function main() {
     await navegador?.close();
     apagar();
   }
+  console.log(`\nSuma por sección: ${porSeccion.reduce((a, [, n]) => a + n, 0)} · total impreso: ${totalVer}`);
   console.log(fallos === 0 ? "\nOK: pantallas del Visitante verificadas" : `\n${fallos} verificación(es) fallida(s)`);
   process.exit(fallos === 0 ? 0 : 1);
 }

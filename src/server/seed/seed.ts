@@ -6,6 +6,7 @@ import "server-only";
 // (`marcaDeSiembra`), así que los casos y avistamientos sembrados aquí no entran en esas cifras.
 import { join } from "node:path";
 import { hashSync } from "bcryptjs";
+import { generarTokenQr } from "../dominio/qr";
 import { COSTO_BCRYPT } from "../sesion/contrasenas";
 import { leerFotoSembrada } from "./fotosSembradas";
 import { CASOS_ORIGEN } from "../../mocks/casos";
@@ -48,13 +49,15 @@ function razaDe(nombre: string, razas: readonly T.Raza[]): { idRaza: number; raz
 
 const AUTOMATICOS = new Set(["registro", "ficha generada", "avistamiento recibido", "avistamiento revisado"]);
 const ETIQUETA_CATALOGO: Record<string, string> = { Alcaldías: "alcaldia", Razas: "raza", Motivos: "motivo", "Estados del animal": "estado_animal" };
-/** Token de los mocks (el mismo de src/mocks/casos.ts): así el QR de cada caso sigue coincidiendo con los enlaces del maquetado. */
-const tokenDeMaqueta = (folio: string) => `MAQUETA${folio.slice(5)}`.padEnd(32, "0");
-
 /** `carpetaFotos`: carpeta con `<FOLIO>.jpg` de los casos sembrados (P2c). Sin ella (pruebas, CI) todas las fotos son el marcador. */
-export type OpcionesSiembra = { carpetaFotos?: string };
+export type OpcionesSiembra = { carpetaFotos?: string; /** Solo para pruebas unitarias que importan el seed: por omisión cada token del QR es aleatorio (crypto, base62 de 32), único y sin relación con el folio. */ generarToken?: () => string };
 
-export function sembrar(a: Almacen, entorno: Entorno = process.env, { carpetaFotos }: OpcionesSiembra = {}): Almacen {
+export function sembrar(a: Almacen, entorno: Entorno = process.env, { carpetaFotos, generarToken = () => generarTokenQr() }: OpcionesSiembra = {}): Almacen {
+  const tokenNuevo = (): string => {
+    let t = generarToken();
+    while (a.qr.some((q) => q.tokenPublico === t)) t = generarToken(); // UNIQUE: un generador inyectado que repita valores no produce tokens duplicados
+    return t;
+  };
   // ---- Catálogos ----
   // PROTOTIPO: todos los valores sembrados quedan ACTIVOS para que
   // los flujos de prueba no fallen con alcaldía Milpa Alta, raza Pug, motivo «Estrés…» ni los estados del animal 16 y 17. Lo desactivado se prueba con acciones reales del Administrador (P6b).
@@ -133,7 +136,7 @@ export function sembrar(a: Almacen, entorno: Entorno = process.env, { carpetaFot
         idUsuario: AUTOMATICOS.has(m.tipo) ? null : m.tipo === "deshabilitación" || m.tipo === "restauración" ? ID_ADMIN : idDueno,
       });
     }
-    a.qr.push({ idCodigoQr: siguienteId(a, "qr"), idCasoExtravio: caso.idCasoExtravio, tokenPublico: origen?.tokenPublico ?? tokenDeMaqueta(c.folio), fechaGeneracion: c.historial[1]?.fechaHora ?? c.fechaRegistro, fechaInvalidacion: null });
+    a.qr.push({ idCodigoQr: siguienteId(a, "qr"), idCasoExtravio: caso.idCasoExtravio, tokenPublico: tokenNuevo(), fechaGeneracion: c.historial[1]?.fechaHora ?? c.fechaRegistro, fechaInvalidacion: null });
   }
   const casoPorFolio = (folio: string) => a.casos.find((c) => c.folio === folio)!;
 

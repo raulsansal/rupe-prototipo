@@ -13,6 +13,8 @@ import { credencial, fetchComo, NOMBRE_COOKIE, olvidarSesiones, valorDeSesion, t
 
 const PUERTO = 3109;
 const PUERTO_SIN_FOTOS = 3136; // tercer servidor con la carpeta de fotos sembradas VACÍA (seed con el marcador y sin archivos): foto sembrada sin archivo → 404
+const PUERTO_PUBLICO = 3144; // cuarto servidor CON RUPE_URL_PUBLICA ficticia (https): simula el túnel, que entrega Host localhost y un Origin con la dirección pública
+const URL_PUBLICA_FICTICIA = "https://rupe-demo.example.test";
 const PUERTO_SIN_PERMISO = 3111; // segundo servidor, SIN RUPE_PERMITIR_REINICIO (las herramientas /api/dev deben dar 404)
 const baseExterna = process.argv.find((a) => a.startsWith("--base="))?.split("=")[1];
 const base = baseExterna ?? `http://localhost:${PUERTO}`;
@@ -390,6 +392,52 @@ async function herramientasSinPermiso(base2: string) {
   ver(dev.estado === 404, "POST /api/dev/parametro ya no existe (404, también con Administrador)", dev, `HTTP ${dev.estado}`);
 }
 
+/**
+ * Cuarto servidor, con RUPE_URL_PUBLICA ficticia: lo que ve el servidor detrás de un túnel que NO reenvía el host original (Host localhost, sin x-forwarded-host) mientras el navegador
+ * manda como Origin la dirección pública. Medido antes de corregir: 403 ORIGEN_NO_PERMITIDO en toda mutación.
+ */
+async function detrasDeUnTunel(base4: string) {
+  console.log("\n— Detrás de un túnel (cuarto servidor con RUPE_URL_PUBLICA ficticia https) —");
+  const post = async (ruta: string, origen: string, extra: Record<string, string> = {}) => {
+    const r = await fetch(`${base4}${ruta}`, { method: "POST", headers: { "Content-Type": "application/json", Origin: origen, ...extra }, body: "{}", redirect: "manual" });
+    const texto = await r.text();
+    return { estado: r.status, texto };
+  };
+  const [sinProxy, conProto, conTodo, ajeno, ajenoConProto, nulo, otroPuerto, otroEsquema] = [
+    await post("/api/acceso/cerrar", URL_PUBLICA_FICTICIA),
+    await post("/api/acceso/cerrar", URL_PUBLICA_FICTICIA, { "x-forwarded-proto": "https" }),
+    await post("/api/acceso/cerrar", URL_PUBLICA_FICTICIA, { "x-forwarded-host": new URL(URL_PUBLICA_FICTICIA).host, "x-forwarded-proto": "https" }),
+    await post("/api/acceso/cerrar", "https://sitio-ajeno.example"),
+    await post("/api/acceso/cerrar", "https://sitio-ajeno.example", { "x-forwarded-proto": "https" }),
+    await post("/api/acceso/cerrar", "null"),
+    await post("/api/acceso/cerrar", `${URL_PUBLICA_FICTICIA}:8443`),
+    await post("/api/acceso/cerrar", URL_PUBLICA_FICTICIA.replace("https:", "http:")),
+  ];
+  const detalle = `sin cabeceras ${sinProxy.estado}, x-forwarded-proto ${conProto.estado}, x-forwarded-host+proto ${conTodo.estado}`;
+  total++;
+  if ([sinProxy, conProto, conTodo].every((r) => r.estado < 400)) console.log(`✓ Host localhost + Origin público ficticio (con y sin cabeceras de proxy): aceptado (${detalle})`);
+  else { fallos++; console.log(`✗ Host localhost + Origin público ficticio: debía aceptarse → ${detalle}`); }
+  total++;
+  const rechazos = [ajeno, ajenoConProto, nulo, otroPuerto, otroEsquema];
+  if (rechazos.every((r) => r.estado === 403 && /ORIGEN_NO_PERMITIDO/.test(r.texto))) console.log(`✓ con la variable, siguen en 403: Origin ajeno (con y sin proxy), «null», otro puerto y otro esquema (${rechazos.map((r) => r.estado).join(", ")})`);
+  else { fallos++; console.log(`✗ con la variable, un origen ajeno/«null»/otro puerto/esquema debía dar 403 → ${rechazos.map((r) => r.estado).join(", ")}`); }
+  // Redirecciones y direcciones absolutas: nada debe apuntar a localhost mientras el navegador está en la dirección pública.
+  const cab = { host: new URL(base4).host, "x-forwarded-proto": "https" };
+  const redir = await fetch(`${base4}/tutor/casos/RUPE-K7M4XQ9T?x=1`, { redirect: "manual", headers: cab });
+  const loc = redir.headers.get("location") ?? "";
+  total++;
+  if (redir.status === 307 && loc === "/acceso?siguiente=%2Ftutor%2Fcasos%2FRUPE-K7M4XQ9T%3Fx%3D1") console.log(`✓ GET /tutor/… sin sesión: 307 con Location relativo (${loc})`);
+  else { fallos++; console.log(`✗ GET /tutor/… sin sesión: ${redir.status} Location=${loc}`); }
+  for (const ruta of ["/", "/acceso", "/ficha/RUPE-K7M4XQ9T"]) {
+    const r = await fetch(`${base4}${ruta}`, { redirect: "manual", headers: cab });
+    const cuerpo = await r.text();
+    total++;
+    const malo = /localhost/i.test(cuerpo) || /localhost/i.test(r.headers.get("location") ?? "") || r.status !== 200;
+    if (!malo) console.log(`✓ GET ${ruta} (Host localhost, x-forwarded-proto https): 200 y sin «localhost» en el cuerpo ni en Location`);
+    else { fallos++; console.log(`✗ GET ${ruta}: HTTP ${r.status}, «localhost» en cuerpo/Location: ${/localhost/i.test(cuerpo)}`); }
+  }
+}
+
 /** Entorno de los servidores de prueba SIN RUPE_URL_PUBLICA (la pone el .env.local de cada persona): así el respaldo de hosts locales se prueba igual en todas las máquinas. */
 function entornoSinUrlPublica(extra: Record<string, string>): NodeJS.ProcessEnv {
   const e: NodeJS.ProcessEnv = { ...process.env, ...extra };
@@ -401,16 +449,19 @@ async function main() {
   let servidor: ChildProcess | undefined;
   let servidor2: ChildProcess | undefined;
   let servidor3: ChildProcess | undefined;
+  let servidor4: ChildProcess | undefined;
+  const base4 = `http://localhost:${PUERTO_PUBLICO}`;
   const base2 = `http://localhost:${PUERTO_SIN_PERMISO}`;
   if (!baseExterna) {
     if (!process.argv.includes("--sin-build") && spawnSync("npx", ["next", "build"], { stdio: "inherit" }).status !== 0) throw new Error("Falló next build");
     servidor = spawn("npx", ["next", "start", "-p", String(PUERTO)], { stdio: "ignore", detached: true, env: entornoSinUrlPublica({ RUPE_PERMITIR_REINICIO: "1" }) });
     servidor2 = spawn("npx", ["next", "start", "-p", String(PUERTO_SIN_PERMISO)], { stdio: "ignore", detached: true, env: entornoSinUrlPublica({ RUPE_PERMITIR_REINICIO: "0" }) });
     servidor3 = arrancarServidorSinFotos();
+    servidor4 = spawn("npx", ["next", "start", "-p", String(PUERTO_PUBLICO)], { stdio: "ignore", detached: true, env: { ...process.env, RUPE_PERMITIR_REINICIO: "0", RUPE_URL_PUBLICA: URL_PUBLICA_FICTICIA } });
   }
   // Los dos servidores se apagan SIEMPRE (también si algo falla o se interrumpe): sin procesos colgados.
   const apagar = () => {
-    for (const s of [servidor, servidor2, servidor3]) {
+    for (const s of [servidor, servidor2, servidor3, servidor4]) {
       try {
         if (s?.pid) process.kill(-s.pid);
       } catch {
@@ -433,6 +484,10 @@ async function main() {
     if (servidor2) {
       await esperarServidor(servidor2, base2);
       await herramientasSinPermiso(base2);
+    }
+    if (servidor4) {
+      await esperarServidor(servidor4, base4);
+      await detrasDeUnTunel(base4);
     }
   } finally {
     apagar();

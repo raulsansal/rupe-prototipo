@@ -3,7 +3,8 @@
 // Opciones: --sin-build reutiliza el build · --base=URL usa un servidor que ya corre.
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
-import { CASOS_ORIGEN, FOLIO_EN_CURSO } from "../src/mocks/casos";
+import { FOLIO_EN_CURSO } from "../src/mocks/casos";
+import { precargarTokens, tokenSembrado } from "./lib/tokenDeFicha";
 import { agregarSesion, fetchComo, reiniciarDatos } from "./sesion-pruebas";
 
 const PUERTO = 3138;
@@ -20,13 +21,12 @@ const ver = (ok: boolean, bien: string, mal: string) => {
 const NALA = "RUPE-Y9F4LK2E"; // En seguimiento: avistamientos 101 a 104 visibles (102 «Fallecido»)
 const TOBY = "RUPE-B6R2TZ7C"; // Localizado
 const MAX = FOLIO_EN_CURSO;
-const TOKEN_MAX = CASOS_ORIGEN.find((c) => c.folio === MAX)!.tokenPublico;
 
 type Pantalla = { ruta: string; rol: "tutor1" | "admin" | null; etiqueta: string };
 const PANTALLAS: Pantalla[] = [
   { ruta: "/", rol: null, etiqueta: "Inicio" },
   { ruta: `/ficha/${MAX}`, rol: null, etiqueta: "Ficha pública por folio" },
-  { ruta: `/ficha/${TOKEN_MAX}`, rol: null, etiqueta: "Ficha pública por QR" },
+  { ruta: "/ficha/{TOKEN_MAX}", rol: null, etiqueta: "Ficha pública por QR" },
   { ruta: `/ficha/${TOBY}`, rol: null, etiqueta: "Ficha pública de un caso Localizado" },
   { ruta: `/ficha/${MAX}/avistamiento`, rol: null, etiqueta: "Reportar avistamiento (paso 1)" },
   { ruta: "/estatus", rol: null, etiqueta: "Consultar estatus (buscador público)" },
@@ -102,6 +102,7 @@ async function abrirNavegador(): Promise<Browser> {
 async function pruebas(navegador: Browser) {
   for (const ancho of [390, 1280]) {
     await reiniciarDatos(base); // cada ancho parte de datos limpios (la sección de abajo deshabilita un caso)
+    await precargarTokens(base); // tokens aleatorios: se leen como los lee la persona dueña
     const sesiones = new Map<string, BrowserContext>();
     for (const rol of [null, "tutor1", "admin"] as const) {
       const contexto = await navegador.newContext({ viewport: { width: ancho, height: 900 } });
@@ -110,7 +111,7 @@ async function pruebas(navegador: Browser) {
     }
     const revisar = async (pantalla: Pantalla) => {
       const pagina = await sesiones.get(String(pantalla.rol))!.newPage();
-      await pagina.goto(`${base}${pantalla.ruta}`, { waitUntil: "load" });
+      await pagina.goto(`${base}${pantalla.ruta.replace("{TOKEN_MAX}", tokenSembrado(MAX))}`, { waitUntil: "load" });
       const r = await imagenesRotas(pagina);
       ver(r.rotas.length === 0, `${pantalla.etiqueta} (${ancho} px): ${r.visibles} imagen(es) visible(s), todas cargan`, `${pantalla.etiqueta} (${ancho} px): imagen(es) rota(s) → ${r.rotas.join(" | ")}`);
       await pagina.close();

@@ -17,10 +17,10 @@ test("seed · los casos, folios, QR, avistamientos y bitácora del maquetado exi
   assert.equal(almacen.casos.length, CASOS_MODERACION.length);
   assert.ok(almacen.casos.every((c) => PATRON_FOLIO.test(c.folio)));
   assert.equal(new Set(almacen.casos.map((c) => c.folio)).size, almacen.casos.length);
-  // Todo caso tiene QR vigente (uno solo) con token único; los de CASOS_ORIGEN conservan el token del maquetado.
+  // Todo caso tiene QR vigente (uno solo) con token único; el token es aleatorio de 32 caracteres base62.
   for (const c of almacen.casos) assert.equal(almacen.qr.filter((q) => q.idCasoExtravio === c.idCasoExtravio && q.fechaInvalidacion === null).length, 1);
   assert.equal(new Set(almacen.qr.map((q) => q.tokenPublico)).size, almacen.qr.length);
-  for (const o of CASOS_ORIGEN) assert.equal((await ctx.repos.qr.activoDe((await ctx.repos.casos.porFolio(o.folio))!.idCasoExtravio))!.tokenPublico, o.tokenPublico);
+  for (const o of CASOS_ORIGEN) assert.match((await ctx.repos.qr.activoDe((await ctx.repos.casos.porFolio(o.folio))!.idCasoExtravio))!.tokenPublico, /^[A-Za-z0-9]{32}$/);
   // E1: el estado del caso repite el último movimiento; el historial tiene consecutivos 1..n.
   for (const c of almacen.casos) {
     const h = await historialDe(ctx.repos, c.idCasoExtravio);
@@ -48,10 +48,34 @@ test("seed · las cifras del tablero y de Reportes (que salen de src/mocks) no c
   assert.deepEqual([r.totalCasos, r.casosLocalizados], [163, 19]);
 });
 
-test("seed · sembrar dos veces da lo mismo (reiniciar deja los datos ficticios iniciales, incluidos los casos con QR vigente)", async () => {
+test("seed · sembrar dos veces da los mismos datos (reiniciar deja los datos ficticios iniciales; cada caso conserva un QR vigente, con token NUEVO)", async () => {
   const a = crearRepositorios(() => sembrar(almacenVacio(), {}));
   const b = crearRepositorios(() => sembrar(almacenVacio(), {}));
   assert.deepEqual((await a.casos.todos()).map((c) => c.folio), (await b.casos.todos()).map((c) => c.folio));
   const f = (await a.casos.porFolio("rupe-k7m4xq9t"))!; // R26: sin distinguir mayúsculas
-  assert.equal((await a.qr.activoDe(f.idCasoExtravio))!.tokenPublico, (await b.qr.activoDe(f.idCasoExtravio))!.tokenPublico);
+  const [ta, tb] = [(await a.qr.activoDe(f.idCasoExtravio))!.tokenPublico, (await b.qr.activoDe(f.idCasoExtravio))!.tokenPublico];
+  assert.match(ta, /^[A-Za-z0-9]{32}$/);
+  assert.notEqual(ta, tb, "reiniciar renueva los tokens: el QR de la siembra anterior deja de valer");
+});
+
+test("seed · los tokens del QR son aleatorios por siembra: dos siembras con el generador por omisión no comparten ninguno y no derivan del folio", () => {
+  const a = sembrar(almacenVacio(), {});
+  const b = sembrar(almacenVacio(), {});
+  const ta = new Set(a.qr.map((q) => q.tokenPublico));
+  assert.equal(ta.size, a.qr.length);
+  assert.ok(b.qr.every((q) => !ta.has(q.tokenPublico)), "dos arranques no comparten tokens");
+  for (const q of a.qr) {
+    const folio = a.casos.find((c) => c.idCasoExtravio === q.idCasoExtravio)!.folio;
+    assert.match(q.tokenPublico, /^[A-Za-z0-9]{32}$/);
+    assert.ok(!q.tokenPublico.startsWith("MAQUETA") && !q.tokenPublico.includes(folio.slice(5)), "sin relación con el folio");
+  }
+});
+
+test("seed · con un generador inyectado (solo pruebas unitarias) los tokens son reproducibles y siguen siendo únicos", () => {
+  const fuente = () => { let n = 0; return () => `TOKEN${String(n++).padStart(27, "0")}`; };
+  const a = sembrar(almacenVacio(), {}, { generarToken: fuente() });
+  const b = sembrar(almacenVacio(), {}, { generarToken: fuente() });
+  assert.deepEqual(a.qr.map((q) => q.tokenPublico), b.qr.map((q) => q.tokenPublico));
+  const repetido = sembrar(almacenVacio(), {}, { generarToken: (() => { let n = 0; return () => (n++ < 3 ? "R".repeat(32) : `Z${String(n).padStart(31, "0")}`); })() });
+  assert.equal(new Set(repetido.qr.map((q) => q.tokenPublico)).size, repetido.qr.length, "un generador que repite no produce duplicados");
 });

@@ -10,9 +10,11 @@ import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
-import { ALTO_TELEFONO, ALTO_VENTANA, ANCHOS, PUERTO, RUTAS, TEMAS, type Captura } from "../capturas.config";
+import { FOLIO_EN_CURSO } from "../src/mocks/casos";
+import { ALTO_TELEFONO, ALTO_VENTANA, ANCHOS, MARCADOR_TOKEN_MAX, PUERTO, RUTAS, TEMAS, type Captura } from "../capturas.config";
 import { CLAVE_TEMA } from "../src/lib/tema";
 import { agregarSesion, reiniciarDatos, rolDeRuta } from "./sesion-pruebas";
+import { precargarTokens, tokenSembrado } from "./lib/tokenDeFicha";
 import { filtroDeArgumentos, hayFiltroDeRutas, seleccionaRuta } from "./lib/seleccionRutas";
 
 const raiz = process.cwd();
@@ -183,6 +185,7 @@ async function main() {
   let navegador: Browser | undefined;
   try {
     await esperarServidor(servidor);
+    await precargarTokens(base); // el token del QR es aleatorio por arranque: se lee como lo lee la persona dueña (pantalla de su ficha)
     navegador = await abrirNavegador();
     if (process.argv.includes("--autoprueba")) {
       if (!(await autoprueba(navegador))) process.exitCode = 1;
@@ -201,7 +204,7 @@ async function main() {
           const rol = entrada.rol !== undefined ? entrada.rol : rolDeRuta(ruta);
           if (rol) await agregarSesion(contexto, base, rol);
           const pagina = await contexto.newPage();
-          await pagina.goto(`${base}${ruta}`, { waitUntil: "load" });
+          await pagina.goto(`${base}${ruta.replace(MARCADOR_TOKEN_MAX, tokenSembrado(FOLIO_EN_CURSO))}`, { waitUntil: "load" });
           await esperarRecursos(pagina);
           if (entrada.preparar) {
             await entrada.preparar(pagina, { base });

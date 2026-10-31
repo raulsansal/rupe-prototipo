@@ -20,7 +20,7 @@ import { TOKENS_FIJOS, tokensDeterministas } from "./lib/tokensQr";
 import { fetchComo, reiniciarDatos } from "./sesion-pruebas";
 
 const PUERTO = 3113;
-const BASE_PUBLICA = "https://nombre-largo.vercel.app"; // base larga: la URL del QR mide ≈ 70 caracteres con la ruta y el token
+const BASE_PUBLICA = process.argv.find((a) => a.startsWith("--base-publica="))?.slice(15) ?? "https://nombre-largo.vercel.app"; // --base-publica=https://… mide el QR con una base de otro largo (p. ej. la del túnel de la demostración) // base larga: la URL del QR mide ≈ 70 caracteres con la ruta y el token
 const baseExterna = process.argv.find((a) => a.startsWith("--base="))?.split("=")[1];
 const base = baseExterna ?? `http://localhost:${PUERTO}`;
 const imagenes = process.argv.find((a) => a.startsWith("--imagenes="))?.split("=")[1];
@@ -171,7 +171,7 @@ async function main() {
       }
     }
     const n = 17 + 4 * versionMaxima;
-    console.log(`\n  ℹ QR con base larga (URL de 70 caracteres): versión máxima encontrada ${versionMaxima} (${n} módulos; según el contenido del token sale 4 o 5); módulo impreso mínimo: Carta ${((QR_SIMBOLO_CM.carta * 10) / n).toFixed(2)} mm, Media carta ${((QR_SIMBOLO_CM["media-carta"] * 10) / n).toFixed(2)} mm`);
+    console.log(`\n  ℹ QR con base larga (URL de ${BASE_PUBLICA.length + 39} caracteres): versión máxima encontrada ${versionMaxima} (${n} módulos; según el contenido del token sale 4 o 5); módulo impreso mínimo: Carta ${((QR_SIMBOLO_CM.carta * 10) / n).toFixed(2)} mm, Media carta ${((QR_SIMBOLO_CM["media-carta"] * 10) / n).toFixed(2)} mm`);
     ver(versionMaxima <= 5, "la versión del QR no pasa de 5 (37 módulos), la del cálculo del tamaño impreso", `la versión del QR llegó a ${versionMaxima}`);
 
     // 2) Regenerar: el PDF cambia de token y el enlace para compartir (folio) no.

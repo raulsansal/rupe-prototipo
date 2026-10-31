@@ -13,6 +13,7 @@ import { avistamientosDelCaso, casosDeLaPersonaTutora } from "./mocks-de-prueba"
 import { AVISTAMIENTOS, FOLIO_CON_AVISTAMIENTOS, FOLIO_UN_AVISTAMIENTO, FOTO_SENSIBLE } from "../src/mocks/avistamientos";
 import { CASOS_ORIGEN, FOLIO_EN_CURSO, FOLIO_NUEVO, valoresReservados } from "../src/mocks/casos";
 import { CLAVE_TEMA } from "../src/lib/tema";
+import { hayTokenDe, precargarTokens, tokenSembrado } from "./lib/tokenDeFicha";
 import { agregarSesion, credencial, fetchComo, reiniciarDatos, rolDeRuta, type RolPrueba } from "./sesion-pruebas";
 
 const PUERTO = 3106;
@@ -525,7 +526,7 @@ async function fugas(navegador: Browser) {
     for (const ruta of rutas(o.folio)) {
       const html = sinIdentidad(await (await fetchComo(base, rolDeRuta(ruta), ruta)).text(), o.tutor.nombreCompleto);
       comprobaciones++;
-      const dentro = [...reservados, o.tokenPublico, ...reservadosAvistamientos].filter((v) => html.includes(v));
+      const dentro = [...reservados, ...(hayTokenDe(o.folio) ? [tokenSembrado(o.folio)] : []), ...reservadosAvistamientos].filter((v) => html.includes(v));
       if (dentro.length) {
         filtradas++;
         console.log(`✗ fuga en ${ruta.replace(o.folio, "<folio>")} de ${o.folio}: ${dentro.length} valor(es) reservado(s), de la persona tutora o el token`);
@@ -538,7 +539,7 @@ async function fugas(navegador: Browser) {
   const max = CASOS_ORIGEN[0];
   const detalleHtml = sinIdentidad(await (await fetchComo(base, "tutor1", `/tutor/casos/${max.folio}`)).text(), max.tutor.nombreCompleto);
   ver(detalleHtml.includes(max.direccionAproximada!) && detalleHtml.includes(max.referenciasDelLugar!) && detalleHtml.includes(max.motivo) && detalleHtml.includes(max.descripcionCircunstancias!), "control: TUT-05 sí muestra a su dueña los reservados del caso (la búsqueda de fugas los detecta)", "control: TUT-05 no muestra los reservados");
-  ver(![max.tutor.nombreCompleto, credencial("tutor1").correo, max.tutor.telefono, max.tokenPublico, ...reservadosAvistamientos].some((v) => detalleHtml.includes(v)), "TUT-05 no contiene su nombre, correo ni teléfono, el token del QR ni los datos reservados de avistamientos", "TUT-05 filtra datos de la persona tutora, el token o reservados de avistamientos");
+  ver(![max.tutor.nombreCompleto, credencial("tutor1").correo, max.tutor.telefono, tokenSembrado(max.folio), ...reservadosAvistamientos].some((v) => detalleHtml.includes(v)), "TUT-05 no contiene su nombre, correo ni teléfono, el token del QR ni los datos reservados de avistamientos", "TUT-05 filtra datos de la persona tutora, el token o reservados de avistamientos");
   const fichaHtml = await (await fetchComo(base, "tutor1", `/tutor/casos/${max.folio}/ficha`)).text();
   ver(fichaHtml.includes(max.folio) && fichaHtml.includes(max.coloniaZona), "control: la vista previa sí contiene los campos públicos (folio, colonia)", "control: la vista previa no trae los campos públicos");
 
@@ -1195,6 +1196,7 @@ async function main() {
     if (servidor) await esperarServidor(servidor);
     // Datos limpios: «Mis registros» lee el almacén real y los casos creados por una corrida anterior (p. ej. «Canela») cambiarían sus conteos.
     await reiniciarDatos(base);
+    await precargarTokens(base); // tokens aleatorios por arranque: se leen como los lee la persona dueña (pantalla de su ficha)
     navegador = await abrirNavegador();
     const nav = navegador;
     const solo = process.argv.find((x) => x.startsWith("--solo="))?.split("=")[1];

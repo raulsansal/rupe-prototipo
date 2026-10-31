@@ -21,6 +21,7 @@ import { JPEG_REAL } from "../src/server/pruebas/imagenes";
 import { elegirImagenGenerada, registrarPorLaInterfaz } from "./imagenes-pruebas";
 import { filasDeHoja, leerXlsx } from "./lib/leerXlsx";
 import { textoDePdf } from "./lib/textoPdf";
+import { precargarTokens, tokensPrecargados } from "./lib/tokenDeFicha";
 import { agregarSesion, credencial, fetchComo, NOMBRE_COOKIE, olvidarSesiones, reiniciarDatos, rolDeRuta, valorDeSesion, type RolPrueba } from "./sesion-pruebas";
 import { BITACORA, ENTIDAD_DE_TIPO, TIPOS_ACCION } from "../src/mocks/bitacora";
 import { esDeshabilitado } from "../src/lib/moderacion";
@@ -802,7 +803,7 @@ async function moderacionRegistros(navegador: Browser) {
   ver(enPaginas.length === 0, `datos del Administrador: ninguna llave interna (${prohibidas.join(", ")}) viaja en el HTML ni en los datos de Next de las 5 pantallas de moderación y bitácora`, `llaves internas en: ${enPaginas.join(" | ")}`);
   // Nada de la persona tutora ni el token del QR viajan al navegador en ninguna pantalla de moderación; los reservados, solo en el detalle.
   const tutor = CASOS_ORIGEN[0].tutor;
-  const secretosTutor = [tutor.nombreCompleto, tutor.correo, tutor.telefono, credencial("tutor1").correo, ...CASOS_ORIGEN.map((c) => c.tokenPublico)];
+  const secretosTutor = [tutor.nombreCompleto, tutor.correo, tutor.telefono, credencial("tutor1").correo, ...tokensPrecargados()];
   const reservadosDe = (c: (typeof CASOS_MODERACION)[number]) => [c.direccionAproximada, c.referenciasDelLugar, c.descripcionCircunstancias].filter((v): v is string => Boolean(v));
   const fugasTutor: string[] = [];
   for (const ruta of [REGISTROS_RUTA, ...CASOS_MODERACION.map((c) => `${REGISTROS_RUTA}/${c.folio}`), "/admin/avistamientos", "/admin/avistamientos?detalle=102", "/admin/bitacora"]) {
@@ -1355,7 +1356,8 @@ async function sinDatosDeUsuarios() {
 
 
 // ---------- Bloque 5c: ADM-02 reportes, ADM-10 estados del caso, ADM-11 parámetros y ADM-12 bitácora ----------
-const SECRETOS_TUTOR_5C = [...USUARIOS_INICIALES.filter((u) => u.rol === "Tutor").flatMap((u) => [u.nombreCompleto, u.correo]), CASOS_ORIGEN[0].tutor.nombreCompleto, CASOS_ORIGEN[0].tutor.correo, CASOS_ORIGEN[0].tutor.telefono, ...CASOS_ORIGEN.map((c) => c.tokenPublico)];
+const SECRETOS_TUTOR_5C_BASE = [...USUARIOS_INICIALES.filter((u) => u.rol === "Tutor").flatMap((u) => [u.nombreCompleto, u.correo]), CASOS_ORIGEN[0].tutor.nombreCompleto, CASOS_ORIGEN[0].tutor.correo, CASOS_ORIGEN[0].tutor.telefono];
+const secretosTutor5c = () => [...SECRETOS_TUTOR_5C_BASE, ...tokensPrecargados()]; // los tokens del QR son aleatorios: se leen al arrancar (precargarTokens)
 const filasDe = (p: Page, titulo: string) =>
   p.locator("figure", { has: p.getByRole("heading", { name: titulo, exact: true }) }).locator("tbody tr").evaluateAll((trs) => trs.map((tr) => [tr.querySelector("th")!.textContent!.trim(), tr.querySelector("td")!.textContent!.trim()]));
 const comoFilas = (barras: { nombre: string; valor: number }[]) => barras.map((b) => [b.nombre, String(b.valor)]);
@@ -1467,7 +1469,7 @@ async function reportes(navegador: Browser) {
   const htmlGenerado = await pagina.content();
   await contexto.close();
   const html = await (await fetchComo(base, "admin", "/admin/reportes")).text();
-  ver(SECRETOS_TUTOR_5C.every((v) => !html.includes(v) && !htmlGenerado.includes(v)), "ADM-02: ningún dato de la persona tutora (nombre, correo, teléfono, token) en la página ni en el resultado generado", "ADM-02: hay datos de la persona tutora");
+  ver(secretosTutor5c().every((v) => !html.includes(v) && !htmlGenerado.includes(v)), "ADM-02: ningún dato de la persona tutora (nombre, correo, teléfono, token) en la página ni en el resultado generado", "ADM-02: hay datos de la persona tutora");
 }
 
 async function estadosDelCaso(navegador: Browser) {
@@ -1582,7 +1584,7 @@ async function parametros(navegador: Browser) {
   ver((fuente.match(/EXTENSIÓN OPCIONAL a validar con Raúl/g) ?? []).length >= 3 && !readFileSync("src/lib/parametros.ts", "utf8").includes("EXTENSIÓN"), "MOD-12 aislado: marcado con «EXTENSIÓN OPCIONAL a validar con Raúl» en su archivo y en el botón, fuera de la lógica de validación", "MOD-12: no está aislado o marcado");
   await contexto.close();
   const html = await (await fetchComo(base, "admin", "/admin/parametros")).text();
-  ver(SECRETOS_TUTOR_5C.every((v) => !html.includes(v)), "ADM-11: ningún dato de la persona tutora en la página", "ADM-11: hay datos de la persona tutora");
+  ver(secretosTutor5c().every((v) => !html.includes(v)), "ADM-11: ningún dato de la persona tutora en la página", "ADM-11: hay datos de la persona tutora");
 }
 
 // ---------- flujos de punta a punta con la interfaz real ----------
@@ -1974,7 +1976,7 @@ async function bitacora(navegador: Browser) {
   const filasN = await filasDeBitacora(pagina);
   ver(filasN.length === 8 && filasN[0][2] === "cambiar rol" && /\(6\)$/.test(filasN[0][4]) && filasN[0][6] === "Tutor → Administrador" && filasN[0][7] === "Ricardo Vega Ficticio" && filasN[1][2] === "ocultar avistamiento" && /^Avistamiento 101 · RUPE-[A-Z0-9]{8}$/.test(filasN[1][4]) && filasN[1][5] === "Contiene un dato de contacto." && filasN[2][2] === "deshabilitar caso" && filasN[2][4] === "RUPE-K7M4XQ9T" && filasN[2][5] === "Prueba de la bitácora." && (await pagina.getByText("de 33 acciones").isVisible()) && (await pagina.getByText("Página 1 de 5").isVisible()), "la bitácora creció: 33 acciones en 5 páginas y las 3 nuevas van arriba (folio como entidad del caso, «Avistamiento 101 · folio», nombre y id del usuario, motivo, «Tutor → Administrador» y quién la ejecutó)", `la bitácora no reflejó las acciones: ${JSON.stringify(filasN.slice(0, 3))}`);
   const htmlB = await (await fetchComo(base, "admin", "/admin/bitacora")).text();
-  const correos = [...USUARIOS_INICIALES.map((u) => u.correo), credencial("tutor1").correo, credencial("tutor2").correo, CASOS_ORIGEN[0].tutor.telefono, ...CASOS_ORIGEN.map((c) => c.tokenPublico)];
+  const correos = [...USUARIOS_INICIALES.map((u) => u.correo), credencial("tutor1").correo, credencial("tutor2").correo, CASOS_ORIGEN[0].tutor.telefono, ...tokensPrecargados()];
   ver(correos.every((v) => !htmlB.includes(v)) && !htmlB.includes("@example.org") && !/vistoPorTutora|relevante|ubicacionSimulada/.test(htmlB), "ADM-12: ningún correo, teléfono ni token de la persona tutora, ni marcas internas, en la página (solo el nombre del usuario como entidad de la acción)", "ADM-12: hay datos de la persona tutora o marcas internas");
   await contexto.close();
 }
@@ -2500,6 +2502,7 @@ async function main() {
   let navegador: Browser | undefined;
   try {
     if (servidor) await esperarServidor(servidor);
+    await precargarTokens(base); // tokens aleatorios por arranque: se leen como los lee la persona dueña (pantalla de su ficha)
     navegador = await abrirNavegador();
     const solo = process.argv.find((a) => a.startsWith("--solo="))?.split("=")[1]?.split(",");
     // Cada sección corre con sus conteos; las que usan datos reales parten de datos REINICIADOS (cada una deja su rastro y la siguiente no lo hereda).
