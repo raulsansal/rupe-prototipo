@@ -1,6 +1,6 @@
 // Comprobación PREVIA a la demostración: ¿el sistema está listo? Solo lectura y operaciones inofensivas (no crea casos, cuentas ni avistamientos; no sube fotos).
 //   npm run verificar-demo -- https://<direccion-publica>                         modo PÚBLICO: peticiones a la dirección real (cabecera X-Tunnel-Skip-AntiPhishing-Page para el aviso del túnel)
-//   npm run verificar-demo -- https://<direccion-publica> --local=http://localhost:3000   modo LOCAL: el servidor local recibe Host localhost y Origin público, SIN x-forwarded-* (el peor caso de un túnel)
+//   npm run verificar-demo -- https://<direccion-publica> --local=http://localhost:3000   modo LOCAL: simula EXACTAMENTE lo medido en el túnel (Host localhost, Origin http://localhost, x-forwarded-host público, x-forwarded-proto https y -port 443) y comprueba que otro x-forwarded-host da 403
 // Con la dirección omitida se usa RUPE_URL_PUBLICA. Inicia sesión como Administrador UNA vez (y la cierra) para no acercarse al bloqueo de la cuenta. Nunca imprime cookies ni credenciales.
 import http from "node:http";
 import https from "node:https";
@@ -34,6 +34,11 @@ function pedir(ruta: string, { metodo = "GET", cabeceras = {}, cuerpo }: { metod
 }
 /** En modo local simula lo que ve el servidor detrás de un túnel que no reenvía el host original: Host localhost (el de verdad) y Origin público. */
 const origen = publica;
+/**
+ * Lo que MIDE el túnel real de VS Code: Host localhost:<puerto>, Origin REESCRITO a http://localhost:<puerto> (solo cuando era su propia dirección pública), x-forwarded-host público,
+ * x-forwarded-proto https y x-forwarded-port 443. En modo local se simula exactamente eso; en modo público lo hace el túnel de verdad (el script solo envía Origin = dirección pública).
+ */
+const cabTunel = (extra: Record<string, string> = {}): Record<string, string> => ({ Origin: `http://${destino.host}`, "x-forwarded-host": new URL(publica).host, "x-forwarded-proto": "https", "x-forwarded-port": "443", ...extra });
 const post = (ruta: string, cuerpo = "{}", extra: Record<string, string> = {}) => pedir(ruta, { metodo: "POST", cabeceras: { Origin: origen, ...extra }, cuerpo });
 
 let total = 0;
@@ -86,8 +91,8 @@ async function main() {
   let cookieAdmin: string | undefined;
   await en("Inicio de sesión del Administrador (una sola vez)", async () => {
     const c = credencial("admin");
-    const r = await post("/api/acceso/iniciar", JSON.stringify({ correo: c.correo, contrasena: c.contrasena }));
-    ver(r.estado === 200, "POST /api/acceso/iniciar con Origin público: 200", `${r.estado} ${r.texto.slice(0, 100)}`);
+    const r = await post("/api/acceso/iniciar", JSON.stringify({ correo: c.correo, contrasena: c.contrasena }), local ? cabTunel() : {});
+    ver(r.estado === 200, local ? "POST /api/acceso/iniciar con las cabeceras medidas en el túnel (Origin http://localhost, x-forwarded-host público, x-forwarded-proto https): 200" : "POST /api/acceso/iniciar con Origin público (el túnel lo reescribe): 200", `${r.estado} ${r.texto.slice(0, 100)}`);
     const sc = (r.cabeceras["set-cookie"] ?? []).find((x) => x.startsWith("rupe_sesion="));
     cookieAdmin = sc?.split(";")[0];
     const a = atributos(r);
@@ -114,6 +119,17 @@ async function main() {
     const malo = await post("/api/acceso/cerrar", "{}", { Origin: "https://sitio-ajeno.example" });
     ver(malo.estado === 403 && /ORIGEN_NO_PERMITIDO/.test(malo.texto), "el mismo POST con Origin ajeno: 403 ORIGEN_NO_PERMITIDO", `${malo.estado}`);
   });
+
+  if (local) {
+    await en("Origin reescrito por el túnel (simulado, solo modo local)", async () => {
+      const bueno = await post("/api/acceso/cerrar", "{}", cabTunel());
+      ver(bueno.estado < 400, "POST cerrar sesión con Host localhost, Origin http://localhost:<puerto>, x-forwarded-host público y x-forwarded-proto https: aceptado", `${bueno.estado} ${bueno.texto.slice(0, 100)}`);
+      const otroHost = await post("/api/acceso/cerrar", "{}", cabTunel({ "x-forwarded-host": "otra-persona-3000.usw3.devtunnels.ms" }));
+      ver(otroHost.estado === 403 && /ORIGEN_NO_PERMITIDO/.test(otroHost.texto), "el mismo Origin con x-forwarded-host de OTRO host: 403 ORIGEN_NO_PERMITIDO", `${otroHost.estado}`);
+      const cruzado = await post("/api/acceso/cerrar", "{}", cabTunel({ "Sec-Fetch-Site": "cross-site" }));
+      ver(cruzado.estado === 403 && /ORIGEN_NO_PERMITIDO/.test(cruzado.texto), "el mismo Origin pedido desde otra página (Sec-Fetch-Site cross-site): 403 ORIGEN_NO_PERMITIDO", `${cruzado.estado}`);
+    });
+  }
 
   await en("Rutas protegidas y herramientas de desarrollo", async () => {
     const r = await pedir("/tutor?x=1");

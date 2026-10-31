@@ -1182,7 +1182,7 @@ async function main() {
     if (!process.argv.includes("--sin-build")) {
       if (spawnSync("npx", ["next", "build"], { stdio: "inherit" }).status !== 0) throw new Error("Falló next build");
     }
-    servidor = spawn("npx", ["next", "start", "-p", String(PUERTO)], { stdio: "ignore", detached: true, env: { ...process.env, RUPE_PERMITIR_REINICIO: "1" } });
+    servidor = spawn("npx", ["next", "start", "-p", String(PUERTO)], { stdio: "ignore", detached: true, env: { ...process.env, RUPE_PERMITIR_REINICIO: "1", RUPE_URL_PUBLICA: "" } });
   }
   const apagar = () => {
     try {

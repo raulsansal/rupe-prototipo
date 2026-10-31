@@ -168,7 +168,7 @@ async function main() {
     cwd: raiz,
     stdio: "ignore",
     detached: true, // grupo propio para poder apagar también al proceso hijo
-    env: { ...process.env, RUPE_PERMITIR_REINICIO: "1" }, // para reiniciar los datos (si no, el reinicio falla)
+    env: { ...process.env, RUPE_PERMITIR_REINICIO: "1", RUPE_URL_PUBLICA: "" }, // para reiniciar los datos (si no, el reinicio falla)
   });
   const apagar = () => {
     try {

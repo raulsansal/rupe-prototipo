@@ -438,10 +438,52 @@ async function detrasDeUnTunel(base4: string) {
   }
 }
 
+/**
+ * Lo que MIDE el túnel real (Dev Tunnels): Host localhost:<puerto>, Origin REESCRITO a http://localhost:<puerto>, x-forwarded-host público, x-forwarded-proto https y x-forwarded-port 443.
+ * Se acepta solo con las cuatro condiciones de `exigirMismoOrigen`; cualquier otra variante sigue en 403. `baseSinVariable` es un servidor SIN RUPE_URL_PUBLICA.
+ */
+async function origenReescritoPorElTunel(base4: string, baseSinVariable: string | undefined) {
+  console.log("\n— Origin reescrito por el túnel (cabeceras medidas en el túnel real) —");
+  const host = new URL(base4).host;
+  const publico = new URL(URL_PUBLICA_FICTICIA).host;
+  const tunel = (cambios: Record<string, string | null> = {}, destino = base4, ruta = "/api/acceso/cerrar", cuerpo = "{}") => {
+    const h: Record<string, string> = { "Content-Type": "application/json", Origin: `http://${new URL(destino).host}`, "x-forwarded-host": publico, "x-forwarded-proto": "https", "x-forwarded-port": "443" };
+    for (const [k, v] of Object.entries(cambios)) if (v === null) delete h[k]; else h[k] = v;
+    return fetch(`${destino}${ruta}`, { method: "POST", headers: h, body: cuerpo, redirect: "manual" });
+  };
+  const bien = [await tunel(), await tunel({ "Sec-Fetch-Site": "same-origin" })];
+  total++;
+  if (bien.every((r) => r.status < 400)) console.log(`✓ Host ${host} + Origin http://${host} + x-forwarded-host público + x-forwarded-proto https (Sec-Fetch-Site ausente y same-origin): aceptado (${bien.map((r) => r.status).join(", ")})`);
+  else { fallos++; console.log(`✗ el Origin reescrito por el túnel debía aceptarse → ${bien.map((r) => r.status).join(", ")}`); }
+  const mal: Array<[string, Response]> = [
+    ["Sec-Fetch-Site cross-site", await tunel({ "Sec-Fetch-Site": "cross-site" })],
+    ["Sec-Fetch-Site same-site", await tunel({ "Sec-Fetch-Site": "same-site" })],
+    ["x-forwarded-host de otro host", await tunel({ "x-forwarded-host": "otra-persona-3000.usw3.devtunnels.ms" })],
+    ["x-forwarded-proto http", await tunel({ "x-forwarded-proto": "http" })],
+    ["Origin con otro puerto", await tunel({ Origin: "http://localhost:3999" })],
+    ["Origin «null»", await tunel({ Origin: "null" })],
+    ["Origin ajeno", await tunel({ Origin: "https://sitio-ajeno.example" })],
+    ["Origin https del túnel de otra persona", await tunel({ Origin: "https://otra-persona-3000.usw3.devtunnels.ms" })],
+  ];
+  if (baseSinVariable) mal.push(["servidor SIN RUPE_URL_PUBLICA", await tunel({}, baseSinVariable)]);
+  const noRechazados = mal.filter(([, r]) => r.status !== 403).map(([n, r]) => `${n} → ${r.status}`);
+  total++;
+  if (noRechazados.length === 0) console.log(`✓ con una condición rota siguen en 403: ${mal.map(([n]) => n).join("; ")}`);
+  else { fallos++; console.log(`✗ debían dar 403: ${noRechazados.join("; ")}`); }
+  // Inicio de sesión con esas cabeceras: la cookie debe salir con Secure (el servidor ve https por x-forwarded-proto).
+  const c = credencial("admin");
+  const login = await tunel({}, base4, "/api/acceso/iniciar", JSON.stringify({ correo: c.correo, contrasena: c.contrasena }));
+  const cookie = login.headers.getSetCookie().find((x) => x.startsWith(`${NOMBRE_COOKIE}=`)) ?? "";
+  const attrs = cookie.split(";").slice(1).map((x) => x.trim().toLowerCase());
+  total++;
+  if (login.status === 200 && ["secure", "httponly", "samesite=lax", "path=/"].every((a) => attrs.includes(a))) console.log("✓ inicio de sesión con las cabeceras del túnel: 200 y cookie con Secure, HttpOnly, SameSite=Lax y Path=/");
+  else { fallos++; console.log(`✗ inicio de sesión con cabeceras del túnel: HTTP ${login.status}, atributos: ${attrs.join("; ")}`); }
+}
+
 /** Entorno de los servidores de prueba SIN RUPE_URL_PUBLICA (la pone el .env.local de cada persona): así el respaldo de hosts locales se prueba igual en todas las máquinas. */
 function entornoSinUrlPublica(extra: Record<string, string>): NodeJS.ProcessEnv {
   const e: NodeJS.ProcessEnv = { ...process.env, ...extra };
-  delete e.RUPE_URL_PUBLICA;
+  e.RUPE_URL_PUBLICA = ""; // vacía (no «borrada»): Next también lee .env.local, y ahí la persona puede tener la dirección de su túnel
   return e;
 }
 
@@ -488,6 +530,7 @@ async function main() {
     if (servidor4) {
       await esperarServidor(servidor4, base4);
       await detrasDeUnTunel(base4);
+      await origenReescritoPorElTunel(base4, servidor2 ? base2 : undefined);
     }
   } finally {
     apagar();

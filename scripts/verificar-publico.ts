@@ -313,7 +313,7 @@ async function main() {
   let servidor: ChildProcess | undefined;
   if (!baseExterna) {
     if (!process.argv.includes("--sin-build") && spawnSync("npx", ["next", "build"], { stdio: "ignore" }).status !== 0) throw new Error("Falló next build");
-    const env: NodeJS.ProcessEnv = { ...process.env, RUPE_PERMITIR_REINICIO: "1" };
+    const env: NodeJS.ProcessEnv = { ...process.env, RUPE_PERMITIR_REINICIO: "1", RUPE_URL_PUBLICA: "" };
     delete env.RUPE_URL_PUBLICA; // el respaldo de hosts locales: el QR de la ficha de la dueña apunta a http://localhost:<puerto>
     servidor = spawn("npx", ["next", "start", "-p", String(PUERTO)], { stdio: "ignore", detached: true, env });
   }
