@@ -95,11 +95,6 @@ export function aFichaPublica(c: CasoOrigen): FichaPublica {
   };
 }
 
-/** ¿Acepta avistamientos? Un caso «Localizado» o «Cerrado» no (R13). */
-export function aceptaAvistamientos(estado: EstadoCaso): boolean {
-  return estado !== "Localizado" && estado !== "Cerrado";
-}
-
 /** Texto de cada reservado del origen, para la verificación: si aparece en el HTML de la ficha, hay una fuga. */
 export function valoresReservados(c: CasoOrigen): string[] {
   return [c.direccionAproximada, c.referenciasDelLugar, c.descripcionCircunstancias, c.motivo, c.tutor.nombreCompleto, c.tutor.correo, c.tutor.telefono].filter((v): v is string => Boolean(v));

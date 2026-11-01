@@ -185,7 +185,7 @@ async function armazon(navegador: Browser) {
     const r = await pagina.goto(`${base}${h}`, { waitUntil: "load" });
     const t = await pagina.locator("main").innerText();
     const activo = await pagina.locator("aside").getByRole("link", { name: etiqueta, exact: true }).first().getAttribute("aria-current");
-    if (r?.status() !== 200 || /Esta pantalla se construye en un bloque posterior/.test(t) || (await pagina.locator("main h1").count()) !== 1 || activo !== "page") malos.push(`${h} → ${r?.status()} ${activo}`);
+    if (r?.status() !== 200 || /Esta función estará disponible en una etapa posterior del proyecto/.test(t) || (await pagina.locator("main h1").count()) !== 1 || activo !== "page") malos.push(`${h} → ${r?.status()} ${activo}`);
   }
   ver(hrefs.length === 12 && malos.length === 0, `menú: las ${hrefs.length} opciones llevan a pantallas reales (sin «Pantalla pendiente»), con la opción activa resaltada`, `menú: ${malos.join("; ")}`);
   const x = await pagina.goto(`${base}/admin/no-existe`, { waitUntil: "load" });

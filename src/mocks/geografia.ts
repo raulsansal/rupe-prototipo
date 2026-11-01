@@ -68,13 +68,3 @@ export function alcaldiaDeCoordenadas(c: Coordenadas): AlcaldiaAvistamiento {
   return mejor && menor <= RADIO_MAXIMO ? mejor : FUERA_DE_LA_CIUDAD;
 }
 
-/** Punto sugerido para una dirección escrita: el centro de la alcaldía elegida, con un pequeño desplazamiento fijo. */
-export function coordenadasSugeridas(alcaldia: Alcaldia): Coordenadas {
-  const c = CENTROS[alcaldia];
-  return { latitud: Math.round((c.latitud + 0.004) * 1e6) / 1e6, longitud: Math.round((c.longitud - 0.003) * 1e6) / 1e6 };
-}
-
-/** Lectura de «Usar mi ubicación» en la maqueta cuando el navegador entrega una posición fuera de la ilustración. */
-export function dentroDeLaIlustracion({ latitud, longitud }: Coordenadas): boolean {
-  return latitud >= LIMITES.sur && latitud <= LIMITES.norte && longitud >= LIMITES.oeste && longitud <= LIMITES.este;
-}

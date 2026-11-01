@@ -58,6 +58,3 @@ export type CategoriaEstadoAnimal = { idCategoriaEstadoAnimal: number; nombre: s
 export type EstadoAnimal = { idEstadoAnimal: number; idCategoriaEstadoAnimal: number; nombre: string; descripcion: string; estatus: 0 | 1 };
 export type EstadoCasoCat = { idEstadoCaso: number; nombre: string; orden: number };
 export type ParametroSistema = { clave: "version_aviso_privacidad" | "expiracion_token_minutos" | "tamano_maximo_archivo_mb"; descripcion: string; valor: string; valorPorDefecto: string };
-
-export const ROL_ADMINISTRADOR = 1;
-export const ROL_TUTOR = 2;

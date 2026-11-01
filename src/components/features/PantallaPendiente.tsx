@@ -23,7 +23,7 @@ export function PantallaPendiente({ href, etiquetaVolver, pantalla }: Props) {
         </Link>
       }
     >
-      <p className="text-body text-text-muted">Esta pantalla se construye en un bloque posterior.</p>
+      <p className="text-body text-text-muted">Esta función estará disponible en una etapa posterior del proyecto.</p>
     </PantallaMensaje>
   );
 }

@@ -27,8 +27,5 @@ export function aFichaPublica(caso: CasoExtravio, perro: Perro, foto: Fotografia
 /** Consulta de estatus por folio (HU 038): estatus y fecha del último cambio, sin datos de la persona tutora. */
 export const aConsultaEstatus = (folio: string, estado: FichaPublica["estado"], fechaCambioEstado: string) => ({ folio, estado, fechaCambioEstado });
 
-/** Lo único que recibe quien reporta un avistamiento: el folio y cuándo se recibió. Todas las columnas del avistamiento son reservadas. */
-export const aConfirmacionAvistamiento = (folio: string, fechaHoraEnvio: string) => ({ folio, fechaHoraEnvio });
-
 /** Confirmación de un reporte (HU 035): el ID del avistamiento, el folio y cuándo se recibió. Nunca el token, la ubicación ni nada de la persona tutora. */
 export const aConfirmacionDeReporte = (id: number, folio: string, fechaHoraEnvio: string) => ({ id, folio, fechaHoraEnvio });

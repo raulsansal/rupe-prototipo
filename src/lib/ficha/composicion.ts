@@ -51,10 +51,6 @@ export const QR_SIMBOLO_CM: Record<TamanoHoja, number> = { carta: 3.6, "media-ca
 export const MODULOS_ZONA_DE_SILENCIO = 4;
 export const PT_POR_CM = 72 / 2.54;
 
-const mm = (pt: number) => Math.round(pt * 100) / 100;
-/** Altura (pt) de un texto de `lineas` líneas. */
-export const altoDeTexto = (e: EstiloTexto, lineas: number) => mm(e.tam * e.interlinea * lineas);
-
 /** Geometría Carta (apilada, bloque inferior en DOS columnas): encabezado, título, zona de la fotografía, banda de texto + QR y pie. */
 const CARTA = {
   encabezado: 22,

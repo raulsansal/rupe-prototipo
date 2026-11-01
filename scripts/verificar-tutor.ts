@@ -691,7 +691,7 @@ async function consultarFolio(navegador: Browser) {
   const { contexto, pagina } = await nuevaPagina(navegador);
   await irA(pagina, "/tutor/consultar-folio");
   const texto = await textoDeMain(pagina);
-  ver((await pagina.getByRole("heading", { level: 1, name: "Consultar folio" }).isVisible()) && !/Esta pantalla se construye en un bloque posterior/.test(texto) && (await pagina.locator("header").count()) >= 1 && (await boton(pagina, "Consultar folio").isVisible()) && (await boton(pagina, "Limpiar").isVisible()), "HU 038 /tutor/consultar-folio: pantalla real con «Consultar folio» y «Limpiar», dentro de la plantilla de la tutora (ya no es pantalla pendiente)", "consultar-folio sigue pendiente o sin sus botones");
+  ver((await pagina.getByRole("heading", { level: 1, name: "Consultar folio" }).isVisible()) && !/Esta función estará disponible en una etapa posterior del proyecto/.test(texto) && (await pagina.locator("header").count()) >= 1 && (await boton(pagina, "Consultar folio").isVisible()) && (await boton(pagina, "Limpiar").isVisible()), "HU 038 /tutor/consultar-folio: pantalla real con «Consultar folio» y «Limpiar», dentro de la plantilla de la tutora (ya no es pantalla pendiente)", "consultar-folio sigue pendiente o sin sus botones");
   const campo = pagina.getByRole("textbox", { name: "Folio" });
   await boton(pagina, "Consultar folio").click();
   ver((await campo.getAttribute("aria-invalid")) === "true" && /Escribe el folio/.test(await textoDescrito(campo)), "consultar folio vacío: error asociado al campo", "consultar folio vacío sin error");
@@ -746,7 +746,7 @@ async function enlacesInternos(navegador: Browser) {
   for (const [ruta, volver, destino] of [["/recuperar-contrasena", "Volver a iniciar sesión", "/acceso"], [`${CASO}/editar`, "Regresar al detalle del caso", CASO], [`${CASO}/notificaciones`, "Regresar al detalle del caso", CASO], ["/tutor/avistamientos", "Ir a mis registros", "/tutor"]] as const) {
     const r = await p.pagina.goto(`${base}${ruta}`, { waitUntil: "load" });
     const t = await p.pagina.locator("main").innerText();
-    ver(r?.status() === 200 && /Esta pantalla se construye en un bloque posterior/.test(t) && (await enlace(p.pagina, volver).getAttribute("href")) === destino, `${ruta}: PantallaPendiente con «${volver}»`, `${ruta}: HTTP ${r?.status()} o sin mensaje de pantalla pendiente`);
+    ver(r?.status() === 200 && /Esta función estará disponible en una etapa posterior del proyecto/.test(t) && (await enlace(p.pagina, volver).getAttribute("href")) === destino, `${ruta}: PantallaPendiente con «${volver}»`, `${ruta}: HTTP ${r?.status()} o sin mensaje de pantalla pendiente`);
   }
   const ajeno = await p.pagina.goto(`${base}/tutor/casos/RUPE-Z5C6VR4P/editar`, { waitUntil: "load" });
   ver(ajeno?.status() === 404, "una pantalla pendiente de un folio ajeno responde 404", `folio ajeno en pantalla pendiente: HTTP ${ajeno?.status()}`);

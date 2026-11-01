@@ -33,8 +33,6 @@ export const ENTIDAD_DE_TIPO: Record<TipoAccion, Entidad> = {
 };
 /** El motivo solo existe al deshabilitar un caso y al ocultar un avistamiento (regla 4). */
 export const TIPOS_CON_MOTIVO: readonly TipoAccion[] = ["deshabilitar caso", "ocultar avistamiento"];
-/** El detalle solo existe en cambios de rol, de parámetros y de catálogos: «anterior → nuevo», o solo el nombre del valor nuevo en un alta. */
-export const TIPOS_CON_DETALLE: readonly TipoAccion[] = ["cambiar rol", "modificar parámetro", "alta de catálogo", "edición de catálogo", "desactivación de catálogo"];
 
 export type AccionBitacora = {
   id: number;
@@ -86,5 +84,3 @@ export const BITACORA: readonly AccionBitacora[] = [...SEMILLAS]
   .sort((a, b) => a.fechaHora.localeCompare(b.fechaHora))
   .map((s, i): AccionBitacora => ({ ...s, id: i + 1, entidad: ENTIDAD_DE_TIPO[s.tipo] }))
   .reverse();
-
-export const FECHA_PRIMERA_ACCION = "2026-06-18";

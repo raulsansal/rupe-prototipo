@@ -118,7 +118,6 @@ export const AVISTAMIENTOS_MODERACION: readonly AvistamientoAdmin[] = [...AVISTA
 
 export const ID_AVISTAMIENTO_FALLECIDO = AVISTAMIENTOS.find(esFallecido)!.id;
 export const ID_AVISTAMIENTO_VISIBLE = 201;
-export const ID_AVISTAMIENTO_OCULTO = 105;
 export { FOTO_SENSIBLE };
 
 if (process.env.NODE_ENV !== "production") {
