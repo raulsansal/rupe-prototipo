@@ -35,6 +35,16 @@ export function validarBase(valor: string): string | undefined {
   return u.origin;
 }
 
+/**
+ * ¿Está el sitio expuesto con su dirección pública (demostración por túnel)? Es la propia `RUPE_URL_PUBLICA`: definida, válida y https. En ese caso se neutralizan las variantes del
+ * maquetado que muestran algo distinto del estado real (`?estado=` de la ficha pública) y las pantallas de `/dev`. Sin la variable (o con http local) todo sigue como en pruebas y capturas.
+ */
+export function esSitioPublico(entorno: Record<string, string | undefined> = process.env): boolean {
+  const v = entorno[VARIABLE_URL_PUBLICA]?.trim();
+  const base = v ? validarBase(v) : undefined;
+  return base !== undefined && base.startsWith("https://");
+}
+
 export type BasePublica = { ok: true; base: string; dominio: string } | { ok: false; mensaje: string };
 
 /**

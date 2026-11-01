@@ -202,7 +202,7 @@ async function main() {
   if (!process.argv.includes("--sin-build")) {
     if (spawnSync("npx", ["next", "build"], { stdio: "inherit" }).status !== 0) throw new Error("Falló next build");
   }
-  const servidor = spawn("npx", ["next", "start", "-p", String(PUERTO)], { stdio: "ignore", detached: true });
+  const servidor = spawn("npx", ["next", "start", "-p", String(PUERTO)], { stdio: "ignore", detached: true, env: { ...process.env, RUPE_URL_PUBLICA: "" } });
   const apagar = () => {
     try {
       if (servidor.pid) process.kill(-servidor.pid);

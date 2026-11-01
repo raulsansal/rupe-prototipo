@@ -4,11 +4,12 @@ import { FichaPublicaVista } from "@/components/features/FichaPublicaVista";
 import { PATRON_FOLIO, type FichaPublica } from "@/mocks/tipos";
 import { normalizarFolio } from "@/server/dominio/folio";
 import { ErrorApp } from "@/server/errores";
+import { esSitioPublico } from "@/server/config/urlPublica";
 import { consultarFichaPorFolio } from "@/server/servicios/fichas";
 
 export const metadata: Metadata = { title: "Ficha pública · RUPE" };
 
-/** ?estado=en-curso | localizado | no-disponible fuerza el estado de la pantalla (SOLO capturas y pruebas); sin él, manda el estado real del caso. */
+/** ?estado=en-curso | localizado | no-disponible fuerza el estado de la pantalla (SOLO capturas y pruebas); sin él, o con `RUPE_URL_PUBLICA` https (demostración), manda el estado real del caso. */
 function aplicarVariante(ficha: FichaPublica, estado: string | undefined): FichaPublica | "no-disponible" {
   if (estado === "no-disponible") return "no-disponible";
   if (estado === "localizado") return { ...ficha, estado: "Localizado" };
@@ -29,7 +30,7 @@ export default async function PaginaFicha({ params, searchParams }: PageProps<"/
     if (e instanceof ErrorApp && e.estado === 404) notFound();
     throw e;
   });
-  const ficha = aplicarVariante(real, typeof estado === "string" ? estado : undefined);
+  const ficha = aplicarVariante(real, typeof estado === "string" && !esSitioPublico() ? estado : undefined);
   if (ficha === "no-disponible") notFound();
   return <FichaPublicaVista ficha={ficha} hrefAvistamiento={`/ficha/${ficha.folio}/avistamiento`} />;
 }

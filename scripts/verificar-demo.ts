@@ -113,6 +113,16 @@ async function main() {
     ver(rep.estado === 200, "GET del formulario de reporte de avistamiento: 200", String(rep.estado));
   });
 
+  await en("Variantes del maquetado neutralizadas (RUPE_URL_PUBLICA https)", async () => {
+    const visible = (h: string) => h.replace(/<script[\s\S]*?<\/script>/g, " ").replace(/<style[\s\S]*?<\/style>/g, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    const real = await pedir(`/ficha/${FOLIO}`);
+    const [loc, nodisp] = [await pedir(`/ficha/${FOLIO}?estado=localizado`), await pedir(`/ficha/${FOLIO}?estado=no-disponible`)];
+    ver(real.estado === 200 && loc.estado === 200 && nodisp.estado === 200 && visible(loc.texto) === visible(real.texto) && visible(nodisp.texto) === visible(real.texto), `GET /ficha/${FOLIO}?estado=localizado y ?estado=no-disponible: 200 con el estado REAL, igual que sin variante`, `${real.estado}/${loc.estado}/${nodisp.estado}`);
+    const rutas = ["/dev/componentes", "/dev/plantillas", "/dev/fundaciones"];
+    const dev = await Promise.all(rutas.map((r) => pedir(r)));
+    ver(dev.every((r) => r.estado === 404), `${rutas.join(", ")}: 404`, dev.map((r) => r.estado).join(","));
+  });
+
   await en("Defensa de origen", async () => {
     const bueno = await post("/api/acceso/cerrar");
     ver(bueno.estado < 400, "POST inofensivo (cerrar sesión sin sesión) con Origin público: aceptado", `${bueno.estado} ${bueno.texto.slice(0, 100)}`);

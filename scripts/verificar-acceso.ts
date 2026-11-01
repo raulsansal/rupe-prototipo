@@ -6,6 +6,7 @@ import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { FOLIO_EN_CURSO } from "../src/mocks/casos";
 import { USUARIOS_INICIALES } from "../src/mocks/usuarios";
 import { JPEG_REAL } from "../src/server/pruebas/imagenes";
 import { request as peticionHttp } from "node:http";
@@ -480,6 +481,32 @@ async function origenReescritoPorElTunel(base4: string, baseSinVariable: string 
   else { fallos++; console.log(`✗ inicio de sesión con cabeceras del túnel: HTTP ${login.status}, atributos: ${attrs.join("; ")}`); }
 }
 
+/**
+ * Variantes del maquetado en la demostración: con RUPE_URL_PUBLICA https (cuarto servidor) `/ficha/<folio>?estado=` muestra el estado REAL y `/dev/*` da 404; con la variable en blanco
+ * (servidor principal) ambas conservan su comportamiento de pruebas y capturas.
+ */
+async function variantesEnLaDemostracion(base4: string, baseLocal: string) {
+  console.log("\n— Variantes del maquetado con y sin RUPE_URL_PUBLICA https —");
+  const leer = async (b: string, ruta: string) => {
+    const r = await fetch(`${b}${ruta}`, { redirect: "manual" });
+    const t = (await r.text()).replace(/<script[\s\S]*?<\/script>/g, " ").replace(/<style[\s\S]*?<\/style>/g, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    return { estado: r.status, texto: t };
+  };
+  const F = `/ficha/${FOLIO_EN_CURSO}`;
+  const [real4, loc4, nd4, real1, loc1, nd1] = [await leer(base4, F), await leer(base4, `${F}?estado=localizado`), await leer(base4, `${F}?estado=no-disponible`), await leer(base, F), await leer(baseLocal, `${F}?estado=localizado`), await leer(baseLocal, `${F}?estado=no-disponible`)];
+  total++;
+  if (real4.estado === 200 && real4.texto.includes("En búsqueda") && loc4.estado === 200 && loc4.texto === real4.texto && nd4.estado === 200 && nd4.texto === real4.texto) console.log("✓ con RUPE_URL_PUBLICA https, ?estado=localizado y ?estado=no-disponible muestran el estado REAL («En búsqueda») igual que sin variante");
+  else { fallos++; console.log(`✗ con la URL pública, la variante cambió la ficha: sin variante ${real4.estado}, localizado ${loc4.estado} (igual: ${loc4.texto === real4.texto}), no-disponible ${nd4.estado} (igual: ${nd4.texto === real4.texto})`); }
+  total++;
+  if (real1.estado === 200 && loc1.estado === 200 && loc1.texto !== real1.texto && loc1.texto.includes("Localizado") && nd1.estado === 404) console.log("✓ con la variable en blanco, ?estado=localizado muestra «Localizado» y ?estado=no-disponible da 404 (variantes de pruebas y capturas)");
+  else { fallos++; console.log(`✗ sin la variable las variantes cambiaron: localizado ${loc1.estado}, no-disponible ${nd1.estado}`); }
+  const dev = ["/dev/componentes", "/dev/plantillas", "/dev/fundaciones", "/dev/plantillas/publica?menu=abierto"];
+  const [d4, d1] = [await Promise.all(dev.map((r) => leer(base4, r))), await Promise.all(dev.map((r) => leer(baseLocal, r)))];
+  total++;
+  if (d4.every((r) => r.estado === 404) && d1.every((r) => r.estado === 200)) console.log(`✓ ${dev.length} rutas /dev: 404 con RUPE_URL_PUBLICA https y 200 con la variable en blanco`);
+  else { fallos++; console.log(`✗ /dev con https: ${d4.map((r) => r.estado).join(",")} (debían ser 404); en blanco: ${d1.map((r) => r.estado).join(",")} (debían ser 200)`); }
+}
+
 /** Entorno de los servidores de prueba SIN RUPE_URL_PUBLICA (la pone el .env.local de cada persona): así el respaldo de hosts locales se prueba igual en todas las máquinas. */
 function entornoSinUrlPublica(extra: Record<string, string>): NodeJS.ProcessEnv {
   const e: NodeJS.ProcessEnv = { ...process.env, ...extra };
@@ -531,6 +558,7 @@ async function main() {
       await esperarServidor(servidor4, base4);
       await detrasDeUnTunel(base4);
       await origenReescritoPorElTunel(base4, servidor2 ? base2 : undefined);
+      await variantesEnLaDemostracion(base4, base);
     }
   } finally {
     apagar();
